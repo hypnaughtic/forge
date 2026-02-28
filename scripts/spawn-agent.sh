@@ -236,4 +236,4 @@ fi
 log_info "${AGENT_NAME} spawned successfully in tmux session '${SESSION_NAME}'"
 
 # Cleanup temp file after a delay (let tmux read it first)
-(sleep 10 && rm -f "$INSTRUCTION_FILE") &
+(sleep 10 && rm -f "$INSTRUCTION_FILE") &>/dev/null &
