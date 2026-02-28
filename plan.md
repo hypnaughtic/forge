@@ -1,5 +1,71 @@
 # Project: Forge — AI Software Forge
 
+## Implementation Status (Updated 2026-02-28)
+
+**All 12 phases are implemented.** Post-implementation E2E testing revealed and
+fixed several critical bugs. See `CHANGELOG.md` for the full list.
+
+### Verified Working (E2E tested on macOS)
+
+- `./forge setup` — validates deps, creates runtime dirs
+- `./forge init` — interactive wizard generates config (now asks for workspace dir)
+- `./forge start` — spawns tmux session, watchdog, log aggregator, Team Leader
+- `./forge start --project-dir /path` — workspace directory override
+- `./forge stop` — graceful shutdown with fleet snapshot
+- `./forge start` (resume) — detects snapshot, offers resume/fresh
+- `./forge status` — real-time agent status with stale/dead detection
+- `./forge cost` — per-agent cost breakdown
+- `./forge tell` — human override messaging
+- `./forge attach` — tmux attach to Team Leader
+- `./forge logs` — combined/per-agent log viewer
+- Auto-pilot mode — `--dangerously-skip-permissions` for fully unattended operation
+- Co-pilot mode — `--permission-mode acceptEdits` for balanced control
+- Team Leader successfully spawned, read requirements, researched llm-gateway,
+  and built a complete MVP chatbot (FastAPI + HTML/JS + llm-gateway) autonomously
+
+### Bugs Fixed After E2E Testing
+
+1. CLI: `./forge setup` path resolution (referenced wrong path)
+2. macOS `date -d` incompatibility in staleness detection
+3. macOS `date -j` UTC timezone parsing (timestamps off by tz offset)
+4. tmux window name detection stripping hyphens from agent names
+5. macOS `sed -i` incompatibility in kill-agent.sh
+6. Nested Claude Code session detection (`CLAUDECODE` env var)
+7. macOS `mktemp` suffix bug (X's not replaced when `.md` follows)
+8. Strategy-based permission modes not passed to Claude Code CLI
+9. Auto-pilot Team Leader running in interactive mode instead of headless
+
+### Quality Improvements After Testing Output Software
+
+E2E testing revealed that agents could produce code that passed unit tests but
+didn't work from the user's perspective (e.g., server starts but endpoints hang,
+UI loads but interactions fail). Added:
+
+- **Smoke Test Protocol** in `team-leader.md` — mandatory verification that the
+  application starts, endpoints respond, UI functions, and integrations work
+- **Output Verification Mandate** in `_base-agent.md` — universal rule that
+  every agent must verify their code runs, not just that tests pass
+- **MVP developer testing** — backend and frontend developers must start the
+  server and verify real HTTP responses before marking tasks done
+- **Lean team fallback** — Team Leader acts as QA when QA Engineer is not in
+  the team profile
+
+### Project Directory Isolation
+
+Previously, `./forge start` used `$(pwd)` as the project directory, meaning
+cloning the forge repo and running `./forge start` would create project files
+inside the forge repo. Fixed with:
+
+- `project.directory` config field — explicit workspace path in team-config.yaml
+- `./forge start --project-dir /path` — CLI override
+- `./forge init` wizard — asks for workspace directory as first question
+- Auto-detection with prompt — if no directory configured, asks on first start
+- Safety check — warns if project dir equals forge dir, blocks unless confirmed
+- Auto-pilot safe — uses `~/forge-projects/<name>` default without prompting
+- Snapshots — now save/restore the configured project dir, not `$(pwd)`
+
+---
+
 ## Goal
 
 Build a GitHub open-source repository called `forge` that provides **Forge** — a CLI tool and framework for orchestrating a team of specialized AI agents using **Claude Code**, **tmux**, and **bash scripting**. The user installs Forge, runs `./forge start`, and gets an autonomous multi-agent software development team that builds their project. The repository contains agent definition files (markdown), the `forge` CLI, orchestration scripts, configuration templates, and documentation — everything needed to clone the repo, configure a project, and launch a fully coordinated AI development team.

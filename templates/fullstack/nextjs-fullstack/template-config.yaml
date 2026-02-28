@@ -1,0 +1,23 @@
+name: nextjs-fullstack
+description: Next.js App Router fullstack application with Prisma and NextAuth
+category: fullstack
+languages:
+  - typescript
+  - javascript
+frameworks:
+  - nextjs
+  - prisma
+  - next-auth
+tags:
+  - fullstack
+  - ssr
+  - server-components
+  - authentication
+  - postgres
+min_node_version: "20"
+min_mode: mvp
+scaffold_dir: scaffold
+post_create_commands:
+  - "npm install"
+  - "cp .env.example .env"
+  - "npx prisma generate"

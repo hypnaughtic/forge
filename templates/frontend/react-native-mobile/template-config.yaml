@@ -1,0 +1,27 @@
+name: react-native-mobile
+category: frontend
+description: >
+  Cross-platform mobile application with React Native, Expo managed workflow,
+  and TypeScript for rapid MVP development with app store deployment.
+languages:
+  - typescript
+frameworks:
+  - react-native
+  - expo
+tags:
+  - mobile
+  - cross-platform
+  - ios
+  - android
+  - expo
+suitable_for:
+  - mobile-applications
+  - mvp-mobile-apps
+  - consumer-apps
+patterns:
+  - expo-managed-workflow
+  - optimistic-ui
+  - platform-adaptive-components
+  - secure-token-storage
+  - offline-first
+min_mode: mvp

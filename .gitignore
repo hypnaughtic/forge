@@ -1,0 +1,45 @@
+# Runtime directories (created by scripts, never committed)
+shared/
+
+# Generated project-specific agent files
+.forge/
+
+# Environment files with secrets
+.env
+.env.local
+.env.*.local
+
+# Secret vault
+shared/.secrets/vault.env
+
+# Temporary files
+/tmp/forge-*
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+*.egg
+
+# IDE
+.idea/
+.vscode/
+*.code-workspace
+
+# BATS test temp files
+.bats-tmp/
+
+# Virtual environments
+.venv/

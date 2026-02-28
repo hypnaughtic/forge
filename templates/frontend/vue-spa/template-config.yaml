@@ -1,0 +1,29 @@
+name: vue-spa
+category: frontend
+description: >
+  Modern Vue 3 single-page application with Vite build tooling,
+  Pinia state management, and Tailwind CSS utility-first styling.
+languages:
+  - typescript
+frameworks:
+  - vue3
+  - vite
+  - pinia
+  - tailwindcss
+tags:
+  - spa
+  - frontend
+  - vue
+  - vite
+  - tailwind
+suitable_for:
+  - web-applications
+  - admin-dashboards
+  - internal-tools
+patterns:
+  - composables
+  - route-code-splitting
+  - store-composition
+  - presentational-container
+  - api-layer-abstraction
+min_mode: mvp

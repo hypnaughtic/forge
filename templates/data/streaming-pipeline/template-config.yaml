@@ -1,0 +1,31 @@
+name: streaming-pipeline
+category: data
+description: >
+  Production-ready real-time data processing with Flink or Spark
+  Structured Streaming, Kafka integration, and exactly-once semantics.
+languages:
+  - python
+  - java
+  - scala
+frameworks:
+  - flink
+  - spark
+  - kafka
+tags:
+  - streaming
+  - real-time
+  - data-pipeline
+  - flink
+  - spark
+  - production-ready
+suitable_for:
+  - real-time-analytics
+  - event-processing
+  - stream-processing
+patterns:
+  - event-time-watermarks
+  - exactly-once-checkpointing
+  - windowed-aggregation
+  - schema-registry-contracts
+  - backpressure-propagation
+min_mode: production-ready

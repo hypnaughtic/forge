@@ -1,0 +1,27 @@
+name: discord-bot
+category: platform
+description: >
+  Discord bot with Discord.js (TypeScript) or discord.py (Python),
+  featuring slash commands, interactive components, and embeds.
+languages:
+  - typescript
+  - python
+frameworks:
+  - discord-js
+  - discord-py
+tags:
+  - discord
+  - bot
+  - chatbot
+  - community
+suitable_for:
+  - community-bots
+  - moderation-tools
+  - game-integrations
+patterns:
+  - command-auto-loading
+  - interaction-collectors
+  - guild-scoped-config
+  - embed-template-system
+  - graceful-shard-management
+min_mode: mvp

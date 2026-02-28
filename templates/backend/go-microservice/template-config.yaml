@@ -1,0 +1,27 @@
+name: go-microservice
+category: backend
+description: >
+  Production-ready Go microservice with Gin HTTP framework, GORM database layer,
+  clean architecture structure, and Docker multi-stage builds.
+languages:
+  - go
+frameworks:
+  - gin
+  - gorm
+tags:
+  - microservice
+  - docker
+  - clean-architecture
+  - rest-api
+  - production-ready
+suitable_for:
+  - api-services
+  - microservice-backends
+  - cloud-native-applications
+patterns:
+  - clean-architecture
+  - repository-pattern
+  - docker-multi-stage
+  - graceful-shutdown
+  - structured-logging
+min_mode: production-ready

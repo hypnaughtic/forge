@@ -1,0 +1,29 @@
+name: kafka-microservice
+category: event-driven
+description: >
+  Production-ready event-driven microservice with Kafka consumer/producer,
+  Schema Registry for contract enforcement, and dead letter queue handling.
+languages:
+  - typescript
+  - python
+  - go
+frameworks:
+  - kafka
+  - confluent-schema-registry
+tags:
+  - event-driven
+  - kafka
+  - microservice
+  - streaming
+  - production-ready
+suitable_for:
+  - event-driven-systems
+  - data-pipelines
+  - microservice-communication
+patterns:
+  - schema-registry-contracts
+  - dead-letter-queue
+  - idempotent-consumer
+  - partition-aware-processing
+  - transactional-outbox
+min_mode: production-ready

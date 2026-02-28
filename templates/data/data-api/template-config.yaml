@@ -1,0 +1,28 @@
+name: data-api
+category: data
+description: >
+  Production-ready data warehouse API with FastAPI serving dbt-modeled data,
+  featuring caching, pagination, and governed access control.
+languages:
+  - python
+  - sql
+frameworks:
+  - fastapi
+  - dbt
+tags:
+  - data-api
+  - analytics
+  - dbt
+  - data-warehouse
+  - production-ready
+suitable_for:
+  - data-access-layers
+  - analytics-apis
+  - data-mesh-products
+patterns:
+  - dbt-mart-api-contract
+  - query-result-caching
+  - api-key-scoping
+  - async-query-execution
+  - connection-pool-circuit-breaker
+min_mode: production-ready

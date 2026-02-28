@@ -1,0 +1,28 @@
+name: django-fullstack
+category: fullstack
+description: >
+  Fullstack Django application with Django REST Framework for API endpoints
+  and Celery for asynchronous task processing and periodic scheduling.
+languages:
+  - python
+frameworks:
+  - django
+  - drf
+  - celery
+tags:
+  - fullstack
+  - django
+  - rest-api
+  - task-queue
+  - python
+suitable_for:
+  - web-applications
+  - admin-heavy-apps
+  - content-management
+patterns:
+  - fat-models-thin-views
+  - celery-idempotency
+  - settings-split
+  - serializer-layering
+  - signal-free-architecture
+min_mode: mvp

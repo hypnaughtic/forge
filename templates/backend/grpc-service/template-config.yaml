@@ -1,0 +1,30 @@
+name: grpc-service
+category: backend
+description: >
+  Production-ready gRPC service with Protobuf definitions, streaming support,
+  health check protocol, and interceptor-based middleware.
+languages:
+  - go
+  - python
+  - typescript
+frameworks:
+  - grpc
+  - protobuf
+  - buf
+tags:
+  - grpc
+  - protobuf
+  - microservice
+  - streaming
+  - production-ready
+suitable_for:
+  - internal-microservices
+  - high-performance-apis
+  - service-mesh-backends
+patterns:
+  - contract-first-api
+  - interceptor-chain
+  - streaming-backpressure
+  - health-check-protocol
+  - deadline-propagation
+min_mode: production-ready
