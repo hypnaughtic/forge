@@ -25,7 +25,7 @@ jobs:
       - name: Install yamllint
         run: pip install yamllint
       - name: Run yamllint
-        run: yamllint -c .yamllint.yml config/*.yaml
+        run: find config templates -name '*.yaml' -o -name '*.yml' | xargs yamllint -c .yamllint.yml
 
   lint-markdown:
     name: Lint Markdown

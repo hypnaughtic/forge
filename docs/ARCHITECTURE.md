@@ -192,3 +192,46 @@ Merge priority is configurable (`project-first` or `global-first`). When `source
 **Why tmux (legacy)** -- Process isolation (a crash in one agent does not affect others), human observability (`tmux attach` to watch any agent live), interactive Team Leader (human types commands directly), and simple lifecycle (`new-window` to spawn, `kill-window` to stop). Tradeoff: requires tmux installed, but it is available on every major platform.
 
 **Why markdown for agent instructions** -- Agent MD files are loaded directly as system prompts for Claude Code. Markdown is the native format LLMs understand best. Each file is self-contained: an agent reading only its own file plus `_base-agent.md` has everything needed. Tradeoff: less structured than YAML/JSON for machine parsing, but the consumer is an LLM, not a parser.
+
+## Test Infrastructure
+
+Forge uses [BATS](https://github.com/bats-core/bats-core) (Bash Automated Testing System) for automated testing. Tests are organized into three tiers:
+
+### Test Tiers
+
+| Tier | Directory | Scope | External deps |
+|------|-----------|-------|---------------|
+| Validation | `tests/validation/` | Lint wrappers, agent structure, config schema | shellcheck, yamllint, markdownlint |
+| Unit | `tests/unit/` | Each script in isolation with mocked externals | None (all mocked) |
+| Integration | `tests/integration/` | Config combos, lifecycle, file generation | Real `yq` only |
+
+### Mock Strategy
+
+Unit tests use **PATH prepending** to replace external tools with controlled mocks. Mock scripts live in `tests/test_helper/mock-bin/` and intercept calls to `claude`, `tmux`, `yq`, `jq`, `docker`, and `gzip`. Each mock:
+
+- Records invocations to `$MOCK_LOG_DIR/{tool}.log` for assertion
+- Returns values controllable via environment variables (e.g., `MOCK_YQ_MODE`, `MOCK_TMUX_HAS_SESSION`)
+- Supports passthrough mode (`MOCK_YQ_PASSTHROUGH=true`) for integration tests that need real tool behavior
+
+### Shared Test Helper
+
+`tests/test_helper/common.bash` provides:
+
+- `create_test_environment` -- Creates a temp directory with copies of all Forge scripts, agents, and configs. Prepends mock-bin to PATH. Sets `FORGE_DIR`, `SHARED_DIR`, `PROJECT_DIR`.
+- `destroy_test_environment` -- Cleans up the temp directory.
+- `create_test_config [mode] [strategy] [orchestration]` -- Writes a valid `team-config.yaml` with the given parameters.
+- `create_status_file agent_name [status] [task] [cost]` -- Writes an agent status JSON file.
+- `create_snapshot_file [snapshot_id] [agent_count]` -- Writes a snapshot JSON file.
+
+### CI Pipeline
+
+GitHub Actions (`.github/workflows/ci.yml`) runs on every push and PR:
+
+```text
+lint-shell ─┐
+lint-yaml  ─┼─→ test-validation
+lint-markdown┘
+test-unit (ubuntu + macos) ─→ test-integration (ubuntu + macos)
+```
+
+The Makefile target `make ci-local` mirrors the full CI pipeline for local development. Pre-commit hooks run shellcheck, yamllint, markdownlint, unit tests, and validation tests.

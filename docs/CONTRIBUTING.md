@@ -97,14 +97,54 @@ Forge must work on both Linux and macOS. Watch for these common pitfalls:
 
 ## Testing Changes
 
-1. **Syntax check**: `bash -n scripts/{your-script}.sh`
-2. **Setup check**: `./forge setup` validates dependencies.
-3. **Full session test (both backends)**: Test with both orchestration backends:
+### Automated Tests (required before every commit)
+
+Forge uses [BATS](https://github.com/bats-core/bats-core) for automated shell
+script testing. Run the full local CI gate before pushing:
+
+```bash
+make ci-local          # Lint + all tests -- mirrors GitHub CI exactly
+```
+
+Or run individual tiers:
+
+```bash
+make lint              # shellcheck, yamllint, markdownlint
+make test-unit         # Unit tests with mocked externals (~127 tests)
+make test-integration  # Integration tests with real yq (~26 tests)
+make test-validation   # Lint wrappers + structure checks (~44 tests)
+```
+
+**Test tiers:**
+
+- **Validation** (`tests/validation/`) -- Runs linters on all scripts, YAML,
+  and Markdown. Validates agent file structure and config schema.
+- **Unit** (`tests/unit/`) -- Tests each script in isolation using mock binaries
+  in `tests/test_helper/mock-bin/`. External tools (claude, tmux, yq, jq, docker,
+  gzip) are replaced with mocks via PATH prepending. Tests run in temp directories
+  with full setup/teardown isolation.
+- **Integration** (`tests/integration/`) -- Uses real `yq` against test YAML files.
+  Still mocks `tmux`, `claude`, and `docker`. Tests config mode combinations,
+  CLAUDE.md source resolution, init-stop lifecycle, and agent file generation.
+
+**Writing new tests:** Mirror the source file path. For example, tests for
+`scripts/broadcast.sh` go in `tests/unit/test_broadcast.bats`. Use the shared
+helpers in `tests/test_helper/common.bash` (`create_test_environment`,
+`create_test_config`, `create_status_file`, etc.). See existing test files for
+patterns.
+
+**Pre-commit hooks:** Install with `pre-commit install`. Hooks run shellcheck,
+yamllint, markdownlint, unit tests, and validation tests on every commit.
+
+### Manual Testing (for user-facing changes)
+
+1. **Setup check**: `./forge setup` validates dependencies.
+2. **Full session test (both backends)**: Test with both orchestration backends:
    - Agent Teams: `./forge start` (default) with a simple config, verify agents spawn, `./forge stop` to verify snapshots.
    - tmux: `./forge start --backend tmux` with the same config, verify tmux windows, `./forge stop`.
-4. **Interactive mode test**: Launch `forge` and test slash commands (`/forge-start`, `/forge-status`, `/forge-stop`).
-5. **Resume test**: `./forge start` again to verify resume flow.
-6. **Agent files**: Read end-to-end, confirm all 12 sections present, cross-references correct.
+3. **Interactive mode test**: Launch `forge` and test slash commands (`/forge-start`, `/forge-status`, `/forge-stop`).
+4. **Resume test**: `./forge start` again to verify resume flow.
+5. **Agent files**: Read end-to-end, confirm all 12 sections present, cross-references correct.
 
 ## Pull Request Guidelines
 
@@ -112,7 +152,8 @@ Forge must work on both Linux and macOS. Watch for these common pitfalls:
 - **Description**: Explain **why**, not just what. Include testing context.
 - **Scope**: One agent, one script, or one template per PR when possible.
 - **Checklist**:
-  - [ ] Modified scripts pass `bash -n` syntax check
+  - [ ] `make ci-local` passes (lint + all tests)
+  - [ ] New or modified scripts have corresponding BATS unit tests
   - [ ] Modified agent files have all 12 required sections
   - [ ] Cross-references between files are correct
   - [ ] `--help` flag works on new or modified scripts

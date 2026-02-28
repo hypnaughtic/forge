@@ -594,6 +594,84 @@ tagged: `git tag iteration-{N}-verified`.
 
 ---
 
+## Development & Testing
+
+Forge includes automated linting, testing, and CI to catch regressions early.
+
+### Prerequisites
+
+Install [BATS](https://github.com/bats-core/bats-core) (Bash Automated Testing
+System), [shellcheck](https://www.shellcheck.net/), [yamllint](https://yamllint.readthedocs.io/),
+and [markdownlint-cli2](https://github.com/DavidAnson/markdownlint-cli2):
+
+```bash
+# macOS
+brew install bats-core shellcheck
+pip install yamllint
+npm install -g markdownlint-cli2
+
+# Ubuntu/Debian
+sudo apt-get install bats shellcheck
+pip install yamllint
+npm install -g markdownlint-cli2
+```
+
+Initialize BATS test library submodules:
+
+```bash
+git submodule update --init --recursive
+```
+
+### Makefile Targets
+
+```bash
+make lint              # Run all linters (shellcheck, yamllint, markdownlint)
+make test-unit         # Run unit tests (~127 tests, <30s)
+make test-integration  # Run integration tests (~26 tests, <60s)
+make test-validation   # Run validation tests (~44 tests)
+make test-all          # Run all test tiers
+make ci-local          # Full CI mirror: lint + all tests
+```
+
+### Pre-Commit Hooks
+
+Install and activate pre-commit hooks to run checks before every commit:
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+Hooks run shellcheck, yamllint, markdownlint, unit tests, and validation tests
+automatically. Integration tests are excluded from pre-commit (they require `yq`
+and take longer) but run in CI.
+
+### Test Architecture
+
+Tests are organized into three tiers under `tests/`:
+
+- **`validation/`** -- Lint wrappers and structural checks (shellcheck on every
+  script, yamllint on configs, markdownlint on docs, agent file structure,
+  config schema validation).
+- **`unit/`** -- Isolated tests for each script using mock binaries (`tests/test_helper/mock-bin/`).
+  External tools (claude, tmux, yq, jq, docker) are mocked via PATH prepending.
+- **`integration/`** -- Tests using real `yq` against test YAML files. Validates
+  config mode combinations, CLAUDE.md source resolution, init-stop lifecycle,
+  snapshot management, and agent file generation.
+
+### GitHub CI
+
+CI runs on every push and PR via `.github/workflows/ci.yml`:
+
+| Job | Runner | What |
+|-----|--------|------|
+| Lint Shell / YAML / Markdown | ubuntu | All linters |
+| Unit Tests | ubuntu + macos | BATS unit tests |
+| Integration Tests | ubuntu + macos | BATS integration tests |
+| Validation Tests | ubuntu | BATS validation tests |
+
+---
+
 ## Contributing
 
 See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for guidelines on adding agents,
