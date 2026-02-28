@@ -39,7 +39,7 @@ usage() {
     echo "Commands:"
     echo "  setup                         One-time setup: validate deps, install prerequisites"
     echo "  init                          Interactive project setup (generates config + requirements)"
-    echo "  start [--snapshot <path>]     Start a new session or resume from snapshot"
+    echo "  start [--project-dir <path>] [--snapshot <path>]  Start a new session or resume"
     echo "  stop [--pause]                Graceful shutdown with state snapshot"
     echo "  status                        Show all agent statuses, iteration progress, costs"
     echo "  cost                          Show cost breakdown by agent"
@@ -82,23 +82,29 @@ cmd_init() {
 # --- Command: start ---
 cmd_start() {
     if [[ "${1:-}" == "--help" ]]; then
-        echo "Usage: ./forge start [--snapshot <path>]"
+        echo "Usage: ./forge start [--project-dir <path>] [--snapshot <path>]"
         echo "  Start a new session or resume from a previous snapshot."
         echo "  If a snapshot exists, you'll be prompted to resume."
         echo ""
         echo "Options:"
-        echo "  --snapshot <path>   Resume from a specific snapshot file"
+        echo "  --project-dir <path>  Workspace directory for the project (overrides config)"
+        echo "  --snapshot <path>     Resume from a specific snapshot file"
         exit 0
     fi
 
     print_banner
 
-    # Check if a specific snapshot was requested
+    # Check options
     local snapshot_path=""
+    local project_dir=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --snapshot)
                 snapshot_path="$2"
+                shift 2
+                ;;
+            --project-dir)
+                project_dir="$2"
                 shift 2
                 ;;
             *)
@@ -107,6 +113,11 @@ cmd_start() {
                 ;;
         esac
     done
+
+    # Export project dir so start.sh can read it
+    if [[ -n "$project_dir" ]]; then
+        export FORGE_PROJECT_DIR="$project_dir"
+    fi
 
     # If specific snapshot provided, resume from it
     if [[ -n "$snapshot_path" ]]; then

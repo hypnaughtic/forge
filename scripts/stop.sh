@@ -147,10 +147,10 @@ fi
 AGENTS_JSON="${AGENTS_JSON}
   ]"
 
-# Collect git state
-GIT_BRANCH=$(git -C "${FORGE_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
-GIT_TAG=$(git -C "${FORGE_DIR}" describe --tags --abbrev=0 2>/dev/null || echo "none")
-GIT_DIRTY=$(git -C "${FORGE_DIR}" diff --quiet 2>/dev/null && echo "false" || echo "true")
+# Collect git state from the project directory (not the forge repo)
+GIT_BRANCH=$(git -C "${PROJECT_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+GIT_TAG=$(git -C "${PROJECT_DIR}" describe --tags --abbrev=0 2>/dev/null || echo "none")
+GIT_DIRTY=$(git -C "${PROJECT_DIR}" diff --quiet 2>/dev/null && echo "false" || echo "true")
 
 # Get cost data
 TOTAL_COST=0
@@ -158,13 +158,17 @@ if [[ -f "${SHARED_DIR}/.logs/cost-summary.json" ]] && command -v jq &>/dev/null
     TOTAL_COST=$(jq -r '.total_cost_usd // 0' "${SHARED_DIR}/.logs/cost-summary.json" 2>/dev/null || echo 0)
 fi
 
-# Read mode/strategy from config
+# Read mode/strategy/project_dir from config
 MODE="mvp"
 STRATEGY="co-pilot"
+PROJECT_DIR=""
 if command -v yq &>/dev/null && [[ -f "$CONFIG_FILE" ]]; then
     MODE=$(yq eval '.mode // "mvp"' "$CONFIG_FILE" 2>/dev/null || echo "mvp")
     STRATEGY=$(yq eval '.strategy // "co-pilot"' "$CONFIG_FILE" 2>/dev/null || echo "co-pilot")
+    PROJECT_DIR=$(yq eval '.project.directory // ""' "$CONFIG_FILE" 2>/dev/null || echo "")
 fi
+# Fallback to pwd if not configured
+PROJECT_DIR="${PROJECT_DIR:-$(pwd)}"
 
 COST_CAP="no-cap"
 if command -v yq &>/dev/null && [[ -f "$CONFIG_FILE" ]]; then
@@ -177,10 +181,10 @@ cat > "$SNAPSHOT_FILE" <<EOF
   "snapshot_id": "snapshot-${UNIX_TS}",
   "timestamp": "${TIMESTAMP}",
   "project": {
-    "name": "$(basename "$(pwd)")",
+    "name": "$(basename "${PROJECT_DIR}")",
     "mode": "${MODE}",
     "strategy": "${STRATEGY}",
-    "project_dir": "$(pwd)",
+    "project_dir": "${PROJECT_DIR}",
     "config_path": "config/team-config.yaml"
   },
   "iteration": {

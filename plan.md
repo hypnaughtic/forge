@@ -8,8 +8,9 @@ fixed several critical bugs. See `CHANGELOG.md` for the full list.
 ### Verified Working (E2E tested on macOS)
 
 - `./forge setup` — validates deps, creates runtime dirs
-- `./forge init` — interactive wizard generates config
+- `./forge init` — interactive wizard generates config (now asks for workspace dir)
 - `./forge start` — spawns tmux session, watchdog, log aggregator, Team Leader
+- `./forge start --project-dir /path` — workspace directory override
 - `./forge stop` — graceful shutdown with fleet snapshot
 - `./forge start` (resume) — detects snapshot, offers resume/fresh
 - `./forge status` — real-time agent status with stale/dead detection
@@ -48,6 +49,20 @@ UI loads but interactions fail). Added:
   server and verify real HTTP responses before marking tasks done
 - **Lean team fallback** — Team Leader acts as QA when QA Engineer is not in
   the team profile
+
+### Project Directory Isolation
+
+Previously, `./forge start` used `$(pwd)` as the project directory, meaning
+cloning the forge repo and running `./forge start` would create project files
+inside the forge repo. Fixed with:
+
+- `project.directory` config field — explicit workspace path in team-config.yaml
+- `./forge start --project-dir /path` — CLI override
+- `./forge init` wizard — asks for workspace directory as first question
+- Auto-detection with prompt — if no directory configured, asks on first start
+- Safety check — warns if project dir equals forge dir, blocks unless confirmed
+- Auto-pilot safe — uses `~/forge-projects/<name>` default without prompting
+- Snapshots — now save/restore the configured project dir, not `$(pwd)`
 
 ---
 

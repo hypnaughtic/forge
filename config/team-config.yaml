@@ -10,6 +10,10 @@ project:
   requirements_file: "config/project-requirements.md"  # Path to detailed requirements (overrides description if set)
   type: "new"  # "new" for greenfield | "existing" for brownfield
   existing_project_path: ""  # Required if type is "existing"
+  directory: ""  # Workspace directory where the project will be built.
+                 # IMPORTANT: Leave empty to be prompted on first start, or set an absolute path.
+                 # If empty, ./forge start will ask for a directory to avoid building inside the forge repo.
+                 # Example: "/Users/you/projects/my-chatbot"
 
 # --- Project Mode ---
 # mvp              — Working prototype, minimal tests, basic docs

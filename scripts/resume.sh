@@ -89,10 +89,27 @@ else
 fi
 
 PROJECT_DIR="${SNAP_PROJECT_DIR}"
-if [[ ! -d "$PROJECT_DIR" ]]; then
-    log_warn "Project directory from snapshot not found: ${PROJECT_DIR}"
-    log_info "Using current directory instead."
-    PROJECT_DIR=$(pwd)
+if [[ ! -d "$PROJECT_DIR" || -z "$PROJECT_DIR" || "$PROJECT_DIR" == "." ]]; then
+    # Try reading from config as fallback
+    CONFIGURED_DIR=""
+    if command -v yq &>/dev/null && [[ -f "$CONFIG_FILE" ]]; then
+        CONFIGURED_DIR=$(yq eval '.project.directory // ""' "$CONFIG_FILE" 2>/dev/null || echo "")
+    fi
+    if [[ -n "$CONFIGURED_DIR" && -d "$CONFIGURED_DIR" ]]; then
+        log_warn "Project directory from snapshot not found: ${PROJECT_DIR}"
+        log_info "Using directory from config: ${CONFIGURED_DIR}"
+        PROJECT_DIR="$CONFIGURED_DIR"
+    elif [[ -n "$CONFIGURED_DIR" ]]; then
+        log_warn "Project directory from snapshot not found: ${PROJECT_DIR}"
+        log_info "Creating directory from config: ${CONFIGURED_DIR}"
+        mkdir -p "$CONFIGURED_DIR"
+        PROJECT_DIR="$CONFIGURED_DIR"
+    else
+        log_warn "Project directory from snapshot not found: ${PROJECT_DIR}"
+        log_warn "No directory configured in team-config.yaml either."
+        log_info "Using current directory instead."
+        PROJECT_DIR=$(pwd)
+    fi
 fi
 
 log_info "Snapshot from: ${SNAP_TIMESTAMP}"

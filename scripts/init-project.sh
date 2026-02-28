@@ -54,7 +54,13 @@ if $WIZARD_MODE; then
     echo "  ============================="
     echo -e "${NC}"
 
-    # 1. Project description
+    # 1. Project workspace directory
+    local default_workspace="${HOME}/forge-projects"
+    echo "Where should the project be created?"
+    echo "  (This should be OUTSIDE the forge repo)"
+    read -rp "Project workspace directory (default: ${default_workspace}/<project-name>): " workspace_dir
+
+    # 2. Project description
     read -rp "Project description (short): " proj_desc
     proj_desc="${proj_desc:-My project}"
 
@@ -131,8 +137,22 @@ if $WIZARD_MODE; then
         fi
     }
 
+    # Resolve workspace directory
+    if [[ -z "$workspace_dir" ]]; then
+        # Generate from project description
+        local proj_slug
+        proj_slug=$(echo "$proj_desc" | head -c 30 | tr ' ' '-' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]//g')
+        proj_slug="${proj_slug:-my-project}"
+        workspace_dir="${default_workspace}/${proj_slug}"
+    fi
+    # Resolve relative paths
+    if [[ "$workspace_dir" != /* ]]; then
+        workspace_dir="$(pwd)/${workspace_dir}"
+    fi
+
     # Generate team-config.yaml
     log_info "Generating config/team-config.yaml..."
+    log_info "Project workspace: ${workspace_dir}"
 
     cat > "${FORGE_DIR}/config/team-config.yaml" <<EOF
 # ==============================================================================
@@ -145,6 +165,7 @@ project:
   requirements_file: "config/project-requirements.md"
   type: "${proj_type}"
   existing_project_path: "${existing_path}"
+  directory: "${workspace_dir}"
 
 mode: "${mode}"
 strategy: "${strategy}"

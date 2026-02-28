@@ -62,10 +62,68 @@ MODE=$(yq eval '.mode // "mvp"' "$CONFIG_FILE")
 STRATEGY=$(yq eval '.strategy // "co-pilot"' "$CONFIG_FILE")
 
 # Determine project directory
-if [[ "$PROJECT_TYPE" == "existing" && -n "$EXISTING_PATH" ]]; then
+# Priority: --project-dir env override > config project.directory > config existing_project_path > prompt
+CONFIGURED_DIR=$(yq eval '.project.directory // ""' "$CONFIG_FILE")
+
+if [[ -n "${FORGE_PROJECT_DIR:-}" ]]; then
+    # Environment variable override (e.g., from ./forge start --project-dir)
+    PROJECT_DIR="$FORGE_PROJECT_DIR"
+elif [[ -n "$CONFIGURED_DIR" ]]; then
+    # Configured in team-config.yaml
+    PROJECT_DIR="$CONFIGURED_DIR"
+elif [[ "$PROJECT_TYPE" == "existing" && -n "$EXISTING_PATH" ]]; then
+    # Existing project path
     PROJECT_DIR="$EXISTING_PATH"
 else
-    PROJECT_DIR=$(pwd)
+    # No directory configured — prompt the user (or use default in auto-pilot)
+    DEFAULT_PROJECT_DIR="${HOME}/forge-projects/${PROJECT_NAME}"
+
+    if [[ "$STRATEGY" == "auto-pilot" ]]; then
+        # Auto-pilot: no interactive prompts, use default
+        log_info "No project directory configured. Using default: ${DEFAULT_PROJECT_DIR}"
+        PROJECT_DIR="$DEFAULT_PROJECT_DIR"
+    else
+        # Interactive: ask the user
+        echo ""
+        log_warn "No project directory configured."
+        log_info "Forge needs a workspace directory to build your project."
+        log_info "This should be OUTSIDE the forge repo to keep things clean."
+        echo ""
+        read -rp "[Forge] Project workspace directory (default: ${DEFAULT_PROJECT_DIR}): " user_dir
+        PROJECT_DIR="${user_dir:-$DEFAULT_PROJECT_DIR}"
+    fi
+
+    # Save to config so we don't ask again
+    yq eval -i ".project.directory = \"${PROJECT_DIR}\"" "$CONFIG_FILE"
+    log_info "Saved to config/team-config.yaml for future sessions."
+fi
+
+# Resolve to absolute path
+PROJECT_DIR=$(cd "$FORGE_DIR" && mkdir -p "$PROJECT_DIR" 2>/dev/null; cd "$PROJECT_DIR" 2>/dev/null && pwd || echo "$PROJECT_DIR")
+
+# Safety check: warn if project dir is the forge repo
+if [[ "$PROJECT_DIR" == "$FORGE_DIR" ]]; then
+    log_warn "Project directory is the same as the Forge installation directory!"
+    log_warn "  Forge dir: ${FORGE_DIR}"
+    log_warn "  Project dir: ${PROJECT_DIR}"
+    log_warn "Agent-generated files (src/, tests/, etc.) will be created inside the forge repo."
+    if [[ "$STRATEGY" != "auto-pilot" ]]; then
+        echo ""
+        read -rp "[Forge] Continue anyway? [y/N] " confirm
+        if [[ ! "$confirm" =~ ^[Yy] ]]; then
+            log_info "Aborting. Set project.directory in config/team-config.yaml or use:"
+            log_info "  ./forge start --project-dir /path/to/your/project"
+            exit 1
+        fi
+    else
+        log_warn "Auto-pilot mode: proceeding anyway."
+    fi
+fi
+
+# Create the project directory if it doesn't exist
+if [[ ! -d "$PROJECT_DIR" ]]; then
+    log_info "Creating project directory: ${PROJECT_DIR}"
+    mkdir -p "$PROJECT_DIR"
 fi
 
 SESSION_NAME="forge-${PROJECT_NAME}"

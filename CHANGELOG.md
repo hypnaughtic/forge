@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Project directory isolation** — Previously, running `./forge start` from
+  the forge repo itself would create agent-generated project files (src/,
+  tests/, etc.) inside the forge repository, polluting it. Now forge asks for
+  a separate workspace directory and creates it if it doesn't exist. The
+  directory is saved to `project.directory` in config so it only asks once.
+  Safety check warns if project dir equals forge dir.
+
+- **Snapshot project_dir was `$(pwd)` not configured dir** — `stop.sh` saved
+  the current working directory in snapshots instead of the configured project
+  directory. Fixed to read `project.directory` from config. Also fixed git
+  state collection to check the project dir, not the forge dir.
+
 - **CLI: `./forge setup` path resolution** — `cmd_setup()` referenced
   `scripts/setup.sh` but the file lives at the repo root (`setup.sh`). Fixed to
   use `${FORGE_DIR}/setup.sh`.
@@ -45,6 +57,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   tmux windows.
 
 ### Added
+
+- **`project.directory` config field** — New field in `team-config.yaml` under
+  `project:` that specifies where the project should be built. When empty,
+  `./forge start` prompts for a directory (or uses `~/forge-projects/<name>`
+  in auto-pilot mode). The choice is persisted to config for future sessions.
+
+- **`./forge start --project-dir <path>`** — CLI flag to override the project
+  workspace directory. Takes priority over config. Useful for one-off runs or
+  CI pipelines.
+
+- **`./forge init` workspace prompt** — The interactive wizard now asks for
+  the project workspace directory as the first question, saving it to config.
 
 - **Strategy-based permission modes** — `spawn-agent.sh` now maps the
   configured execution strategy to Claude Code permission flags:
