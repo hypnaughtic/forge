@@ -99,7 +99,7 @@ EOF
     log_info "Waiting for ${AGENT_NAME} to acknowledge (up to 30s)..."
     for i in $(seq 1 30); do
         if [[ -f "$STATUS_FILE" ]]; then
-            local_status=$(cat "$STATUS_FILE" 2>/dev/null | grep -o '"status": *"[^"]*"' | head -1 | cut -d'"' -f4 || echo "")
+            local_status=$(grep -o '"status": *"[^"]*"' "$STATUS_FILE" 2>/dev/null | head -1 | cut -d'"' -f4 || echo "")
             if [[ "$local_status" == "terminated" || "$local_status" == "suspended" ]]; then
                 log_info "${AGENT_NAME} acknowledged shutdown."
                 break

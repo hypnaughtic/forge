@@ -200,14 +200,18 @@ fi
 echo ""
 log_info "Making scripts executable..."
 
-chmod +x "${FORGE_DIR}/forge" 2>/dev/null && log_ok "forge" || true
+if chmod +x "${FORGE_DIR}/forge" 2>/dev/null; then
+    log_ok "forge"
+fi
 for script in "${FORGE_DIR}/scripts/"*.sh; do
     if [[ -f "$script" ]]; then
         chmod +x "$script"
         log_ok "scripts/$(basename "$script")"
     fi
 done
-chmod +x "${FORGE_DIR}/setup.sh" 2>/dev/null && log_ok "setup.sh" || true
+if chmod +x "${FORGE_DIR}/setup.sh" 2>/dev/null; then
+    log_ok "setup.sh"
+fi
 
 # --- Validate config ---
 echo ""

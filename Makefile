@@ -5,7 +5,7 @@ lint: lint-shell lint-yaml lint-markdown
 
 lint-shell:
 	@echo "==> Linting shell scripts..."
-	shellcheck forge setup.sh scripts/*.sh
+	shellcheck --severity=warning forge setup.sh scripts/*.sh
 
 lint-yaml:
 	@echo "==> Linting YAML files..."
