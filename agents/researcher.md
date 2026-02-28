@@ -125,7 +125,7 @@ Before marking work as done:
 When restarting from working memory:
 1. Read `shared/.memory/researcher-memory.md` for current state and next steps.
 2. Read `shared/.status/researcher.json` for last known status.
-3. Check inbox at `shared/.queue/researcher-inbox/` for unprocessed messages.
+3. Check for pending tasks (via Agent Teams task list or tmux inbox depending on mode).
 4. Re-read any in-progress research reports to confirm they match memory state.
 5. Resume from the first incomplete item in "Next Steps."
 6. Notify Team Leader that session has resumed with current state summary.

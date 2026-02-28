@@ -59,7 +59,7 @@
 
 ## 6. Communication Protocol
 
-Follow `_base-agent.md` Sections 1 and 2 for all messaging and status reporting.
+Follow `_base-agent.md` Sections 1 and 2 for communication protocol and status reporting (supports both Agent Teams and tmux modes).
 
 - **Messages Sent**: `deliverable` (security reports to Team Leader), `request` (remediation tasks to Team Leader for assignment to developers), `status-update` (security posture to Team Leader), `blocker` (critical vulnerabilities requiring immediate attention), `review-response` (verification of remediation fixes)
 - **Messages Received**: `request` (security review assignments from Team Leader), `dependency-change` (code or infrastructure changes requiring re-review), `response` (remediation completion notifications from developers), `review-request` (specific security review requests from any agent)
@@ -119,7 +119,7 @@ Before marking any security deliverable as done:
 - Security tooling configuration: which scans have been run, tool versions used
 - Remediation verification queue: fixes awaiting re-testing
 
-**Recovery Protocol**: On resume, read working memory for current state. Review `docs/security/` for latest reports. Check inbox for remediation completion notifications. Re-run dependency scan to check for new CVEs since last session. Continue from "Next Steps" in working memory.
+**Recovery Protocol**: On resume, read working memory for current state. Review `docs/security/` for latest reports. Check for pending tasks (via Agent Teams or tmux inbox) for remediation completion notifications. Re-run dependency scan to check for new CVEs since last session. Continue from "Next Steps" in working memory.
 
 ## 12. Artifact Registration
 

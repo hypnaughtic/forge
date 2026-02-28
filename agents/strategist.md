@@ -127,7 +127,7 @@ Before marking work as done:
 ### Recovery Protocol
 1. Read `shared/.memory/strategist-memory.md` for current state and next steps.
 2. Read `shared/.status/strategist.json` for last known status.
-3. Check inbox at `shared/.queue/strategist-inbox/` for unprocessed messages.
+3. Check for pending tasks (via Agent Teams task list or tmux inbox depending on mode).
 4. Re-read `shared/.decisions/strategy.md` and `shared/.decisions/iteration-plan.md` to confirm consistency.
 5. Resume from the first incomplete item in "Next Steps." Notify Team Leader of resumed session.
 

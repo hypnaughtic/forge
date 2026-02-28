@@ -157,7 +157,7 @@ Before marking work as done:
 When restarting from working memory:
 1. Read `shared/.memory/architect-memory.md` for current state and next steps.
 2. Read `shared/.status/architect.json` for last known status.
-3. Check inbox at `shared/.queue/architect-inbox/` for unprocessed messages.
+3. Check for pending tasks (via Agent Teams task list or tmux inbox depending on mode).
 4. Re-read architecture docs, API specs, and DB schemas to confirm they match memory state.
 5. Check `shared/.artifacts/registry.json` for current artifact versions.
 6. Resume from the first incomplete item in "Next Steps."

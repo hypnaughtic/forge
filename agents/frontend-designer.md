@@ -51,7 +51,7 @@
 
 ## 6. Communication Protocol
 
-Follow `_base-agent.md` Sections 1 and 2 for all messaging and status reporting.
+Follow `_base-agent.md` Sections 1 and 2 for communication protocol and status reporting (supports both Agent Teams and tmux modes).
 
 - **Messages Sent**: `deliverable` (design specs to Frontend Developer), `review-response` (design compliance feedback), `status-update` (to Team Leader), `blocker` (when requirements are ambiguous)
 - **Messages Received**: `request` (design tasks from Team Leader), `review-request` (implementation review from Frontend Developer), `dependency-change` (API contract updates from Architect)

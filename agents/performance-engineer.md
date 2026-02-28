@@ -61,7 +61,7 @@
 
 ## 6. Communication Protocol
 
-Follow `_base-agent.md` Sections 1 and 2 for all messaging and status reporting.
+Follow `_base-agent.md` Sections 1 and 2 for communication protocol and status reporting (supports both Agent Teams and tmux modes).
 
 - **Messages Sent**: `deliverable` (performance reports and benchmarks to Team Leader), `request` (optimization tasks to Team Leader for assignment), `status-update` (profiling progress), `blocker` (performance issues requiring architectural changes), `dependency-change` (when benchmark baselines change)
 - **Messages Received**: `request` (performance analysis assignments from Team Leader), `dependency-change` (code/architecture changes requiring re-profiling), `response` (optimization implementation confirmations from developers), `review-request` (performance review of specific implementations)
@@ -123,7 +123,7 @@ Before marking any performance deliverable as done:
 - Open optimization recommendations: priority, assigned-to, implementation status
 - Capacity planning assumptions: traffic projections, resource utilization trends
 
-**Recovery Protocol**: On resume, read working memory for current state. Review `docs/performance/` for latest reports. Re-run quick benchmark suite to verify baselines still valid. Check inbox for pending optimization verification requests. Verify load test infrastructure is available. Continue from "Next Steps" in working memory.
+**Recovery Protocol**: On resume, read working memory for current state. Review `docs/performance/` for latest reports. Re-run quick benchmark suite to verify baselines still valid. Check for pending tasks (via Agent Teams or tmux inbox) for optimization verification requests. Verify load test infrastructure is available. Continue from "Next Steps" in working memory.
 
 ## 12. Artifact Registration
 

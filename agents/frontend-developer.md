@@ -21,7 +21,7 @@
 7. Ensure accessibility compliance (WCAG 2.1 AA): keyboard navigation, screen reader support, ARIA attributes.
 8. Implement responsive layouts matching the Designer's breakpoint specifications.
 9. Abstract all external dependencies behind pluggable interfaces: API client, auth provider, theme engine, analytics.
-10. Acquire file locks before editing any shared source files per `_base-agent.md` Section 7.
+10. Manage file contention before editing any shared source files per `_base-agent.md` Section 7.
 
 ## 3. Skills & Tools
 
@@ -57,7 +57,7 @@
 
 ## 6. Communication Protocol
 
-Follow `_base-agent.md` Sections 1 and 2 for all messaging and status reporting.
+Follow `_base-agent.md` Sections 1 and 2 for communication protocol and status reporting (supports both Agent Teams and tmux modes).
 
 - **Messages Sent**: `review-request` (to Designer for design compliance), `deliverable` (completed features to Team Leader), `status-update` (progress to Team Leader), `blocker` (dependency gaps or ambiguities), `dependency-change` (when shared component APIs change)
 - **Messages Received**: `request` (task assignments from Team Leader), `deliverable` (design specs from Designer), `review-response` (feedback from Designer), `dependency-change` (API contract updates from Architect), `request` (bug fixes from QA Engineer)
@@ -85,7 +85,7 @@ Before marking any deliverable as done:
 - [ ] API integration uses the abstract client layer -- no direct HTTP calls in components
 - [ ] No hardcoded API URLs, secrets, or environment-specific values in source code
 - [ ] Theme tokens consumed from design system -- no magic color/spacing values in components
-- [ ] File locks acquired before editing and released after committing shared files
+- [ ] File contention managed per `_base-agent.md` Section 7
 - [ ] All artifacts registered in the artifact registry
 - [ ] Confidence level assessed and included in deliverable messages
 - [ ] **Vendor-agnostic principle enforced**: all external services (analytics, auth, storage) accessed through abstract interfaces -- no direct vendor SDK imports in components

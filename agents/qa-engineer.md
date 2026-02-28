@@ -74,7 +74,7 @@
 
 ## 6. Communication Protocol
 
-Follow `_base-agent.md` Sections 1 and 2 for all messaging and status reporting.
+Follow `_base-agent.md` Sections 1 and 2 for communication protocol and status reporting (supports both Agent Teams and tmux modes).
 
 - **Messages Sent**: `request` (bug reports to Team Leader inbox for triage), `status-update` (test results and coverage to Team Leader), `review-request` (test plan review to Team Leader), `deliverable` (completed test suites), `blocker` (test environment issues, missing test data)
 - **Messages Received**: `request` (test assignments from Team Leader, bug fix verification requests), `dependency-change` (code changes from developers, API contract updates), `deliverable` (new builds/features to test), `response` (triage decisions on filed bugs)
@@ -167,7 +167,7 @@ Before marking any test deliverable as done:
 **Recovery Protocol**:
 1. Read `shared/.memory/qa-engineer-memory.md` for current state and next steps.
 2. Read `shared/.status/qa-engineer.json` for last known status.
-3. Check inbox at `shared/.queue/qa-engineer-inbox/` for pending bug triage decisions and new test assignments.
+3. Check for pending tasks (via Agent Teams task list or tmux inbox depending on mode) for bug triage decisions and new test assignments.
 4. Run `npm test` to verify test suite health and catch any regressions introduced since last session.
 5. Run `docker compose ps` to verify test environment services are running.
 6. Cross-reference open bug list in memory with Team Leader inbox for triage decisions received.

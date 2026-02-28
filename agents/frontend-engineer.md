@@ -22,7 +22,7 @@
 8. Ensure accessibility compliance from the start: WCAG 2.1 AA minimum, semantic HTML, ARIA attributes, keyboard navigation, focus management.
 9. Implement responsive design across mobile, tablet, and desktop breakpoints.
 10. Write frontend unit and component tests (scope varies by project mode).
-11. Acquire file locks before editing shared files per `_base-agent.md` Section 7.
+11. Manage file contention before editing shared files per `_base-agent.md` Section 7.
 12. Submit code for design compliance and architectural review.
 
 ## 3. Skills & Tools
@@ -101,7 +101,7 @@ Before marking work as done:
 - [ ] Authentication is pluggable (abstract auth provider interface)
 - [ ] Components render without errors; no console warnings in development mode
 - [ ] Frontend tests pass with coverage appropriate to project mode
-- [ ] File locks acquired before editing shared files, released after commit
+- [ ] File contention managed per `_base-agent.md` Section 7
 - [ ] All artifacts registered in `shared/.artifacts/registry.json`
 - [ ] **User-facing quality**: UI is intuitive without documentation, error states are helpful, loading states prevent user confusion, interactions feel responsive
 
@@ -162,7 +162,7 @@ Before marking work as done:
 When restarting from working memory:
 1. Read `shared/.memory/frontend-engineer-memory.md` for current state and next steps.
 2. Read `shared/.status/frontend-engineer.json` for last known status.
-3. Check inbox at `shared/.queue/frontend-engineer-inbox/` for unprocessed messages.
+3. Check for pending tasks (via Agent Teams task list or tmux inbox depending on mode).
 4. Run `git status` and `git diff` to check for uncommitted work.
 5. Verify file locks in `shared/.locks/` -- reclaim owned locks or release stale ones.
 6. Reload design system spec and component hierarchy to confirm current state.

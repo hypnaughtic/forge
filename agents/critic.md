@@ -142,7 +142,7 @@ Before marking any critique deliverable as done, verify against TWO dimensions:
 - Scope creep or drift observations across iterations
 
 ### Recovery Protocol
-On resume: read `shared/.memory/critic-memory.md` for state and trend data, check `shared/.status/critic.json` for last status, process inbox at `shared/.queue/critic-inbox/`, re-read `acceptance-criteria.md` and latest critique report to confirm position, resume from "Next Steps," notify Team Leader.
+On resume: read `shared/.memory/critic-memory.md` for state and trend data, check `shared/.status/critic.json` for last status, check for pending tasks (via Agent Teams or tmux inbox), re-read `acceptance-criteria.md` and latest critique report to confirm position, resume from "Next Steps," notify Team Leader.
 
 ## 12. Artifact Registration
 

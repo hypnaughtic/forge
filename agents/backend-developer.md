@@ -19,7 +19,7 @@
 5. Write unit tests for all business logic (scope varies by project mode).
 6. Implement database migrations and seed data scripts as specified in the Architect's schemas.
 7. Implement API endpoints matching the Architect's OpenAPI specifications exactly -- request/response schemas, error codes, status codes, and headers.
-8. Acquire file locks before editing shared files per `_base-agent.md` Section 7.
+8. Manage file contention before editing shared files per `_base-agent.md` Section 7.
 9. Submit code for architectural compliance review before marking implementation tasks as done.
 10. Coordinate with other Backend Developer instances to avoid conflicts on shared code.
 
@@ -93,7 +93,7 @@ Before marking work as done:
 - [ ] No hardcoded secrets -- all sensitive values from environment variables
 - [ ] Database migrations are reversible and tested
 - [ ] Code follows project conventions (naming, structure, patterns)
-- [ ] File locks acquired before editing shared files, released after commit
+- [ ] File contention managed per `_base-agent.md` Section 7
 - [ ] Architectural compliance review submitted and approved (or feedback addressed)
 - [ ] All artifacts registered in `shared/.artifacts/registry.json`
 - [ ] **User-facing quality**: API responses are fast (pagination for large sets, efficient queries), error messages are helpful and actionable, input validation provides clear feedback
@@ -156,7 +156,7 @@ Before marking work as done:
 When restarting from working memory:
 1. Read `shared/.memory/backend-developer-{N}-memory.md` for current state and next steps.
 2. Read `shared/.status/backend-developer-{N}.json` for last known status.
-3. Check inbox at `shared/.queue/backend-developer-{N}-inbox/` for unprocessed messages.
+3. Check for pending tasks (via Agent Teams task list or tmux inbox depending on mode).
 4. Run `git status` and `git diff` to check for uncommitted work.
 5. Verify file locks in `shared/.locks/` -- reclaim owned locks or release stale ones.
 6. Run tests to verify current code state.
