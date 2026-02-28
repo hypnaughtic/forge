@@ -37,3 +37,9 @@ build/
 .idea/
 .vscode/
 *.code-workspace
+
+# BATS test temp files
+.bats-tmp/
+
+# Virtual environments
+.venv/

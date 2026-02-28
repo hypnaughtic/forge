@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# Mock yq — dispatches on eval query patterns, returns values from env vars
+echo "yq $*" >> "${MOCK_LOG_DIR:-/tmp}/yq.log" 2>/dev/null || true
+
+# If MOCK_YQ_PASSTHROUGH is set, use the real yq
+if [[ "${MOCK_YQ_PASSTHROUGH:-}" == "true" ]]; then
+    real_yq=$(which -a yq 2>/dev/null | grep -v "mock-bin" | head -1)
+    if [[ -n "$real_yq" ]]; then
+        exec "$real_yq" "$@"
+    fi
+fi
+
+case "${1:-}" in
+    --version)
+        echo "yq (mock) version v4.40.0"
+        ;;
+    eval|eval-all)
+        query="${2:-}"
+        file="${3:-}"
+        case "$query" in
+            *'.mode'*)           echo "${MOCK_YQ_MODE:-mvp}" ;;
+            *'.strategy'*)       echo "${MOCK_YQ_STRATEGY:-co-pilot}" ;;
+            *'.orchestration'*)  echo "${MOCK_YQ_ORCHESTRATION:-agent-teams}" ;;
+            *'.project.description'*) echo "${MOCK_YQ_PROJECT_DESC:-Test Project}" ;;
+            *'.project.directory'*)   echo "${MOCK_YQ_PROJECT_DIR:-}" ;;
+            *'.project.type'*)        echo "${MOCK_YQ_PROJECT_TYPE:-new}" ;;
+            *'.cost.max_development_cost'*) echo "${MOCK_YQ_COST_CAP:-50}" ;;
+            *'.agents.team_profile'*)       echo "${MOCK_YQ_TEAM_PROFILE:-auto}" ;;
+            *'.agents.exclude'*)            echo "${MOCK_YQ_EXCLUDE:-}" ;;
+            *'.agents.additional'*)         echo "${MOCK_YQ_ADDITIONAL:-}" ;;
+            *'.agents.include'*)            echo "${MOCK_YQ_INCLUDE:-}" ;;
+            *'.claude_md.source'*)          echo "${MOCK_YQ_CLAUDE_MD_SOURCE:-none}" ;;
+            *'.claude_md.priority'*)        echo "${MOCK_YQ_CLAUDE_MD_PRIORITY:-project-first}" ;;
+            *'.claude_md.global_path'*)     echo "${MOCK_YQ_CLAUDE_MD_GLOBAL:-}" ;;
+            *'.claude_md.project_path'*)    echo "${MOCK_YQ_CLAUDE_MD_PROJECT:-}" ;;
+            *'.session.snapshot_retention'*) echo "${MOCK_YQ_SNAPSHOT_RETENTION:-5}" ;;
+            *'.session.shutdown_grace_period_seconds'*) echo "${MOCK_YQ_GRACE_PERIOD:-1}" ;;
+            *'.session.auto_stop_after_hours'*) echo "${MOCK_YQ_AUTO_STOP:-0}" ;;
+            *'.tech_stack.languages'*)  echo "${MOCK_YQ_TECH_LANGS:-}" ;;
+            *'.tech_stack.frameworks'*) echo "${MOCK_YQ_TECH_FRAMEWORKS:-}" ;;
+            *'.project.requirements_file'*) echo "${MOCK_YQ_REQ_FILE:-}" ;;
+            *'.bootstrap_template'*)   echo "${MOCK_YQ_TEMPLATE:-auto}" ;;
+            *'.project.existing_project_path'*) echo "" ;;
+            *'.usage_limits'*)   echo "${MOCK_YQ_USAGE_LIMITS:-}" ;;
+            *'.llm_gateway'*)    echo "${MOCK_YQ_LLM_GATEWAY:-}" ;;
+            # For eval -i (in-place edit), just succeed
+            *)                   echo "" ;;
+        esac
+        ;;
+    *)
+        # For 'yq eval ...' without the explicit 'eval' subcommand (yq v4 style)
+        echo ""
+        ;;
+esac
+
+exit 0

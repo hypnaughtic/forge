@@ -120,7 +120,7 @@ SHARED_DIRS=(
 
 for dir in "${SHARED_DIRS[@]}"; do
     mkdir -p "$dir"
-    log_ok "Created: ${dir#${FORGE_DIR}/}"
+    log_ok "Created: ${dir#"${FORGE_DIR}"/}"
 done
 
 # Create .gitignore in shared/.secrets/ to prevent accidental commits

@@ -25,6 +25,7 @@ Forge separates two directories:
 - **Project Dir** (`PROJECT_DIR`) — Where agents build the user's project. This is a separate workspace directory, never inside the forge repo.
 
 The project directory is resolved via a priority chain:
+
 1. `--project-dir` CLI flag (highest priority, for one-off runs or CI)
 2. `project.directory` in `config/team-config.yaml` (persisted after first prompt)
 3. `project.existing_project_path` (for brownfield projects)

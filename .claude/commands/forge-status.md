@@ -1,6 +1,7 @@
 # /forge-status — Project Status
 
 Report from your working memory:
+
 1. Iteration number, phase, task progress (done/total)
 2. Active agents and their current tasks
 3. Any blockers

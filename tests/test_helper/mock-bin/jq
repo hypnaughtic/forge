@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Mock jq — returns preset values from env vars for known queries
+echo "jq $*" >> "${MOCK_LOG_DIR:-/tmp}/jq.log" 2>/dev/null || true
+
+# If MOCK_JQ_PASSTHROUGH is set, use the real jq
+if [[ "${MOCK_JQ_PASSTHROUGH:-}" == "true" ]]; then
+    real_jq=$(which -a jq 2>/dev/null | grep -v "mock-bin" | head -1)
+    if [[ -n "$real_jq" ]]; then
+        exec "$real_jq" "$@"
+    fi
+fi
+
+query="${2:-$1}"
+file="${3:-}"
+
+# Read stdin if no file arg and stdin is available
+input=""
+if [[ -z "$file" && ! -t 0 ]]; then
+    input=$(cat)
+fi
+
+case "$query" in
+    *'.status'*)         echo "${MOCK_JQ_STATUS:-idle}" ;;
+    *'.current_task'*)   echo "${MOCK_JQ_TASK:-Initializing}" ;;
+    *'.last_updated'*)   echo "${MOCK_JQ_UPDATED:-$(date -u +"%Y-%m-%dT%H:%M:%SZ")}" ;;
+    *'.cost_estimate_usd'*) echo "${MOCK_JQ_COST:-0}" ;;
+    *'.timestamp'*)      echo "${MOCK_JQ_TIMESTAMP:-$(date -u +"%Y-%m-%dT%H:%M:%SZ")}" ;;
+    *'.total_cost_usd'*) echo "${MOCK_JQ_TOTAL_COST:-0}" ;;
+    *'.cost_cap_usd'*)   echo "${MOCK_JQ_COST_CAP:-no-cap}" ;;
+    *'| length'*)        echo "${MOCK_JQ_LENGTH:-0}" ;;
+    *'.project.mode'*)   echo "${MOCK_JQ_MODE:-mvp}" ;;
+    *'.project.strategy'*) echo "${MOCK_JQ_STRATEGY:-co-pilot}" ;;
+    *'.project.project_dir'*) echo "${MOCK_JQ_PROJECT_DIR:-.}" ;;
+    *'.iteration.current'*)   echo "${MOCK_JQ_ITERATION:-0}" ;;
+    *'.iteration.phase'*)     echo "${MOCK_JQ_PHASE:-UNKNOWN}" ;;
+    *'.git.last_tag'*)        echo "${MOCK_JQ_GIT_TAG:-none}" ;;
+    *'.agents[]'*)            echo "${MOCK_JQ_AGENTS:-}" ;;
+    *'.agents | length'*)     echo "${MOCK_JQ_AGENT_COUNT:-0}" ;;
+    *'.usage_limits.status'*) echo "${MOCK_JQ_LIMIT_STATUS:-normal}" ;;
+    *)                        echo "" ;;
+esac
+
+exit 0

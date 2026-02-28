@@ -99,6 +99,7 @@ All configuration lives in `config/team-config.yaml`. See
 `config/team-config.example.yaml` for a fully worked example.
 
 ### `project` -- What to build
+
 ```yaml
 project:
   description: ""                              # Short inline description (simple projects)
@@ -112,7 +113,9 @@ project:
 inside the forge repository. When `directory` is empty, `./forge start` prompts for a
 path (defaulting to `~/forge-projects/<project-name>`). The choice is saved to config for
 future sessions. You can also pass `--project-dir <path>` to override on the command line.
+
 ### `mode`, `strategy`, and `orchestration`
+
 ```yaml
 mode: "mvp"              # "mvp" | "production-ready" | "no-compromise" (see Mode Comparison)
 strategy: "co-pilot"      # "auto-pilot" | "co-pilot" | "micro-manage" (see Strategy Comparison)
@@ -120,14 +123,17 @@ orchestration: "agent-teams"  # "agent-teams" (default) | "tmux" (see Orchestrat
 ```
 
 ### `cost` -- Budget limits
+
 ```yaml
 cost:
   max_development_cost: 50       # Max USD for Claude Code usage. "no-cap" for unlimited.
   max_project_runtime_cost: "no-cap"  # Max USD for project infra/API costs.
 ```
+
 At 80% of cap, the Team Leader reduces parallelism. At 100%, non-critical agents pause.
 
 ### `agents` -- Team composition
+
 ```yaml
 agents:
   team_profile: "auto"    # "auto" | "lean" | "full" | "custom"
@@ -135,12 +141,14 @@ agents:
   additional: []          # Add agents, e.g. ["performance-engineer"]
   include: []             # Only for team_profile: "custom"
 ```
+
 - **auto**: `lean` for MVP, `full` for Production Ready+.
 - **lean**: 8 agents with merged roles. Cost-efficient.
 - **full**: 12 specialized agents. Production-grade.
 - **custom**: explicit agent list via `include`.
 
 ### `claude_md` -- CLAUDE.md integration
+
 ```yaml
 claude_md:
   source: "both"            # "project" | "global" | "both" | "none"
@@ -148,9 +156,11 @@ claude_md:
   global_path: ""           # Default: ~/.claude/CLAUDE.md
   project_path: ""          # Default: {project_root}/CLAUDE.md
 ```
+
 See [CLAUDE.md Integration](#claudemd-integration) below.
 
 ### `tech_stack` -- Technology preferences
+
 ```yaml
 tech_stack:
   languages: []        # e.g. ["typescript", "python"]
@@ -158,22 +168,27 @@ tech_stack:
   databases: []        # e.g. ["postgresql", "redis"]
   infrastructure: []   # e.g. ["aws", "docker", "kubernetes"]
 ```
+
 Leave arrays empty for the team to decide based on requirements.
 
 ### `llm_gateway` -- LLM integration for AI projects
+
 ```yaml
 llm_gateway:
   local_claude_model: "claude-sonnet-4-20250514"  # Model for integration tests
   enable_local_claude: true                        # Use Claude CLI for integration tests
   cost_tracking: true                              # Track LLM token usage
 ```
+
 All LLM calls in built projects must use [llm-gateway](https://github.com/Rushabh1798/llm-gateway).
 
 ### `bootstrap_template` -- Starter scaffolding
+
 Set to `"auto"` (Architect selects), a template name, comma-separated names, or `""` to skip.
 Templates are reference scaffolding -- the Architect adapts them to actual requirements.
 
 ### `session` and `usage_limits`
+
 ```yaml
 session:
   snapshot_retention: 5                   # Snapshots to keep (oldest deleted first)
@@ -310,14 +325,16 @@ All strategies monitor `shared/.human/override.md` -- you can always intervene.
 You can intervene in any mode, including Auto Pilot, at any time.
 
 **Direct interaction** (interactive mode) -- just type in the session:
-```
+
+```text
 > What's the status?
 > Focus on the payment service, deprioritize admin panel
 > Switch to production-ready mode
 ```
 
 **Slash commands** -- structured operations:
-```
+
+```text
 /forge-status                    # Show iteration, agents, tasks, cost
 /forge-cost                      # Detailed cost breakdown
 /forge-mode production-ready     # Switch mode
@@ -326,14 +343,17 @@ You can intervene in any mode, including Auto Pilot, at any time.
 ```
 
 **`./forge tell`** -- send a directive from another terminal:
+
 ```bash
 ./forge tell "Switch to production-ready mode"
 ./forge tell "Pause all work"
 ```
+
 The message is written to `shared/.human/override.md` and processed at the next
 task boundary.
 
 **`./forge attach`** (tmux mode only) -- enter the Team Leader's tmux session:
+
 ```bash
 ./forge attach
 # Ctrl+B then D to detach without stopping.
@@ -361,6 +381,7 @@ task boundary.
 ```
 
 For tmux mode:
+
 ```bash
 ./forge start
 # [Forge] Found previous session from 2025-07-15 18:30
@@ -542,6 +563,7 @@ efficiency; full when you need security reviews, performance engineering, and
 comprehensive docs.
 
 **Monitoring:**
+
 ```bash
 ./forge cost                             # Breakdown by agent
 ./forge status                           # Includes cost summary

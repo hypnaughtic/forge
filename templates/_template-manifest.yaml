@@ -432,6 +432,10 @@ templates:
     frameworks: ["turborepo", "pnpm"]
     tags: ["monorepo", "workspace", "shared-packages"]
     suitable_for: ["monorepo", "multi-package", "shared-libraries"]
-    patterns: ["workspace package structure", "shared tsconfig/eslint", "turbo pipeline caching", "changeset versioning"]
+    patterns:
+      - "workspace package structure"
+      - "shared tsconfig/eslint"
+      - "turbo pipeline caching"
+      - "changeset versioning"
     min_mode: "mvp"
     status: "stub"

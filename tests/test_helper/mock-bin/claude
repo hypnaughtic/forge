@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Mock claude CLI — records invocations, exits 0
+echo "claude $*" >> "${MOCK_LOG_DIR:-/tmp}/claude.log" 2>/dev/null || true
+
+case "${1:-}" in
+    --version|-v)
+        echo "claude-code 1.0.0 (mock)"
+        ;;
+    --help|-h)
+        echo "Claude Code CLI (mock)"
+        ;;
+    *)
+        # Read stdin to avoid broken pipe
+        cat > /dev/null 2>/dev/null || true
+        ;;
+esac
+
+exit 0

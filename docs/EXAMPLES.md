@@ -28,6 +28,7 @@ tech_stack:
 ```
 
 You can also pass `--project-dir` on the command line or use the interactive CLI:
+
 ```bash
 # Interactive mode (recommended) -- launches a conversational session
 forge
@@ -40,7 +41,7 @@ forge
 
 In interactive mode, you describe your project in natural language and control execution with slash commands:
 
-```
+```text
 $ forge
 > Build a task management app with teams, boards, and real-time updates using Next.js and PostgreSQL.
 
@@ -65,6 +66,7 @@ The start script (or `/forge-start` slash command) resolves the lean profile (te
 ### Sample Agent Messages
 
 **Team Leader assigns strategy work:**
+
 ```markdown
 ---
 from: team-leader | to: research-strategist | priority: high | type: request
@@ -76,6 +78,7 @@ Mode: MVP. Focus on speed. Consider Next.js fullstack template.
 ```
 
 **Backend Developer reports completion:**
+
 ```markdown
 ---
 from: backend-developer | to: team-leader | type: deliverable | confidence: high
@@ -102,7 +105,7 @@ Branch: agent/backend-developer/TASK-001-auth
 
 **DECISION**: PROCEED. Tag `iteration-1-verified`. Team Leader reports to human (visible in the interactive CLI or via `./forge status`):
 
-```
+```text
 Iteration 1 complete. Run locally: docker compose up -d && npm run dev
 Features: auth, board CRUD, drag-and-drop UI. Cost: $8.20 / $30.00.
 Iteration 2: board reordering, real-time updates, team management.
@@ -189,7 +192,8 @@ tech_stack:
 ### How Specialized Agents Add Value
 
 **Security Tester** reviews payment endpoints:
-```
+
+```text
 BLOCKER: SQL injection in payment_repo.py:89 -- Fix: parameterized query.
 BLOCKER: Missing rate limiting on /api/v1/payments/process -- Fix: 10 req/min/user.
 WARNING: Weak HMAC (SHA-1) for webhooks -- upgrade to SHA-256.
@@ -197,7 +201,8 @@ Verdict: FAIL (2 BLOCKERs must be resolved).
 ```
 
 **Performance Engineer** runs load tests:
-```
+
+```text
 GET /api/v1/analytics/summary: p95=1.2s (target <500ms) -- FAIL
   Fix: materialized view + composite index (merchant_id, created_at).
 POST /api/v1/payments/process: p95=210ms -- PASS
@@ -207,7 +212,7 @@ POST /api/v1/payments/process: p95=210ms -- PASS
 
 In No Compromise mode, the threshold is 100% per category. A single FAIL blocks progress:
 
-```
+```text
 Critique Report: Iteration 3 -- Verdict: FAIL
 
 Functional: 18/18 (100%) PASS | Technical: 14/15 (93%) FAIL | User-Quality: 11/12 (92%) FAIL

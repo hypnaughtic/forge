@@ -1,0 +1,38 @@
+repos:
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+        files: (^forge$|\.sh$)
+        args: ["--severity=warning"]
+
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.35.1
+    hooks:
+      - id: yamllint
+        args: ["-c", ".yamllint.yml"]
+        files: \.(yaml|yml)$
+
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: v0.17.2
+    hooks:
+      - id: markdownlint-cli2
+        files: \.md$
+
+  - repo: local
+    hooks:
+      - id: bats-unit
+        name: BATS unit tests
+        entry: bats tests/unit/
+        language: system
+        pass_filenames: false
+        files: (^forge$|\.sh$|^tests/)
+        stages: [pre-commit]
+
+      - id: bats-validation
+        name: BATS validation tests
+        entry: bats tests/validation/
+        language: system
+        pass_filenames: false
+        files: (^forge$|\.sh$|\.md$|\.yaml$|\.yml$|^tests/)
+        stages: [pre-commit]
