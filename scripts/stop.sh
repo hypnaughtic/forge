@@ -147,17 +147,6 @@ fi
 AGENTS_JSON="${AGENTS_JSON}
   ]"
 
-# Collect git state from the project directory (not the forge repo)
-GIT_BRANCH=$(git -C "${PROJECT_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
-GIT_TAG=$(git -C "${PROJECT_DIR}" describe --tags --abbrev=0 2>/dev/null || echo "none")
-GIT_DIRTY=$(git -C "${PROJECT_DIR}" diff --quiet 2>/dev/null && echo "false" || echo "true")
-
-# Get cost data
-TOTAL_COST=0
-if [[ -f "${SHARED_DIR}/.logs/cost-summary.json" ]] && command -v jq &>/dev/null; then
-    TOTAL_COST=$(jq -r '.total_cost_usd // 0' "${SHARED_DIR}/.logs/cost-summary.json" 2>/dev/null || echo 0)
-fi
-
 # Read mode/strategy/project_dir from config
 MODE="mvp"
 STRATEGY="co-pilot"
@@ -169,6 +158,20 @@ if command -v yq &>/dev/null && [[ -f "$CONFIG_FILE" ]]; then
 fi
 # Fallback to pwd if not configured
 PROJECT_DIR="${PROJECT_DIR:-$(pwd)}"
+
+# Collect git state from the project directory (not the forge repo)
+# Use tr to strip any newlines/control chars that could break JSON
+GIT_BRANCH=$(git -C "${PROJECT_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null | tr -d '\n\r' || true)
+GIT_BRANCH="${GIT_BRANCH:-unknown}"
+GIT_TAG=$(git -C "${PROJECT_DIR}" describe --tags --abbrev=0 2>/dev/null | tr -d '\n\r' || true)
+GIT_TAG="${GIT_TAG:-none}"
+GIT_DIRTY=$(git -C "${PROJECT_DIR}" diff --quiet 2>/dev/null && echo "false" || echo "true")
+
+# Get cost data
+TOTAL_COST=0
+if [[ -f "${SHARED_DIR}/.logs/cost-summary.json" ]] && command -v jq &>/dev/null; then
+    TOTAL_COST=$(jq -r '.total_cost_usd // 0' "${SHARED_DIR}/.logs/cost-summary.json" 2>/dev/null || echo 0)
+fi
 
 COST_CAP="no-cap"
 if command -v yq &>/dev/null && [[ -f "$CONFIG_FILE" ]]; then

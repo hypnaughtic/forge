@@ -55,7 +55,7 @@ if $WIZARD_MODE; then
     echo -e "${NC}"
 
     # 1. Project workspace directory
-    local default_workspace="${HOME}/forge-projects"
+    default_workspace="${HOME}/forge-projects"
     echo "Where should the project be created?"
     echo "  (This should be OUTSIDE the forge repo)"
     read -rp "Project workspace directory (default: ${default_workspace}/<project-name>): " workspace_dir
@@ -140,7 +140,6 @@ if $WIZARD_MODE; then
     # Resolve workspace directory
     if [[ -z "$workspace_dir" ]]; then
         # Generate from project description
-        local proj_slug
         proj_slug=$(echo "$proj_desc" | head -c 30 | tr ' ' '-' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]//g')
         proj_slug="${proj_slug:-my-project}"
         workspace_dir="${default_workspace}/${proj_slug}"

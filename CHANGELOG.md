@@ -20,6 +20,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   directory. Fixed to read `project.directory` from config. Also fixed git
   state collection to check the project dir, not the forge dir.
 
+- **`stop.sh` PROJECT_DIR used before set** — Git state collection referenced
+  `PROJECT_DIR` before the config read block that sets it. Reordered so config
+  is read first. Also fixed newline in git branch name breaking snapshot JSON
+  (happens when project dir has no commits yet).
+
+- **`init-project.sh` `local` outside function** — Wizard mode used `local`
+  keyword at the top level of the script (lines 58 and 143), which fails with
+  "local: can only be used in a function". Removed `local` qualifiers.
+
 - **CLI: `./forge setup` path resolution** — `cmd_setup()` referenced
   `scripts/setup.sh` but the file lives at the repo root (`setup.sh`). Fixed to
   use `${FORGE_DIR}/setup.sh`.
