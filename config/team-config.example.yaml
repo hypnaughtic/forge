@@ -1,0 +1,53 @@
+# ==============================================================================
+# EXAMPLE: Real-time Collaborative Document Editor
+# ==============================================================================
+
+project:
+  description: ""
+  requirements_file: "config/project-requirements.md"
+  type: "new"
+  existing_project_path: ""
+
+mode: "production-ready"
+strategy: "co-pilot"
+
+cost:
+  max_development_cost: 100
+  max_project_runtime_cost: "no-cap"
+
+agents:
+  team_profile: "auto"  # Will select "full" since mode is production-ready
+  exclude: []
+  additional: []
+  include: []
+
+claude_md:
+  source: "both"
+  priority: "project-first"
+  global_path: ""
+  project_path: ""
+
+tech_stack:
+  languages: ["typescript"]
+  frameworks: ["nextjs", "prisma", "tailwind"]
+  databases: ["postgresql", "redis"]
+  infrastructure: ["docker", "aws"]
+
+llm_gateway:
+  local_claude_model: "claude-sonnet-4-20250514"
+  enable_local_claude: true
+  cost_tracking: true
+
+bootstrap_template: "auto"
+
+session:
+  snapshot_retention: 5
+  auto_stop_after_hours: 8
+  shutdown_grace_period_seconds: 60
+
+usage_limits:
+  proactive_save_interval_hours: 4
+  estimated_refresh_window_hours: 1
+  auto_resume_after_limit: true
+  fleet_limit_threshold: 3
+  scheduled_resume_time: ""

@@ -1,0 +1,28 @@
+name: saas-multi-tenant
+category: platform
+description: >
+  Production-ready multi-tenant SaaS platform with Stripe billing,
+  authentication, role-based access control, and tenant isolation.
+languages:
+  - typescript
+frameworks:
+  - nextjs
+  - stripe
+  - nextauth
+tags:
+  - saas
+  - multi-tenant
+  - billing
+  - stripe
+  - production-ready
+suitable_for:
+  - saas-products
+  - b2b-platforms
+  - subscription-services
+patterns:
+  - row-level-security
+  - webhook-driven-billing
+  - tenant-scoped-middleware
+  - plan-based-feature-gating
+  - audit-trail
+min_mode: production-ready

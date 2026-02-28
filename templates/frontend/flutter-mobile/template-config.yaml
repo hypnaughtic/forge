@@ -1,0 +1,28 @@
+name: flutter-mobile
+category: frontend
+description: >
+  Cross-platform mobile application with Flutter, Riverpod state management,
+  GoRouter declarative routing, and feature-first project organization.
+languages:
+  - dart
+frameworks:
+  - flutter
+  - riverpod
+  - go-router
+tags:
+  - mobile
+  - cross-platform
+  - flutter
+  - ios
+  - android
+suitable_for:
+  - mobile-applications
+  - cross-platform-apps
+  - consumer-apps
+patterns:
+  - riverpod-di
+  - feature-first-structure
+  - immutable-state
+  - declarative-navigation
+  - repository-offline-cache
+min_mode: mvp

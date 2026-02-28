@@ -1,0 +1,104 @@
+# ==============================================================================
+# Forge — AI Software Forge — Project Configuration
+# ==============================================================================
+
+# --- Project Requirements ---
+# Provide EITHER inline description OR a file path to a detailed requirements doc.
+# For complex projects, use a separate file for clarity.
+project:
+  description: ""  # Short description (use for simple projects)
+  requirements_file: "config/project-requirements.md"  # Path to detailed requirements (overrides description if set)
+  type: "new"  # "new" for greenfield | "existing" for brownfield
+  existing_project_path: ""  # Required if type is "existing"
+
+# --- Project Mode ---
+# mvp              — Working prototype, minimal tests, basic docs
+# production-ready — CI/CD, >90% coverage, DDD, separate repos, industrial standards
+# no-compromise    — Zero tolerance, IaC tested with LocalStack, single-click deploy, market-ready
+mode: "mvp"
+
+# --- Execution Strategy ---
+# auto-pilot   — Zero human intervention, all decisions autonomous
+# co-pilot     — Design approvals required, skip command permissions
+# micro-manage — Every significant decision needs approval
+strategy: "co-pilot"
+
+# --- Cost Configuration ---
+cost:
+  max_development_cost: 50  # Max USD for the development session. Use "no-cap" for unlimited.
+  max_project_runtime_cost: "no-cap"  # Max USD for project's own runtime costs (infra, API calls).
+
+# --- Agent Team ---
+# team_profile controls the default agent roster.
+#   "lean"   — 8 agents with merged roles (best for MVP, cost-efficient, less coordination overhead)
+#   "full"   — 12 agents with specialized roles (best for Production Ready / No Compromise)
+#   "custom" — You define exactly which agents to include via include list below
+# See docs/ARCHITECTURE.md for the full agent roster and merge rationale.
+agents:
+  team_profile: "auto"  # "auto" (lean for MVP, full for production-ready+) | "lean" | "full" | "custom"
+  exclude: []  # Remove agents from the profile. e.g., ["security-tester", "performance-engineer"]
+  additional: []  # Add agents beyond the profile. e.g., ["performance-engineer", "data-engineer"]
+  include: []  # Only used when team_profile is "custom". e.g., ["team-leader", "architect", "backend-developer", "qa-engineer", "critic"]
+
+# --- CLAUDE.md Configuration ---
+# Controls how existing CLAUDE.md files are incorporated into agent instruction files.
+# Claude Code uses CLAUDE.md files for project-specific conventions, coding standards,
+# and preferences. This config controls whether/how those are respected.
+claude_md:
+  # Which CLAUDE.md sources to incorporate when generating agent-specific instruction files.
+  # Options:
+  #   "project"  — Use the project's own CLAUDE.md (best for brownfield/existing projects
+  #                 that already have established conventions). Falls back to global if not found.
+  #   "global"   — Use the global ~/.claude/CLAUDE.md (user's personal coding preferences).
+  #                 Falls back to none if not found.
+  #   "both"     — Merge both: project CLAUDE.md takes precedence, global fills gaps.
+  #                 Project-level rules override global rules where they conflict.
+  #   "none"     — Don't incorporate any external CLAUDE.md. Agents use only their own
+  #                 instruction files. Use this for a clean, reproducible setup.
+  source: "both"
+
+  # Priority order when source is "both" and there are conflicts:
+  #   "project-first" — Project CLAUDE.md overrides global (recommended for brownfield)
+  #   "global-first"  — Global CLAUDE.md overrides project (rare, for enforcing personal standards)
+  priority: "project-first"
+
+  # Path overrides (optional, auto-detected if empty):
+  global_path: ""  # Default: ~/.claude/CLAUDE.md
+  project_path: ""  # Default: {project_root}/CLAUDE.md
+
+# --- Technology Preferences ---
+# Leave empty for the team to decide based on project requirements.
+tech_stack:
+  languages: []  # e.g., ["typescript", "python"]
+  frameworks: []  # e.g., ["nextjs", "fastapi"]
+  databases: []  # e.g., ["postgresql", "redis"]
+  infrastructure: []  # e.g., ["aws", "docker", "kubernetes"]
+
+# --- LLM Gateway Configuration ---
+llm_gateway:
+  local_claude_model: "claude-sonnet-4-20250514"  # Model for local-claude integration testing
+  enable_local_claude: true  # Enable local-claude mode for integration tests
+  cost_tracking: true  # Track LLM token usage and costs
+
+# --- Bootstrap Template ---
+# Templates are REFERENCE scaffolding, not rigid blueprints.
+# The Architect adapts templates to match actual project requirements.
+# Set to "auto" for the Architect to select the best match(es).
+# For complex projects, the Architect may compose from multiple templates.
+bootstrap_template: "auto"  # "auto" (Architect selects) | template name | comma-separated names | ""
+
+# --- Session Management ---
+session:
+  snapshot_retention: 5  # Number of fleet snapshots to keep (oldest deleted first)
+  auto_stop_after_hours: 0  # Auto-stop fleet after N hours (0 = disabled). Safety net for Auto Pilot.
+  shutdown_grace_period_seconds: 60  # Time agents get to finalize memory before forced shutdown
+
+# --- Usage Limit Management ---
+# Claude Code has usage limits that refresh periodically. These settings control
+# how the framework detects, saves state, and auto-resumes when limits are hit.
+usage_limits:
+  proactive_save_interval_hours: 4  # Agents proactively save state after N hours of continuous work (0 = disabled)
+  estimated_refresh_window_hours: 1  # Estimated time for limits to refresh (watchdog uses this for auto-resume timing)
+  auto_resume_after_limit: true  # Watchdog auto-resumes agents after estimated refresh window
+  fleet_limit_threshold: 3  # If N+ agents hit limits, trigger full fleet stop to preserve all state
+  scheduled_resume_time: ""  # Optional: specific time to resume (e.g., "06:00" for next morning). Overrides auto-resume.

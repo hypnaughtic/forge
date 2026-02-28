@@ -1,0 +1,27 @@
+name: monorepo-turborepo
+category: infrastructure
+description: >
+  TypeScript monorepo with Turborepo build orchestration, shared packages,
+  remote caching, and consistent tooling across applications.
+languages:
+  - typescript
+frameworks:
+  - turborepo
+  - pnpm
+tags:
+  - monorepo
+  - turborepo
+  - build-system
+  - typescript
+  - pnpm
+suitable_for:
+  - multi-package-projects
+  - design-systems
+  - platform-teams
+patterns:
+  - task-pipeline-topological
+  - remote-caching
+  - shared-config-packages
+  - typescript-project-references
+  - pruned-docker-builds
+min_mode: mvp

@@ -1,0 +1,29 @@
+name: temporal-workflow
+category: event-driven
+description: >
+  Production-ready durable workflow orchestration with Temporal,
+  featuring saga pattern for distributed transactions and signal-based events.
+languages:
+  - typescript
+  - python
+  - go
+frameworks:
+  - temporal
+tags:
+  - workflow
+  - temporal
+  - saga
+  - durable-execution
+  - production-ready
+suitable_for:
+  - long-running-processes
+  - distributed-transactions
+  - order-fulfillment
+  - approval-workflows
+patterns:
+  - saga-compensating-transactions
+  - deterministic-workflow
+  - non-retryable-error-classification
+  - signal-external-events
+  - workflow-versioning
+min_mode: production-ready

@@ -1,0 +1,22 @@
+name: react-spa
+description: React SPA with TypeScript, Vite, Tailwind CSS, and React Router
+category: frontend
+languages:
+  - typescript
+  - javascript
+frameworks:
+  - react
+  - vite
+  - tailwindcss
+  - react-router
+tags:
+  - spa
+  - frontend
+  - typescript
+  - responsive
+min_node_version: "20"
+min_mode: mvp
+scaffold_dir: scaffold
+post_create_commands:
+  - "npm install"
+  - "cp .env.example .env"

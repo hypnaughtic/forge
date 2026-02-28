@@ -1,0 +1,28 @@
+name: graphql-api
+category: backend
+description: >
+  GraphQL API server with Apollo Server (TypeScript) or Strawberry (Python),
+  featuring DataLoader for efficient data fetching and N+1 prevention.
+languages:
+  - typescript
+  - python
+frameworks:
+  - apollo-server
+  - strawberry
+tags:
+  - graphql
+  - api
+  - dataloader
+  - real-time
+  - schema-first
+suitable_for:
+  - api-backends
+  - bff-layers
+  - data-aggregation-services
+patterns:
+  - dataloader-batching
+  - schema-driven-development
+  - cursor-pagination
+  - directive-authorization
+  - query-complexity-limiting
+min_mode: mvp

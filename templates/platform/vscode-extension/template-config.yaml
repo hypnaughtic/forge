@@ -1,0 +1,26 @@
+name: vscode-extension
+category: platform
+description: >
+  VS Code extension with Language Server Protocol support,
+  commands, code actions, diagnostics, and IntelliSense features.
+languages:
+  - typescript
+frameworks:
+  - vscode-api
+  - language-server-protocol
+tags:
+  - vscode
+  - extension
+  - lsp
+  - developer-tools
+suitable_for:
+  - developer-tools
+  - language-support
+  - editor-extensions
+patterns:
+  - lsp-separation
+  - disposable-management
+  - lazy-activation
+  - webview-csp-security
+  - config-driven-features
+min_mode: mvp
