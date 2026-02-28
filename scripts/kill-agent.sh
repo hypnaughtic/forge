@@ -70,7 +70,7 @@ if ! $FORCE; then
 
     TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     UNIX_TS=$(date +%s)
-    TEMP_FILE=$(mktemp /tmp/forge-msg-XXXXXX.md)
+    TEMP_FILE=$(mktemp "${TMPDIR:-/tmp}/forge-msg-XXXXXXXX")
 
     cat > "$TEMP_FILE" <<EOF
 ---
@@ -116,9 +116,14 @@ tmux kill-window -t "${SESSION_NAME}:${AGENT_NAME}" 2>/dev/null || true
 # --- Update status ---
 if [[ -f "$STATUS_FILE" ]]; then
     TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    # Simple JSON update using sed
-    sed -i "s/\"status\": *\"[^\"]*\"/\"status\": \"terminated\"/" "$STATUS_FILE" 2>/dev/null || true
-    sed -i "s/\"last_updated\": *\"[^\"]*\"/\"last_updated\": \"${TIMESTAMP}\"/" "$STATUS_FILE" 2>/dev/null || true
+    # Simple JSON update using sed (portable across macOS and Linux)
+    if [[ "$(uname)" == "Darwin" ]]; then
+        sed -i '' "s/\"status\": *\"[^\"]*\"/\"status\": \"terminated\"/" "$STATUS_FILE" 2>/dev/null || true
+        sed -i '' "s/\"last_updated\": *\"[^\"]*\"/\"last_updated\": \"${TIMESTAMP}\"/" "$STATUS_FILE" 2>/dev/null || true
+    else
+        sed -i "s/\"status\": *\"[^\"]*\"/\"status\": \"terminated\"/" "$STATUS_FILE" 2>/dev/null || true
+        sed -i "s/\"last_updated\": *\"[^\"]*\"/\"last_updated\": \"${TIMESTAMP}\"/" "$STATUS_FILE" 2>/dev/null || true
+    fi
 fi
 
 log_info "${AGENT_NAME} terminated."

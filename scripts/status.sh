@@ -40,8 +40,23 @@ fi
 SESSION_NAME=$(tmux list-sessions 2>/dev/null | grep "^forge-" | head -1 | cut -d: -f1 || true)
 TMUX_WINDOWS=""
 if [[ -n "$SESSION_NAME" ]]; then
-    TMUX_WINDOWS=$(tmux list-windows -t "$SESSION_NAME" 2>/dev/null | awk '{print $2}' | tr -d '*-' || true)
+    TMUX_WINDOWS=$(tmux list-windows -t "$SESSION_NAME" -F '#{window_name}' 2>/dev/null || true)
 fi
+
+# Portable ISO date to epoch (works on both macOS and Linux)
+iso_to_epoch() {
+    local iso_date="$1"
+    if [[ -z "$iso_date" || "$iso_date" == "null" ]]; then
+        echo "0"
+        return
+    fi
+    # Try GNU date first, then macOS date (with TZ=UTC for Z suffix), then python as fallback
+    date -d "$iso_date" +%s 2>/dev/null \
+        || TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%SZ" "$iso_date" +%s 2>/dev/null \
+        || TZ=UTC date -j -f "%Y-%m-%dT%T%z" "$iso_date" +%s 2>/dev/null \
+        || python3 -c "from datetime import datetime; print(int(datetime.fromisoformat('${iso_date}'.replace('Z','+00:00')).timestamp()))" 2>/dev/null \
+        || echo "0"
+}
 
 CURRENT_TIME=$(date +%s)
 
@@ -92,7 +107,7 @@ for status_file in "${STATUS_DIR}"/*.json; do
 
     # Check staleness
     if [[ -n "$last_updated" ]]; then
-        updated_epoch=$(date -d "$last_updated" +%s 2>/dev/null || echo "0")
+        updated_epoch=$(iso_to_epoch "$last_updated")
         age=$((CURRENT_TIME - updated_epoch))
         if [[ $age -gt 900 ]]; then
             flags="${flags}${RED}STALE(${age}s)${NC} "

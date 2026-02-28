@@ -1,5 +1,41 @@
 # Project: Forge — AI Software Forge
 
+## Implementation Status (Updated 2026-02-28)
+
+**All 12 phases are implemented.** Post-implementation E2E testing revealed and
+fixed several critical bugs. See `CHANGELOG.md` for the full list.
+
+### Verified Working (E2E tested on macOS)
+
+- `./forge setup` — validates deps, creates runtime dirs
+- `./forge init` — interactive wizard generates config
+- `./forge start` — spawns tmux session, watchdog, log aggregator, Team Leader
+- `./forge stop` — graceful shutdown with fleet snapshot
+- `./forge start` (resume) — detects snapshot, offers resume/fresh
+- `./forge status` — real-time agent status with stale/dead detection
+- `./forge cost` — per-agent cost breakdown
+- `./forge tell` — human override messaging
+- `./forge attach` — tmux attach to Team Leader
+- `./forge logs` — combined/per-agent log viewer
+- Auto-pilot mode — `--dangerously-skip-permissions` for fully unattended operation
+- Co-pilot mode — `--permission-mode acceptEdits` for balanced control
+- Team Leader successfully spawned, read requirements, researched llm-gateway,
+  and built a complete MVP chatbot (FastAPI + HTML/JS + llm-gateway) autonomously
+
+### Bugs Fixed After E2E Testing
+
+1. CLI: `./forge setup` path resolution (referenced wrong path)
+2. macOS `date -d` incompatibility in staleness detection
+3. macOS `date -j` UTC timezone parsing (timestamps off by tz offset)
+4. tmux window name detection stripping hyphens from agent names
+5. macOS `sed -i` incompatibility in kill-agent.sh
+6. Nested Claude Code session detection (`CLAUDECODE` env var)
+7. macOS `mktemp` suffix bug (X's not replaced when `.md` follows)
+8. Strategy-based permission modes not passed to Claude Code CLI
+9. Auto-pilot Team Leader running in interactive mode instead of headless
+
+---
+
 ## Goal
 
 Build a GitHub open-source repository called `forge` that provides **Forge** — a CLI tool and framework for orchestrating a team of specialized AI agents using **Claude Code**, **tmux**, and **bash scripting**. The user installs Forge, runs `./forge start`, and gets an autonomous multi-agent software development team that builds their project. The repository contains agent definition files (markdown), the `forge` CLI, orchestration scripts, configuration templates, and documentation — everything needed to clone the repo, configure a project, and launch a fully coordinated AI development team.

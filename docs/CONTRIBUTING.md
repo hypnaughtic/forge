@@ -74,6 +74,18 @@ Additional rules:
 - Use `local` for function-scoped variables.
 - Document non-obvious logic with inline comments.
 
+### macOS Compatibility Requirements
+
+Forge must work on both Linux and macOS. Watch for these common pitfalls:
+
+| Linux only | Portable alternative |
+|------------|---------------------|
+| `date -d "$ts" +%s` | Use the `iso_to_epoch()` helper (GNU → macOS → Python fallback) |
+| `stat -c%s file` | `stat -c%s file 2>/dev/null \|\| stat -f%z file 2>/dev/null` |
+| `sed -i 's/.../.../'` | Check `uname` and use `sed -i ''` on Darwin |
+| `mktemp /tmp/name-XXXXXX.ext` | `mktemp "${TMPDIR:-/tmp}/name-XXXXXXXX"` (no suffix after X's) |
+| `tmux list-windows \| awk ... \| tr -d '*-'` | `tmux list-windows -F '#{window_name}'` |
+
 ## Testing Changes
 
 1. **Syntax check**: `bash -n scripts/{your-script}.sh`

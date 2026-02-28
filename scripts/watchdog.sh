@@ -65,6 +65,21 @@ if command -v yq &>/dev/null && [[ -f "$CONFIG_FILE" ]]; then
     AUTO_RESUME_AFTER_LIMIT=$(yq eval '.usage_limits.auto_resume_after_limit // true' "$CONFIG_FILE" 2>/dev/null || echo true)
 fi
 
+# Portable ISO date to epoch (works on both macOS and Linux)
+iso_to_epoch() {
+    local iso_date="$1"
+    if [[ -z "$iso_date" || "$iso_date" == "null" ]]; then
+        echo "0"
+        return
+    fi
+    # Try GNU date first, then macOS date (with TZ=UTC for Z suffix), then python as fallback
+    date -d "$iso_date" +%s 2>/dev/null \
+        || TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%SZ" "$iso_date" +%s 2>/dev/null \
+        || TZ=UTC date -j -f "%Y-%m-%dT%T%z" "$iso_date" +%s 2>/dev/null \
+        || python3 -c "from datetime import datetime; print(int(datetime.fromisoformat('${iso_date}'.replace('Z','+00:00')).timestamp()))" 2>/dev/null \
+        || echo "0"
+}
+
 SESSION_START=$(date +%s)
 RATE_LIMITED_AGENTS=()
 
@@ -81,7 +96,7 @@ send_to_team_leader() {
     local unix_ts
     unix_ts=$(date +%s)
     local temp_file
-    temp_file=$(mktemp /tmp/forge-msg-XXXXXX.md)
+    temp_file=$(mktemp "${TMPDIR:-/tmp}/forge-msg-XXXXXXXX")
 
     cat > "$temp_file" <<EOF
 ---
@@ -116,7 +131,7 @@ while true; do
     # Get tmux windows
     TMUX_WINDOWS=""
     if [[ -n "$SESSION_NAME" ]]; then
-        TMUX_WINDOWS=$(tmux list-windows -t "$SESSION_NAME" 2>/dev/null | awk '{print $2}' | tr -d '*-' || true)
+        TMUX_WINDOWS=$(tmux list-windows -t "$SESSION_NAME" -F '#{window_name}' 2>/dev/null || true)
     fi
 
     RATE_LIMITED_COUNT=0
@@ -164,7 +179,7 @@ while true; do
 
         # --- Check 2: Stale agent ---
         if [[ -n "$last_updated" && "$status" != "suspended" && "$status" != "rate-limited" ]]; then
-            updated_epoch=$(date -d "$last_updated" +%s 2>/dev/null || echo "0")
+            updated_epoch=$(iso_to_epoch "$last_updated")
             age=$((CURRENT_TIME - updated_epoch))
 
             if [[ $age -gt 900 ]]; then  # >15 minutes
@@ -235,7 +250,7 @@ while true; do
             fi
 
             if [[ "$limit_status" == "rate-limited" && -n "$last_warning" && "$last_warning" != "null" ]]; then
-                warning_epoch=$(date -d "$last_warning" +%s 2>/dev/null || echo "0")
+                warning_epoch=$(iso_to_epoch "$last_warning")
                 refresh_seconds=$((REFRESH_WINDOW_HOURS * 3600))
                 if [[ $((CURRENT_TIME - warning_epoch)) -gt $refresh_seconds ]]; then
                     log_info "Limit refresh likely for ${agent_name} (>${REFRESH_WINDOW_HOURS}h since limit)"

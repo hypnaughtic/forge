@@ -58,7 +58,7 @@ SENT_COUNT=0
 for inbox in "${QUEUE_DIR}"/*/; do
     if [[ -d "$inbox" ]]; then
         agent_name=$(basename "$inbox" | sed 's/-inbox$//')
-        TEMP_FILE=$(mktemp /tmp/forge-msg-XXXXXX.md)
+        TEMP_FILE=$(mktemp "${TMPDIR:-/tmp}/forge-msg-XXXXXXXX")
 
         cat > "$TEMP_FILE" <<EOF
 ---

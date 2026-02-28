@@ -106,7 +106,7 @@ MEMORY_FILE="${SHARED_DIR}/.memory/${AGENT_NAME}-memory.md"
 # --- Build initial prompt ---
 log_info "Building context for ${AGENT_NAME}..."
 
-INSTRUCTION_FILE=$(mktemp /tmp/forge-init-XXXXXX.md)
+INSTRUCTION_FILE=$(mktemp "${TMPDIR:-/tmp}/forge-init-XXXXXXXX")
 
 {
     echo "You are ${AGENT_NAME}. You are part of a Forge AI development team."
@@ -190,18 +190,47 @@ cat > "$STATUS_FILE" <<EOF
 }
 EOF
 
+# --- Build permission flags based on strategy ---
+# Claude Code permission modes:
+#   --dangerously-skip-permissions    Bypass ALL checks (shows one-time warning)
+#   --permission-mode bypassPermissions  Same via mode flag
+#   --permission-mode acceptEdits     Auto-approve edits, prompt for shell ops
+#   --permission-mode default         Normal interactive permissions
+CLAUDE_PERM_FLAGS=""
+case "$STRATEGY" in
+    auto-pilot)
+        # Full autonomy: bypass all permission checks.
+        # Uses --dangerously-skip-permissions for complete non-interactive operation.
+        CLAUDE_PERM_FLAGS="--dangerously-skip-permissions"
+        ;;
+    co-pilot)
+        # Balanced: auto-approve file edits and reads, prompt only for
+        # potentially destructive shell operations.
+        CLAUDE_PERM_FLAGS="--permission-mode acceptEdits"
+        ;;
+    micro-manage)
+        # Every significant decision requires approval (default Claude behavior)
+        CLAUDE_PERM_FLAGS=""
+        ;;
+esac
+
 # --- Launch in tmux ---
 log_info "Launching ${AGENT_NAME} in tmux window..."
 
-if [[ "${AGENT_TYPE}" == "team-leader" ]]; then
+# Unset CLAUDECODE to prevent "nested session" errors when forge is invoked
+# from within a Claude Code session (e.g., during development/testing).
+UNSET_CLAUDE_ENV="unset CLAUDECODE; unset CLAUDE_CODE_ENTRY_TOOL;"
+
+if [[ "${AGENT_TYPE}" == "team-leader" && "$STRATEGY" != "auto-pilot" ]]; then
     # Interactive mode: Team Leader runs in interactive Claude Code session
     # Human can type directly to the Team Leader
     tmux new-window -t "$SESSION_NAME" -n "$AGENT_NAME" \
-        "cd '${PROJECT_DIR}' && cat '${INSTRUCTION_FILE}' | claude || echo 'Claude Code session ended. Press Enter to exit.' && read"
+        "${UNSET_CLAUDE_ENV} cd '${PROJECT_DIR}' && cat '${INSTRUCTION_FILE}' | claude ${CLAUDE_PERM_FLAGS} || echo 'Claude Code session ended. Press Enter to exit.' && read"
 else
-    # Headless mode: agent works autonomously
+    # Headless mode: agent works autonomously (also Team Leader in auto-pilot)
+    # In auto-pilot, --print bypasses the interactive bypass-permissions prompt.
     tmux new-window -t "$SESSION_NAME" -n "$AGENT_NAME" \
-        "cd '${PROJECT_DIR}' && cat '${INSTRUCTION_FILE}' | claude --print --output-format text > '${SHARED_DIR}/.logs/${AGENT_NAME}-session.log' 2>&1; echo 'Agent session ended.' >> '${SHARED_DIR}/.logs/${AGENT_NAME}-session.log'"
+        "${UNSET_CLAUDE_ENV} cd '${PROJECT_DIR}' && cat '${INSTRUCTION_FILE}' | claude --print --output-format text ${CLAUDE_PERM_FLAGS} > '${SHARED_DIR}/.logs/${AGENT_NAME}-session.log' 2>&1; echo 'Agent session ended.' >> '${SHARED_DIR}/.logs/${AGENT_NAME}-session.log'"
 fi
 
 log_info "${AGENT_NAME} spawned successfully in tmux session '${SESSION_NAME}'"

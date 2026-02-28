@@ -65,7 +65,7 @@ cmd_setup() {
         echo "  One-time setup: validates dependencies and prepares the environment."
         exit 0
     fi
-    bash "${SCRIPTS_DIR}/setup.sh" "$@"
+    bash "${FORGE_DIR}/setup.sh" "$@"
 }
 
 # --- Command: init ---
