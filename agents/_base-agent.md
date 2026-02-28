@@ -4,27 +4,33 @@
 
 ---
 
-## 1. File-Based Message Queue
+## 1. Communication Protocol
 
-Each agent has an inbox: `shared/.queue/{agent-name}-inbox/`. Messages are individual files named `msg-{unix-timestamp}-{sender}.md`.
+The orchestration backend (set in your CLAUDE.md context) determines how you communicate. Support both modes.
 
-**Writing** -- always atomic: write to temp, then move to prevent partial reads:
+### Agent Teams Mode
+- Receive tasks via Agent Teams task assignment from the Team Leader
+- Report completion via task status updates and direct messaging
+- Peer communication via Agent Teams messaging
+- Include structured metadata in all communications: priority (`normal|high|critical`), type (`status-update|request|response|blocker|deliverable|review-request|review-response|dependency-change`), confidence (`high|medium|low`)
+
+### tmux Mode
+- Each agent has an inbox: `shared/.queue/{agent-name}-inbox/`. Messages are individual files named `msg-{unix-timestamp}-{sender}.md`.
+- **Writing** -- always atomic: write to temp, then move to prevent partial reads:
 ```bash
 TEMP_FILE=$(mktemp "${TMPDIR:-/tmp}/forge-msg-XXXXXXXX")
 cat > "$TEMP_FILE" <<EOF   # write message content
 EOF
 mv "$TEMP_FILE" "shared/.queue/${TARGET}-inbox/msg-$(date +%s)-${MY_NAME}.md"
 ```
-
-**Reading** -- process in timestamp order, delete after acknowledgment:
+- **Reading** -- process in timestamp order, delete after acknowledgment:
 ```bash
 for msg in $(ls shared/.queue/${MY_NAME}-inbox/ | sort); do
   # process message...
   rm "shared/.queue/${MY_NAME}-inbox/$msg"
 done
 ```
-
-**Message format** -- YAML frontmatter with markdown body:
+- **Message format** -- YAML frontmatter with markdown body:
 ```markdown
 ---
 id: msg-{unix-timestamp}-{sender}
@@ -120,9 +126,14 @@ Append-only at `shared/.decisions/decision-log.md`. Never edit/delete existing e
 **Commits**: `[{agent-name}] {type}: {description}` -- types: `feat`, `fix`, `refactor`, `test`, `docs`, `ci`, `chore`
 **Only Team Leader merges to main.** After each verified iteration: `git tag iteration-{N}-verified`.
 
-## 7. File Locking
+## 7. File Contention
 
-Before editing shared source code, check/acquire lock at `shared/.locks/{md5-hash-of-filepath}.lock`:
+### Agent Teams Mode
+- File locking is handled natively by Agent Teams
+- If you discover contention (merge conflicts, simultaneous edits), report to Team Leader for resolution
+
+### tmux Mode
+- Before editing shared source code, check/acquire lock at `shared/.locks/{md5-hash-of-filepath}.lock`:
 ```json
 { "locked_by":"{name}", "file_path":"{path}", "locked_at":"{ISO}",
   "reason":"{why}", "expected_duration_minutes": 30 }
@@ -144,11 +155,20 @@ On update: increment version, update timestamp, send `dependency-change` message
 
 ## 9. Error Handling
 
-Unrecoverable errors → update status to `error` → write `PRIORITY: CRITICAL` message to `shared/.queue/team-leader-inbox/` with error details, what you were doing, and what you tried → update working memory → wait for instructions.
+Unrecoverable errors → update status to `error` → notify Team Leader with error details, what you were doing, and what you tried (via Agent Teams messaging or `PRIORITY: CRITICAL` message to `shared/.queue/team-leader-inbox/`) → update working memory → wait for instructions.
 
-## 10. Human Override Monitoring
+## 10. Directive Handling
 
-Check `shared/.human/override.md` modification time at the start of every task and after every major operation. If modified since last check: read immediately, comply with `pause`/`abort` directives at once, forward `directive` types to Team Leader via CRITICAL message if not already acknowledged.
+The Team Leader relays user directives to you. When you receive a directive (mode change, priority shift, pause, resume), act on it immediately.
+
+### Agent Teams Mode
+- Directives arrive via Agent Teams messaging from the Team Leader
+- Respond to the Team Leader with acknowledgment after acting on the directive
+
+### tmux Mode
+- Directives arrive via your inbox (`shared/.queue/{agent-name}-inbox/`)
+- Also check `shared/.human/override.md` modification time at the start of every task and after every major operation
+- If modified since last check: read immediately, comply with `pause`/`abort` directives at once, forward `directive` types to Team Leader via CRITICAL message if not already acknowledged
 
 ## 11. Graceful Shutdown (PREPARE_SHUTDOWN)
 
@@ -191,6 +211,25 @@ If you cannot verify your output (e.g., your component depends on another agent'
 
 Any LLM calls in the project MUST use `llm-gateway` (https://github.com/Rushabh1798/llm-gateway). No direct LLM provider calls. Use `local-claude` mode for integration testing when enabled.
 
+## 15a. Local-First Service Mandate
+
+All services MUST be provisioned locally during development and demo. No paid external service calls.
+
+| Dependency Type | Local Provision |
+|---|---|
+| LLMs | `llm-gateway` with `local-claude` mode (see Section 15) |
+| Databases | Docker Compose (PostgreSQL, MySQL, MongoDB, etc.) |
+| Caches | Local Redis via Docker Compose |
+| Message queues | Local RabbitMQ/Redis via Docker Compose |
+| External APIs | Mock/stub implementations behind the service interface |
+| Object storage | Local MinIO via Docker or filesystem fallback |
+| Search engines | Local Elasticsearch/Meilisearch via Docker or in-memory fallback |
+
+When implementing any external service integration, always provide a local/mock
+implementation alongside the real one. The mock must be selectable via environment
+variable or config flag (e.g., `USE_LOCAL=true`). The project must be fully
+runnable offline with zero external costs.
+
 ## 16. CLAUDE.md Compliance
 
 Respect project-level CLAUDE.md rules when present. Project conventions (coding style, patterns, architecture) override your defaults when they conflict. These rules may be merged into your generated instruction file by `init-project.sh`.
@@ -231,7 +270,7 @@ DECISION outcomes: **PROCEED** (tag + compact memory) | **REWORK** (back to PLAN
 ## Ongoing Obligations Summary
 
 These are continuous, not one-time:
-1. Check inbox regularly | 2. Update status every 5 min | 3. Update memory every 10 min
-4. Check human override at every task boundary | 5. Monitor for usage limit signals
-6. Log all significant actions | 7. Acquire locks before editing shared code
+1. Check for tasks/messages regularly | 2. Update status every 5 min | 3. Update memory every 10 min
+4. Act on directives immediately | 5. Monitor for usage limit signals
+6. Log all significant actions | 7. Manage file contention per Section 7
 8. Register artifacts | 9. Include confidence in deliverables | 10. Never expose secrets

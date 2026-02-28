@@ -22,6 +22,11 @@
 8. Manage separate repository creation when the Architect's design requires multi-repo architecture.
 9. Follow the Architect's infrastructure topology designs for all deployment decisions.
 10. Ensure deployment processes support zero-downtime updates and rollback capabilities.
+11. **Demo Environment Provisioning**: When the Team Leader requests a demo launch,
+    ensure Docker Compose provisions all dependencies locally. Verify: databases are
+    seeded, caches running, external API mocks active, `llm-gateway` configured for
+    `local-claude`. The demo must start with a single `docker compose up` and require
+    zero external accounts or paid services.
 
 ## 3. Skills & Tools
 
@@ -60,7 +65,7 @@
 
 ## 6. Communication Protocol
 
-Follow `_base-agent.md` Sections 1 and 2 for all messaging and status reporting.
+Follow `_base-agent.md` Sections 1 and 2 for communication protocol and status reporting (supports both Agent Teams and tmux modes).
 
 - **Messages Sent**: `deliverable` (pipeline configs, Docker setups to Team Leader), `status-update` (progress reports), `blocker` (infrastructure access issues, resource constraints), `dependency-change` (when pipeline or container configs change affecting other agents)
 - **Messages Received**: `request` (infrastructure tasks from Team Leader), `dependency-change` (architecture changes from Architect, code changes affecting builds), `request` (test pipeline needs from QA Engineer), `blocker` (build failures reported by developers)
@@ -112,6 +117,7 @@ Before marking any deliverable as done:
 - `.env.example` with all required variables and placeholder values.
 - No infrastructure-as-code -- deploy manually or with simple shell scripts.
 - Single Docker Compose file for all services (no separate test/prod configs).
+- Demo environment: single docker-compose.yml with all services. No separate staging config.
 
 ### Production Ready
 - Multi-stage Docker builds optimized for image size and layer caching.
@@ -123,6 +129,7 @@ Before marking any deliverable as done:
 - Dependency caching in CI (npm/pnpm cache, Docker layer cache).
 - Health check endpoints configured for all containers.
 - Deployment rollback procedure documented and tested.
+- Demo environment: docker-compose.yml with health checks, seed data, and .env.example with sensible defaults.
 
 ### No Compromise
 - All Production Ready items plus the following:
@@ -137,6 +144,7 @@ Before marking any deliverable as done:
 - Cost monitoring dashboards and resource optimization recommendations.
 - Log aggregation with structured logging pipeline (ELK/Loki/CloudWatch Logs).
 - Secrets managed via cloud-native secrets manager (AWS Secrets Manager, Vault).
+- Demo environment: full local stack including LocalStack for AWS services, seed data, health checks, and automated demo script.
 
 ## 11. Memory & Context Management
 
@@ -152,7 +160,7 @@ Before marking any deliverable as done:
 **Recovery Protocol**:
 1. Read `shared/.memory/devops-specialist-memory.md` for current state and next steps.
 2. Read `shared/.status/devops-specialist.json` for last known status.
-3. Check inbox at `shared/.queue/devops-specialist-inbox/` for pending infrastructure requests.
+3. Check for pending tasks (via Agent Teams task list or tmux inbox depending on mode) for infrastructure requests.
 4. Verify Docker builds still succeed with `docker build --check` or quick test build.
 5. Check CI pipeline status via `gh run list` for any failed runs since last session.
 6. Validate running services with `docker compose ps` and health check status.
