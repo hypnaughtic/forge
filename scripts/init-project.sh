@@ -8,6 +8,7 @@
 set -euo pipefail
 
 FORGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPTS_DIR="${FORGE_DIR}/scripts"
 CONFIG_FILE="${FORGE_DIR}/config/team-config.yaml"
 PROJECT_DIR=""
 WIZARD_MODE=false
@@ -122,7 +123,19 @@ if $WIZARD_MODE; then
     read -rp "Preferred frameworks (comma-separated, or empty): " tech_frameworks
     read -rp "Preferred databases (comma-separated, or empty): " tech_dbs
 
-    # 8. Template
+    # 8. Orchestration backend
+    echo ""
+    echo "Orchestration backend:"
+    echo "  1) agent-teams  — Uses Claude Code's Agent Teams (recommended)"
+    echo "  2) tmux         — Uses tmux windows + file-based messaging (works everywhere)"
+    read -rp "Select orchestration [1/2] (default: 1): " orch_choice
+    case "${orch_choice:-1}" in
+        1) orchestration="agent-teams" ;;
+        2) orchestration="tmux" ;;
+        *) orchestration="agent-teams" ;;
+    esac
+
+    # 9. Template
     echo ""
     read -rp "Bootstrap template (auto/specific name/empty): " template
     template="${template:-auto}"
@@ -168,6 +181,11 @@ project:
 
 mode: "${mode}"
 strategy: "${strategy}"
+
+# --- Orchestration Backend ---
+# agent-teams  — Uses Claude Code's Agent Teams (recommended)
+# tmux         — Uses tmux windows + file-based messaging (works everywhere)
+orchestration: "${orchestration}"
 
 cost:
   max_development_cost: ${cost_cap}
@@ -445,6 +463,12 @@ fi
 SECRETS_DIR="${FORGE_DIR}/shared/.secrets"
 mkdir -p "$SECRETS_DIR"
 echo "*" > "${SECRETS_DIR}/.gitignore"
+
+# --- Generate CLAUDE.md for project directory ---
+if [[ -f "${SCRIPTS_DIR}/generate-claude-md.sh" ]]; then
+    log_info "Generating CLAUDE.md for project directory..."
+    bash "${SCRIPTS_DIR}/generate-claude-md.sh" --project-dir "$PROJECT_DIR" --config "$CONFIG_FILE"
+fi
 
 log_info "Project initialization complete."
 log_info "Generated ${ACTIVE_AGENTS// /, } agent files in .forge/agents/"

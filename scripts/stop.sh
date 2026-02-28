@@ -23,28 +23,32 @@ log_warn()  { echo -e "${YELLOW}[Forge]${NC} $*"; }
 log_error() { echo -e "${RED}[Forge]${NC} $*" >&2; }
 
 PAUSE_MODE=false
+SNAPSHOT_ONLY=false
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-    echo "Usage: scripts/stop.sh [--pause]"
+    echo "Usage: scripts/stop.sh [--pause] [--snapshot-only]"
     echo ""
     echo "Graceful fleet shutdown with state snapshot."
     echo ""
     echo "Options:"
-    echo "  --pause   Stop agents but keep tmux session alive for inspection"
+    echo "  --pause          Stop agents but keep tmux session alive for inspection"
+    echo "  --snapshot-only  Capture snapshot without broadcasting shutdown or killing tmux"
+    echo "                   (used by /forge-stop in interactive mode)"
     echo ""
     echo "Sequence:"
     echo "  1. PREPARE_SHUTDOWN broadcast (grace period for agents to save state)"
     echo "  2. Capture fleet state snapshot"
-    echo "  3. SHUTDOWN broadcast"
-    echo "  4. Force-kill remaining agents"
-    echo "  5. Cleanup daemons and tmux session"
+    echo "  3. SHUTDOWN broadcast (skipped with --snapshot-only)"
+    echo "  4. Force-kill remaining agents (skipped with --snapshot-only)"
+    echo "  5. Cleanup daemons and tmux session (skipped with --snapshot-only)"
     exit 0
 fi
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --pause) PAUSE_MODE=true; shift ;;
-        *)       shift ;;
+        --pause)         PAUSE_MODE=true; shift ;;
+        --snapshot-only) SNAPSHOT_ONLY=true; shift ;;
+        *)               shift ;;
     esac
 done
 
@@ -66,20 +70,24 @@ if command -v yq &>/dev/null && [[ -f "$CONFIG_FILE" ]]; then
 fi
 
 # ==============================================================================
-# Step 1: PREPARE_SHUTDOWN Broadcast
+# Step 1: PREPARE_SHUTDOWN Broadcast (skipped in snapshot-only mode)
 # ==============================================================================
-log_info "Step 1: Broadcasting PREPARE_SHUTDOWN (${GRACE_PERIOD}s grace period)..."
+if ! $SNAPSHOT_ONLY; then
+    log_info "Step 1: Broadcasting PREPARE_SHUTDOWN (${GRACE_PERIOD}s grace period)..."
 
-if [[ -f "${SCRIPTS_DIR}/broadcast.sh" ]]; then
-    bash "${SCRIPTS_DIR}/broadcast.sh" \
-        --type "PREPARE_SHUTDOWN" \
-        --message "Finalize working memory, commit in-progress work, release file locks, and update status to 'suspended'. You have ${GRACE_PERIOD} seconds." \
-        --priority "critical" \
-        --from "system" 2>/dev/null || true
+    if [[ -f "${SCRIPTS_DIR}/broadcast.sh" ]]; then
+        bash "${SCRIPTS_DIR}/broadcast.sh" \
+            --type "PREPARE_SHUTDOWN" \
+            --message "Finalize working memory, commit in-progress work, release file locks, and update status to 'suspended'. You have ${GRACE_PERIOD} seconds." \
+            --priority "critical" \
+            --from "system" 2>/dev/null || true
+    fi
+
+    log_info "Waiting ${GRACE_PERIOD}s for agents to finalize..."
+    sleep "$GRACE_PERIOD"
+else
+    log_info "Step 1: Skipped (snapshot-only mode)"
 fi
-
-log_info "Waiting ${GRACE_PERIOD}s for agents to finalize..."
-sleep "$GRACE_PERIOD"
 
 # ==============================================================================
 # Step 2: Capture Fleet State Snapshot
@@ -216,46 +224,47 @@ EOF
 log_info "Snapshot saved: ${SNAPSHOT_FILE}"
 
 # ==============================================================================
-# Step 3: SHUTDOWN Broadcast
+# Steps 3-5: Shutdown & cleanup (skipped in snapshot-only mode)
 # ==============================================================================
-log_info "Step 3: Broadcasting SHUTDOWN..."
+if ! $SNAPSHOT_ONLY; then
+    # Step 3: SHUTDOWN Broadcast
+    log_info "Step 3: Broadcasting SHUTDOWN..."
 
-if [[ -f "${SCRIPTS_DIR}/broadcast.sh" ]]; then
-    bash "${SCRIPTS_DIR}/broadcast.sh" \
-        --type "SHUTDOWN" \
-        --message "Shutdown now. Exit immediately." \
-        --priority "critical" \
-        --from "system" 2>/dev/null || true
-fi
+    if [[ -f "${SCRIPTS_DIR}/broadcast.sh" ]]; then
+        bash "${SCRIPTS_DIR}/broadcast.sh" \
+            --type "SHUTDOWN" \
+            --message "Shutdown now. Exit immediately." \
+            --priority "critical" \
+            --from "system" 2>/dev/null || true
+    fi
 
-# Wait for graceful exits (up to 30s)
-log_info "Waiting up to 30s for agents to exit..."
-sleep 5  # Brief wait
+    # Wait for graceful exits (up to 30s)
+    log_info "Waiting up to 30s for agents to exit..."
+    sleep 5  # Brief wait
 
-# ==============================================================================
-# Step 4: Force-kill remaining
-# ==============================================================================
-if [[ -n "$SESSION_NAME" ]] && ! $PAUSE_MODE; then
-    log_info "Step 4: Cleaning up tmux session..."
+    # Step 4: Force-kill remaining
+    if [[ -n "$SESSION_NAME" ]] && ! $PAUSE_MODE; then
+        log_info "Step 4: Cleaning up tmux session..."
 
-    # Kill all windows except the main one
-    for window in $(tmux list-windows -t "$SESSION_NAME" 2>/dev/null | grep -v "forge-main" | cut -d: -f1 | sort -rn); do
-        tmux kill-window -t "${SESSION_NAME}:${window}" 2>/dev/null || true
-    done
+        # Kill all windows except the main one
+        for window in $(tmux list-windows -t "$SESSION_NAME" 2>/dev/null | grep -v "forge-main" | cut -d: -f1 | sort -rn); do
+            tmux kill-window -t "${SESSION_NAME}:${window}" 2>/dev/null || true
+        done
 
-    # Destroy the session
-    tmux kill-session -t "$SESSION_NAME" 2>/dev/null || true
-    log_info "tmux session destroyed."
-elif $PAUSE_MODE; then
-    log_info "Pause mode: tmux session kept alive for inspection."
-fi
+        # Destroy the session
+        tmux kill-session -t "$SESSION_NAME" 2>/dev/null || true
+        log_info "tmux session destroyed."
+    elif $PAUSE_MODE; then
+        log_info "Pause mode: tmux session kept alive for inspection."
+    fi
 
-# ==============================================================================
-# Step 5: Cleanup file locks
-# ==============================================================================
-if [[ -d "${SHARED_DIR}/.locks" ]]; then
-    rm -f "${SHARED_DIR}/.locks"/*.lock 2>/dev/null || true
-    log_info "All file locks released."
+    # Step 5: Cleanup file locks
+    if [[ -d "${SHARED_DIR}/.locks" ]]; then
+        rm -f "${SHARED_DIR}/.locks"/*.lock 2>/dev/null || true
+        log_info "All file locks released."
+    fi
+else
+    log_info "Steps 3-5: Skipped (snapshot-only mode)"
 fi
 
 # ==============================================================================

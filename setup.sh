@@ -60,9 +60,26 @@ check_tool() {
 }
 
 check_tool "git" "https://git-scm.com/downloads"
-check_tool "tmux" "brew install tmux (macOS) | apt install tmux (Ubuntu)"
 check_tool "claude" "npm install -g @anthropic-ai/claude-code"
 check_tool "yq" "brew install yq (macOS) | snap install yq (Ubuntu) | go install github.com/mikefarah/yq/v4@latest"
+
+# tmux is required for tmux orchestration mode, optional for Agent Teams mode
+ORCHESTRATION="agent-teams"
+if command -v yq &>/dev/null && [[ -f "${FORGE_DIR}/config/team-config.yaml" ]]; then
+    ORCHESTRATION=$(yq eval '.orchestration // "agent-teams"' "${FORGE_DIR}/config/team-config.yaml" 2>/dev/null || echo "agent-teams")
+fi
+
+if [[ "$ORCHESTRATION" == "tmux" ]]; then
+    check_tool "tmux" "brew install tmux (macOS) | apt install tmux (Ubuntu)"
+else
+    # tmux is optional in Agent Teams mode
+    if command -v tmux &>/dev/null; then
+        log_ok "tmux: $(tmux -V 2>/dev/null) (optional in Agent Teams mode)"
+    else
+        log_warn "tmux: NOT FOUND (optional — required only for tmux orchestration mode)"
+        echo "      Install: brew install tmux (macOS) | apt install tmux (Ubuntu)"
+    fi
+fi
 
 # Optional tools (needed for Production Ready+)
 echo ""
