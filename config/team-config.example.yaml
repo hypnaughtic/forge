@@ -11,6 +11,11 @@ project:
 mode: "production-ready"
 strategy: "co-pilot"
 
+# --- Orchestration Backend ---
+# agent-teams  — Uses Claude Code's Agent Teams (recommended)
+# tmux         — Uses tmux windows + file-based messaging (works everywhere)
+orchestration: "agent-teams"
+
 cost:
   max_development_cost: 100
   max_project_runtime_cost: "no-cap"
