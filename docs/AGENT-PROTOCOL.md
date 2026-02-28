@@ -35,7 +35,7 @@ All file writes **must** be atomic to prevent readers from seeing partial conten
 
 ```bash
 # --- WRITING ---
-TMPFILE=$(mktemp /tmp/forge-msg-XXXXXX.md)
+TMPFILE=$(mktemp "${TMPDIR:-/tmp}/forge-msg-XXXXXXXX")
 cat > "$TMPFILE" << 'MSGEOF'
 ---
 id: msg-1716000000-orchestrator

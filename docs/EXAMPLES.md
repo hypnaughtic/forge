@@ -14,6 +14,7 @@ A greenfield MVP built from scratch with a lean team.
 project:
   description: "Task management app with teams, boards, and real-time updates"
   type: "new"
+  directory: "~/projects/task-app"  # Where agents build the project (not inside forge repo)
 mode: "mvp"
 strategy: "auto-pilot"
 cost:
@@ -24,6 +25,11 @@ tech_stack:
   languages: ["typescript"]
   frameworks: ["nextjs", "prisma"]
   databases: ["postgresql"]
+```
+
+You can also pass `--project-dir` on the command line:
+```bash
+./forge start --project-dir ~/projects/task-app
 ```
 
 ### What Happens When `./forge start` Runs
@@ -60,7 +66,7 @@ Branch: agent/backend-developer/TASK-001-auth
 
 **EXECUTE**: Backend Developer implements auth and board API. Frontend Engineer builds board UI with drag-and-drop. DevOps sets up Docker Compose + PostgreSQL.
 
-**TEST**: QA Engineer runs tests, finds 2 failures in board API validation. Backend Developer fixes them.
+**TEST**: QA Engineer runs tests, finds 2 failures in board API validation. Backend Developer fixes them. In lean teams without QA, developers run their own tests and the Team Leader performs smoke testing (start the app, test endpoints with real HTTP requests, verify UI loads).
 
 **INTEGRATE**: Team Leader merges all feature branches. Build passes.
 
@@ -89,6 +95,7 @@ project:
   description: "Add AI-powered search and recommendations to existing e-commerce platform"
   type: "existing"
   existing_project_path: "/home/user/ecommerce-platform"
+  directory: "/home/user/ecommerce-platform"  # Same as existing path for brownfield
 mode: "production-ready"
 strategy: "co-pilot"
 cost:
@@ -138,6 +145,7 @@ The full team splits merged roles (research-strategist becomes researcher + stra
 project:
   description: "Enterprise payment processing platform"
   type: "new"
+  directory: "/home/user/projects/payment-platform"
 mode: "no-compromise"
 strategy: "co-pilot"
 cost:

@@ -60,8 +60,10 @@ git clone https://github.com/your-org/forge.git && cd forge
 ./forge init                          # Interactive wizard (recommended)
 # OR edit config/team-config.yaml and config/project-requirements.md directly
 
-# 4. Start the team
+# 4. Start the team (forge asks for a workspace directory on first run)
 ./forge start
+# Or specify the workspace directory explicitly:
+./forge start --project-dir ~/my-projects/my-app
 
 # 5. Talk to the Team Leader
 #    Type directly in the interactive tmux session, or from any terminal:
@@ -86,7 +88,13 @@ project:
   requirements_file: "config/project-requirements.md"  # Detailed requirements (overrides description)
   type: "new"                                  # "new" (greenfield) | "existing" (brownfield)
   existing_project_path: ""                    # Required if type is "existing"
+  directory: ""                                # Workspace directory for the project (see below)
 ```
+
+**Project directory:** Forge builds your project in a separate workspace directory -- not
+inside the forge repository. When `directory` is empty, `./forge start` prompts for a
+path (defaulting to `~/forge-projects/<project-name>`). The choice is saved to config for
+future sessions. You can also pass `--project-dir <path>` to override on the command line.
 ### `mode` and `strategy`
 ```yaml
 mode: "mvp"          # "mvp" | "production-ready" | "no-compromise" (see Mode Comparison)
@@ -245,7 +253,7 @@ Agents analyze your codebase and adapt to existing patterns rather than imposing
 | **Goal** | Working prototype | Industrial-grade software | Market-ready product |
 | **Critic Pass Rate** | 70% per category | 90% per category | 100% per category |
 | **Default Team** | Lean (8 agents) | Full (12 agents) | Full (12 agents) |
-| **Testing** | Happy-path tests | >90% coverage + integration | Exhaustive + chaos/fault injection |
+| **Testing** | Happy-path + smoke tests | >90% coverage + integration | Exhaustive + chaos/fault injection |
 | **CI/CD** | None required | GitHub Actions, pre-commit | Full pipeline + single-click deploy |
 | **Infrastructure** | Local only | Docker Compose, scalable | IaC (Terraform/Pulumi), LocalStack |
 | **Documentation** | Basic README | API docs, arch diagrams | Full traceability, runbooks |
@@ -255,6 +263,12 @@ Agents analyze your codebase and adapt to existing patterns rather than imposing
 Switch modes mid-session: tell the Team Leader "Switch to production-ready mode".
 It re-evaluates work, spawns agents if needed, and updates Critic thresholds.
 
+**Smoke testing in all modes:** Before marking any iteration complete, the Team Leader
+runs a mandatory Smoke Test Protocol: start the application, test backend endpoints with
+real HTTP requests, verify the UI loads and functions, and test integrations. In MVP mode
+without a QA Engineer, the Team Leader performs smoke testing directly. Agents must also
+verify their own output runs (not just that unit tests pass) before reporting tasks as done.
+
 ---
 
 ## Strategy Comparison
@@ -263,7 +277,7 @@ It re-evaluates work, spawns agents if needed, and updates Critic thresholds.
 |--------|-----------|----------|-------------|
 | **Human Involvement** | Zero (observe only) | Design approvals only | Every significant decision |
 | **Decision Authority** | Fully autonomous | Architecture + tech choices | Everything modifying state |
-| **Permissions** | All autonomous | File/command ops autonomous | All permissions required |
+| **Permissions** | `--dangerously-skip-permissions` | `--permission-mode acceptEdits` | Default (interactive approval) |
 | **Best For** | Overnight runs | Default -- balanced control | Critical projects, learning |
 | **Override Available** | Yes (always) | Yes (always) | Yes (always) |
 | **Cost Cap** | Enforced | Enforced | Enforced |
@@ -426,6 +440,10 @@ in `team-config.yaml`.
 status file is stale (>5 minutes) or the tmux window has died, the Team Leader
 respawns the agent with `--resume`, restoring from working memory. Check manually
 with `./forge status`.
+
+**Project files appearing inside forge repo:** You likely ran `./forge start` from the
+forge directory without setting a separate workspace. Delete the generated files, then
+either set `project.directory` in config or run `./forge start --project-dir /path/to/workspace`.
 
 **Session will not start:** Run `./forge setup` to re-validate. Common issues:
 `claude` CLI not on PATH, `tmux` or `yq` not installed, scripts not executable
