@@ -6,9 +6,16 @@ How the Forge framework works internally -- agent orchestration, communication, 
 
 ## Overview
 
-Forge is an agent orchestration framework built on three primitives: **Claude Code** (the AI engine), **tmux** (process isolation), and the **shared filesystem** (communication bus). A single CLI entry point (`./forge`) delegates to bash scripts in `scripts/`, which manage agent lifecycle, monitoring, and state persistence.
+Forge is an agent orchestration framework built on three primitives: **Claude Code** (the AI engine), **dual orchestration backends** (Agent Teams or tmux for process isolation), and the **shared filesystem** (communication bus). The primary entry point is the **interactive CLI mode** (`forge`), which launches a conversational session where users describe their project and control execution via slash commands. For direct invocation, `./forge start` and other subcommands remain available.
 
-The core flow: the user edits `config/team-config.yaml` and runs `./forge start`. The start script creates a tmux session, initializes `shared/`, and spawns the Team Leader. The Team Leader reads config, requests a strategy from the Research Strategist, decomposes the project into tasks, spawns worker agents, and drives iterations through a 7-phase lifecycle until the project is complete. The user can interact at any time via `./forge tell`, `./forge attach`, or `./forge stop`.
+Forge supports two orchestration backends:
+
+- **Agent Teams** (default) -- Uses Claude Code's native multi-agent coordination. Agents run as sub-agents within a single Claude Code session, communicating through the shared filesystem. Simpler setup, no external dependencies beyond Claude Code.
+- **tmux** (legacy) -- Each agent runs in its own tmux window within a shared tmux session. Provides direct terminal access to individual agents and works well for debugging and observability.
+
+Both backends share the same filesystem-based communication protocol, agent markdown definitions, and lifecycle phases. The backend is selected via the `orchestration.backend` field in `config/team-config.yaml` or the `--backend` CLI flag.
+
+The core flow: the user launches `forge` (interactive mode) or edits `config/team-config.yaml` and runs `./forge start`. The system initializes `shared/`, spawns the Team Leader via the selected backend, and the Team Leader reads config, requests a strategy from the Research Strategist, decomposes the project into tasks, spawns worker agents, and drives iterations through a 7-phase lifecycle until the project is complete. The user can interact at any time via slash commands (`/forge-status`, `/forge-stop`), `./forge tell`, `./forge attach` (tmux backend only), or `./forge stop`.
 
 ## Forge Dir vs Project Dir
 
@@ -26,6 +33,30 @@ The project directory is resolved via a priority chain:
 In auto-pilot mode, the default directory is used without prompting. A safety check warns if the project directory equals the forge directory.
 
 ## Architecture Diagram
+
+### Agent Teams Backend (default)
+
+```mermaid
+graph TD
+    Human[Human] -->|"forge (interactive) or ./forge start"| CLI["forge CLI"]
+    CLI -->|slash commands| SC["/forge-start, /forge-status, /forge-stop"]
+    CLI --> Scripts["scripts/*.sh"]
+    Scripts -->|creates| AT["Agent Teams session"]
+    AT --> TL["Team Leader (sub-agent)"]
+    AT --> W1["Agent: backend-developer (sub-agent)"]
+    AT --> W2["Agent: frontend-engineer (sub-agent)"]
+    AT --> WN["Agent: ... (N sub-agents)"]
+    TL -->|task assignments| SQ["shared/.queue/"]
+    W1 -->|status, memory, artifacts| SS["shared/.status/ .memory/ .artifacts/"]
+    subgraph "shared/ (filesystem bus)"
+        SQ
+        SS
+        SD["shared/.decisions/ .iterations/ .locks/ .logs/ .snapshots/ .human/"]
+    end
+    Human -->|"./forge tell or /forge-tell"| SQ
+```
+
+### tmux Backend (legacy)
 
 ```mermaid
 graph TD
@@ -49,9 +80,19 @@ graph TD
     WD -->|health alerts| SQ
 ```
 
-## Tmux and Agents
+## Orchestration Backends
 
-Every Forge session creates one tmux session named `forge-{project-name}`. Each agent runs as its own tmux window: `team-leader` (interactive -- the human can attach via `./forge attach`), `watchdog`, `log-aggregator`, and one window per worker agent. The Team Leader spawns agent windows dynamically using `scripts/spawn-agent.sh` and removes them with `scripts/kill-agent.sh`. Multiple instances of the same type (e.g., `backend-developer-1`, `backend-developer-2`) get unique window names.
+### Agent Teams Mode (default)
+
+In Agent Teams mode, Forge uses Claude Code's native multi-agent capabilities. The Team Leader and all worker agents run as sub-agents within a single Claude Code session. Agent spawning is handled internally by Claude Code rather than through tmux windows. This mode requires no external process manager and is the recommended default for most projects.
+
+Agents still communicate through the shared filesystem (see [AGENT-PROTOCOL.md](AGENT-PROTOCOL.md)), maintaining compatibility with the same message queue, status, and memory systems used by the tmux backend. The `./forge attach` command is not available in this mode since agents are not running in separate terminal sessions.
+
+### tmux Mode (legacy)
+
+In tmux mode, every Forge session creates one tmux session named `forge-{project-name}`. Each agent runs as its own tmux window: `team-leader` (interactive -- the human can attach via `./forge attach`), `watchdog`, `log-aggregator`, and one window per worker agent. The Team Leader spawns agent windows dynamically using `scripts/spawn-agent.sh` and removes them with `scripts/kill-agent.sh`. Multiple instances of the same type (e.g., `backend-developer-1`, `backend-developer-2`) get unique window names.
+
+This mode provides direct terminal observability and is useful for debugging agent behavior in real time.
 
 ## Strategy-Based Permissions
 
@@ -127,9 +168,9 @@ On restart, an agent reads its memory, status, and inbox, then resumes from "Nex
 
 ## Stop/Resume and Snapshots
 
-**Stop** (`./forge stop`): Broadcasts `PREPARE_SHUTDOWN` (agents get a grace period to finalize memory, commit, release locks). Captures a snapshot at `shared/.snapshots/snapshot-{timestamp}.json` with agent states, git state, costs, and iteration progress. Broadcasts `SHUTDOWN`, kills tmux windows, enforces snapshot retention.
+**Stop** (`./forge stop` or `/forge-stop` in interactive mode): Broadcasts `PREPARE_SHUTDOWN` (agents get a grace period to finalize memory, commit, release locks). Captures a snapshot at `shared/.snapshots/snapshot-{timestamp}.json` with agent states, git state, costs, and iteration progress. Broadcasts `SHUTDOWN`, tears down agents (kills tmux windows in tmux mode, terminates sub-agents in Agent Teams mode), enforces snapshot retention.
 
-**Resume** (`./forge start` with existing snapshot): Prompts user (Resume/No/Fresh). Loads snapshot, recreates tmux session and daemons. Spawns Team Leader with `--resume`, which reads its working memory, restores the agent fleet, sends `SESSION_RESUMED`, and greets the human with a status summary.
+**Resume** (`./forge start` or `/forge-start` with existing snapshot): Prompts user (Resume/No/Fresh). Loads snapshot, recreates the orchestration session via the selected backend. Spawns Team Leader with `--resume`, which reads its working memory, restores the agent fleet, sends `SESSION_RESUMED`, and greets the human with a status summary.
 
 ## CLAUDE.md Hierarchy
 
@@ -145,6 +186,8 @@ Merge priority is configurable (`project-first` or `global-first`). When `source
 
 **Why file-based messaging** -- Atomic `mv` is the only primitive needed for safe concurrent writes. No database drivers, no network protocols, no dependencies beyond a POSIX filesystem. Messages are human-readable markdown files -- anyone can `ls` the queue or `cat` a message. Tradeoff: no guaranteed cross-inbox ordering, but the Team Leader serializes all coordination decisions, making this acceptable.
 
-**Why tmux** -- Process isolation (a crash in one agent does not affect others), human observability (`tmux attach` to watch any agent live), interactive Team Leader (human types commands directly), and simple lifecycle (`new-window` to spawn, `kill-window` to stop). Tradeoff: requires tmux installed, but it is available on every major platform.
+**Why dual orchestration backends** -- Agent Teams mode leverages Claude Code's native multi-agent coordination, eliminating the need for tmux and simplifying setup. It is the default for most users. The tmux backend remains available for users who need direct terminal access to individual agents, real-time observability (`tmux attach`), or are running in environments where Agent Teams is not available. Both backends share the same filesystem communication protocol, so agent definitions and the shared directory structure are backend-agnostic.
+
+**Why tmux (legacy)** -- Process isolation (a crash in one agent does not affect others), human observability (`tmux attach` to watch any agent live), interactive Team Leader (human types commands directly), and simple lifecycle (`new-window` to spawn, `kill-window` to stop). Tradeoff: requires tmux installed, but it is available on every major platform.
 
 **Why markdown for agent instructions** -- Agent MD files are loaded directly as system prompts for Claude Code. Markdown is the native format LLMs understand best. Each file is self-contained: an agent reading only its own file plus `_base-agent.md` has everything needed. Tradeoff: less structured than YAML/JSON for machine parsing, but the consumer is an LLM, not a parser.

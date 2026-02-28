@@ -27,14 +27,40 @@ tech_stack:
   databases: ["postgresql"]
 ```
 
-You can also pass `--project-dir` on the command line:
+You can also pass `--project-dir` on the command line or use the interactive CLI:
 ```bash
+# Interactive mode (recommended) -- launches a conversational session
+forge
+
+# Direct invocation
 ./forge start --project-dir ~/projects/task-app
 ```
 
-### What Happens When `./forge start` Runs
+### Using Interactive Mode with Slash Commands
 
-The start script resolves the lean profile (team-leader, research-strategist, architect, backend-developer, frontend-engineer, qa-engineer, devops-specialist, critic), creates tmux session `forge-task-management-app`, launches watchdog and log-aggregator daemons, and spawns the Team Leader. The Team Leader then spawns the remaining 7 agents.
+In interactive mode, you describe your project in natural language and control execution with slash commands:
+
+```
+$ forge
+> Build a task management app with teams, boards, and real-time updates using Next.js and PostgreSQL.
+
+forge> Starting project setup...
+
+> /forge-start
+forge> Spawning agent team (lean profile, 8 agents)...
+
+> /forge-status
+forge> Iteration 1 | Phase: EXECUTE | 5/8 agents working | Cost: $4.10 / $30.00
+
+> /forge-stop
+forge> Broadcasting PREPARE_SHUTDOWN... snapshot saved.
+```
+
+Available slash commands: `/forge-start`, `/forge-status`, `/forge-stop`, `/forge-tell`, `/forge-cost`.
+
+### What Happens When the Session Starts
+
+The start script (or `/forge-start` slash command) resolves the lean profile (team-leader, research-strategist, architect, backend-developer, frontend-engineer, qa-engineer, devops-specialist, critic), initializes the orchestration backend (Agent Teams by default, or tmux if configured), launches daemons (tmux mode only), and spawns the Team Leader. The Team Leader then spawns the remaining 7 agents.
 
 ### Sample Agent Messages
 
@@ -74,13 +100,15 @@ Branch: agent/backend-developer/TASK-001-auth
 
 **CRITIQUE**: Critic scores -- Functional: 80%, Technical: 80%, User-Quality: 75%. All above MVP threshold of 70%.
 
-**DECISION**: PROCEED. Tag `iteration-1-verified`. Team Leader reports to human:
+**DECISION**: PROCEED. Tag `iteration-1-verified`. Team Leader reports to human (visible in the interactive CLI or via `./forge status`):
 
 ```
 Iteration 1 complete. Run locally: docker compose up -d && npm run dev
 Features: auth, board CRUD, drag-and-drop UI. Cost: $8.20 / $30.00.
 Iteration 2: board reordering, real-time updates, team management.
 ```
+
+In interactive mode, you can check progress at any time with `/forge-status` or send guidance with `/forge-tell`.
 
 ---
 

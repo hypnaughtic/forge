@@ -32,11 +32,12 @@ In `template-config.yaml`, set `priority: true` for templates with full scaffold
 When updating agent files in `agents/`, pay attention to these sections:
 
 - **Core Responsibilities (2)**: Ensure every duty is numbered and actionable.
-- **Communication Protocol (6)**: Keep consistent with `_base-agent.md` and `docs/AGENT-PROTOCOL.md`.
+- **Communication Protocol (6)**: Keep consistent with `_base-agent.md` and `docs/AGENT-PROTOCOL.md`. Use **backend-agnostic language** -- write "the orchestration backend" or "the agent runtime" rather than referring to tmux or Agent Teams specifically, unless describing backend-specific behavior in a clearly marked subsection.
 - **Quality Standards (8)**: All criteria must be checkboxes. Update when raising or lowering the bar.
 - **Mode-Specific Behavior (10)**: Update when mode thresholds change.
+- **Orchestration Backend Sections**: Some agent files contain backend-specific instructions (e.g., tmux window management vs. Agent Teams sub-agent spawning). When modifying these sections, ensure both backend paths remain consistent. If adding a new capability, consider whether it applies to one or both backends and document accordingly.
 
-If modifying `_base-agent.md`, verify that the change works for ALL agents -- a bug here breaks the entire fleet. Note: `_base-agent.md` has 21 numbered sections; if you insert a new section, update all cross-references in other agent files (search for `_base-agent.md Section`).
+If modifying `_base-agent.md`, verify that the change works for ALL agents -- a bug here breaks the entire fleet. Note: `_base-agent.md` has 21 numbered sections; if you insert a new section, update all cross-references in other agent files (search for `_base-agent.md Section`). Pay particular attention to sections that reference orchestration backends -- changes must be validated against both Agent Teams and tmux modes.
 
 ## Adding New Scripts or CLI Commands
 
@@ -51,6 +52,14 @@ If modifying `_base-agent.md`, verify that the change works for ALL agents -- a 
 2. Add a case to the command router at the bottom of the file.
 3. Update the `usage()` function to list the new command.
 4. Ensure the function handles `--help` as its first argument.
+
+### New slash command (interactive mode)
+
+Slash commands are defined as markdown files in `.claude/commands/`. To add a new one:
+
+1. Create `.claude/commands/forge-{command-name}.md` following the pattern of existing slash command files.
+2. The file should contain the instructions Claude Code will follow when the user invokes `/forge-{command-name}`.
+3. Test by launching `forge` (interactive mode) and running the slash command.
 
 ## Bash Script Style Guide
 
@@ -90,9 +99,12 @@ Forge must work on both Linux and macOS. Watch for these common pitfalls:
 
 1. **Syntax check**: `bash -n scripts/{your-script}.sh`
 2. **Setup check**: `./forge setup` validates dependencies.
-3. **Full session test**: `./forge start` with a simple config, verify agents spawn, `./forge stop` to verify snapshots.
-4. **Resume test**: `./forge start` again to verify resume flow.
-5. **Agent files**: Read end-to-end, confirm all 12 sections present, cross-references correct.
+3. **Full session test (both backends)**: Test with both orchestration backends:
+   - Agent Teams: `./forge start` (default) with a simple config, verify agents spawn, `./forge stop` to verify snapshots.
+   - tmux: `./forge start --backend tmux` with the same config, verify tmux windows, `./forge stop`.
+4. **Interactive mode test**: Launch `forge` and test slash commands (`/forge-start`, `/forge-status`, `/forge-stop`).
+5. **Resume test**: `./forge start` again to verify resume flow.
+6. **Agent files**: Read end-to-end, confirm all 12 sections present, cross-references correct.
 
 ## Pull Request Guidelines
 
@@ -106,3 +118,6 @@ Forge must work on both Linux and macOS. Watch for these common pitfalls:
   - [ ] `--help` flag works on new or modified scripts
   - [ ] No secrets or credentials in committed files
   - [ ] `forge` CLI router updated if adding a new command
+  - [ ] Agent communication references use backend-agnostic language
+  - [ ] Changes tested against both orchestration backends (Agent Teams and tmux)
+  - [ ] Slash command files updated if adding interactive-mode functionality

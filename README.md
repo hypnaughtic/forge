@@ -2,32 +2,39 @@
 
 > A team of AI agents, powered by Claude Code, that collaborate to build your software.
 
-Forge orchestrates a team of specialized AI agents -- each running in its own tmux
-session with its own Claude Code instance -- to design, implement, test, and ship
+Forge orchestrates a team of specialized AI agents to design, implement, test, and ship
 software projects. Think of it as a virtual development team: a Team Leader decomposes
 your requirements, an Architect designs the system, Backend and Frontend developers
 write code, a QA Engineer tests everything, a Critic enforces quality gates, and a
 DevOps Specialist wires up CI/CD and infrastructure.
 
 You describe what you want to build, choose a quality mode and an execution strategy,
-then run `./forge start`. The Team Leader spawns the appropriate agents, assigns tasks,
-manages iteration cycles, and drives the project to completion -- while you watch,
-guide, or step away entirely.
+then type `forge`. You get an interactive session where you talk directly to the Team
+Leader. Use `/forge-start` to begin building, and the Team Leader spawns agents,
+assigns tasks, manages iteration cycles, and drives the project to completion -- while
+you watch, guide, or step away entirely.
 
-**How it works under the hood:**
+**Two orchestration backends** with identical UX:
 
-- **Process isolation via tmux.** Each agent runs in its own tmux window. Agents
-  cannot interfere with each other's Claude Code context.
-- **File-based messaging.** Agents communicate through a shared filesystem
-  (`shared/.queue/`, `.status/`, `.memory/`, `.decisions/`). Messages are individual
-  markdown files moved atomically to prevent partial reads.
+- **Agent Teams** (default) -- leverages Claude Code's native Agent Teams for spawning,
+  messaging, and task management. Recommended when available.
+- **tmux** -- uses tmux windows + file-based messaging. Works everywhere, no special
+  flags needed.
+
+**How it works:**
+
+- **Interactive session.** Type `forge` and you're talking directly to the Team Leader.
+  Slash commands (`/forge-start`, `/forge-stop`, `/forge-status`) provide structured
+  operations. No tmux attach needed.
+- **Dual orchestration.** Agent Teams mode uses Claude Code's native subagent spawning.
+  tmux mode uses process isolation via tmux windows with file-based messaging.
 - **Iterative development with quality gates.** Work proceeds in iterations through
   plan, execute, test, integrate, review, and critique phases. The Critic scores every
   iteration, and it only advances when the mode's pass-rate threshold is met.
 - **Seamless stop and resume.** Fleet state is captured as JSON snapshots. Stop tonight,
   resume tomorrow exactly where you left off.
-- **Human override at any time.** Even in Auto Pilot mode, intervene via
-  `./forge tell "message"` or by attaching to the Team Leader's interactive session.
+- **Human override at any time.** Even in Auto Pilot mode, intervene by talking directly
+  to the Team Leader or via `./forge tell "message"` from another terminal.
 
 ---
 
@@ -38,9 +45,14 @@ guide, or step away entirely.
 | Tool | Purpose | Install |
 |------|---------|---------|
 | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI (`claude`) | Powers every agent | `npm install -g @anthropic-ai/claude-code` |
-| tmux | Process isolation for agents | `sudo apt install tmux` / `brew install tmux` |
 | git | Version control, branch management | `sudo apt install git` / `brew install git` |
 | yq | YAML config parsing | `sudo apt install yq` / `brew install yq` |
+
+**Required for tmux mode only:**
+
+| Tool | Purpose | Install |
+|------|---------|---------|
+| tmux | Process isolation for agents (tmux backend) | `sudo apt install tmux` / `brew install tmux` |
 
 **Optional:** docker (Production Ready+ modes), jq (enhanced status display),
 Node.js 18+ (JS/TS projects), Python 3.11+ (Python/AI-ML projects).
@@ -56,23 +68,28 @@ git clone https://github.com/your-org/forge.git && cd forge
 # 2. Validate dependencies
 ./forge setup
 
-# 3. Configure your project (pick one)
+# 3. Configure your project
 ./forge init                          # Interactive wizard (recommended)
 # OR edit config/team-config.yaml and config/project-requirements.md directly
 
-# 4. Start the team (forge asks for a workspace directory on first run)
-./forge start
-# Or specify the workspace directory explicitly:
-./forge start --project-dir ~/my-projects/my-app
+# 4. Launch interactive session (you are now talking to the Team Leader)
+./forge
 
-# 5. Talk to the Team Leader
-#    Type directly in the interactive tmux session, or from any terminal:
-./forge tell "Focus on the authentication module first"
+# 5. Inside the session, use slash commands:
+#    /forge-start                    # Begin building (spawns team, starts Iteration 1)
+#    /forge-status                   # Check progress, costs, blockers
+#    /forge-stop                     # Save state and end session
 ```
 
-When done for the day, tell the Team Leader "stop for today" or run `./forge stop`.
-Resume with `./forge start` -- it auto-detects the saved snapshot and offers to
-pick up where you left off.
+**That's it.** Type `forge` and you're in. The Team Leader greets you, and you
+communicate naturally. Use `/forge-start` to kick off the build.
+
+**Alternative: tmux backend** -- force tmux mode with `./forge --tmux` or set
+`orchestration: "tmux"` in config. The legacy `./forge start` command also still
+works for tmux-based non-interactive sessions.
+
+When done for the day, use `/forge-stop` or tell the Team Leader "stop for today".
+Next time, run `forge` again -- it detects the saved snapshot and offers to resume.
 
 ---
 
@@ -95,10 +112,11 @@ project:
 inside the forge repository. When `directory` is empty, `./forge start` prompts for a
 path (defaulting to `~/forge-projects/<project-name>`). The choice is saved to config for
 future sessions. You can also pass `--project-dir <path>` to override on the command line.
-### `mode` and `strategy`
+### `mode`, `strategy`, and `orchestration`
 ```yaml
-mode: "mvp"          # "mvp" | "production-ready" | "no-compromise" (see Mode Comparison)
-strategy: "co-pilot"  # "auto-pilot" | "co-pilot" | "micro-manage" (see Strategy Comparison)
+mode: "mvp"              # "mvp" | "production-ready" | "no-compromise" (see Mode Comparison)
+strategy: "co-pilot"      # "auto-pilot" | "co-pilot" | "micro-manage" (see Strategy Comparison)
+orchestration: "agent-teams"  # "agent-teams" (default) | "tmux" (see Orchestration Backends)
 ```
 
 ### `cost` -- Budget limits
@@ -173,7 +191,8 @@ usage_limits:
 
 ## Agent Roster and Team Profiles
 
-Each agent runs in its own Claude Code session inside a dedicated tmux window.
+Each agent runs in its own Claude Code session. In Agent Teams mode, agents are
+spawned as subagents. In tmux mode, each runs in a dedicated tmux window.
 
 ### Lean Team (8 agents) -- Default for MVP
 
@@ -290,24 +309,35 @@ All strategies monitor `shared/.human/override.md` -- you can always intervene.
 
 You can intervene in any mode, including Auto Pilot, at any time.
 
-**`./forge tell`** -- send a directive without entering tmux:
+**Direct interaction** (interactive mode) -- just type in the session:
+```
+> What's the status?
+> Focus on the payment service, deprioritize admin panel
+> Switch to production-ready mode
+```
+
+**Slash commands** -- structured operations:
+```
+/forge-status                    # Show iteration, agents, tasks, cost
+/forge-cost                      # Detailed cost breakdown
+/forge-mode production-ready     # Switch mode
+/forge-snapshot                  # Save state without stopping
+/forge-stop                      # Graceful shutdown
+```
+
+**`./forge tell`** -- send a directive from another terminal:
 ```bash
 ./forge tell "Switch to production-ready mode"
-./forge tell "Focus on the payment service, deprioritize admin panel"
 ./forge tell "Pause all work"
 ```
 The message is written to `shared/.human/override.md` and processed at the next
 task boundary.
 
-**`./forge attach`** -- enter the Team Leader's interactive tmux session:
+**`./forge attach`** (tmux mode only) -- enter the Team Leader's tmux session:
 ```bash
 ./forge attach
-# Type naturally: "What's the status?", "Stop for today", etc.
 # Ctrl+B then D to detach without stopping.
 ```
-
-**Direct file edit** -- write to `shared/.human/override.md` with any editor.
-Useful for scripted interventions.
 
 ---
 
@@ -315,28 +345,28 @@ Useful for scripted interventions.
 
 ### Three ways to stop
 
-1. **Talk to the Team Leader.** Type "Stop for today" in the interactive session.
+1. **`/forge-stop` slash command.** In the interactive session, saves state and
+   captures a snapshot. The session ends cleanly.
+2. **Talk to the Team Leader.** Type "Stop for today" in the interactive session.
    It coordinates graceful shutdown, saves a snapshot, and confirms completion.
-2. **`./forge stop`.** Same graceful shutdown from outside tmux. Agents finalize
+3. **`./forge stop`.** Graceful shutdown from outside (tmux mode). Agents finalize
    working memory, checkpoint-commit, release locks, and set status to `suspended`.
-3. **`./forge tell "stop for today"`.** Via the override channel.
-
-Agents receive `PREPARE_SHUTDOWN` and get a grace period (default: 60s) to finalize.
 
 ### Resuming
 
 ```bash
+./forge
+# The generated CLAUDE.md includes resume context from the latest snapshot.
+# The Team Leader offers to resume from where you left off.
+```
+
+For tmux mode:
+```bash
 ./forge start
 # [Forge] Found previous session from 2025-07-15 18:30
 # [Forge]   Iteration: 3 (phase: EXECUTE)
-# [Forge]   Agents: 5 active | Cost: $12.50 / $50.00
 # [Forge]   Resume? [Y/n/fresh]
 ```
-
-- **Y** (default): resume from where you left off.
-- **n**: exit without starting.
-- **fresh**: archive snapshot and start new session.
-- Specific snapshot: `./forge start --snapshot path/to/snapshot.json`
 
 ### What snapshots contain
 
@@ -344,6 +374,40 @@ Snapshots capture iteration number and phase, agent roster with status and worki
 memory references, cost tracking totals, decision log state, dependency graph, and
 configuration. Stored in `shared/.snapshots/` with retention controlled by
 `session.snapshot_retention` (default: 5).
+
+---
+
+## Orchestration Backends
+
+Forge supports two orchestration backends with identical UX. The backend is set via
+`orchestration` in `team-config.yaml` or overridden with `--tmux` / `--agent-teams` flags.
+
+### Agent Teams (default)
+
+Uses Claude Code's native Agent Teams for spawning subagents, task management, and
+inter-agent communication. Agents are spawned as subagents of the Team Leader's
+interactive session.
+
+**Advantages:** native integration, no tmux dependency, simpler setup.
+
+### tmux
+
+Uses tmux windows with file-based messaging (`shared/.queue/`). Each agent runs in
+its own tmux window with an isolated Claude Code instance.
+
+**Advantages:** works everywhere, full process isolation, inspectable via `./forge attach`.
+
+### Choosing a Backend
+
+| Consideration | Agent Teams | tmux |
+|--------------|------------|------|
+| Setup complexity | Minimal | Requires tmux |
+| Agent visibility | Via `/forge-status` | tmux windows + status files |
+| Process isolation | Claude Code managed | OS-level (tmux) |
+| Debugging | Agent Teams logs | `./forge attach`, `./forge logs` |
+| Fallback | -- | Available everywhere |
+
+The `/forge-status` command works identically regardless of backend.
 
 ---
 
@@ -359,8 +423,8 @@ Behavior, Memory, Artifacts). Add the name to `agents.additional` or use
 take effect on next spawn. For mid-session changes, stop and restart the agent.
 
 **Runtime changes:** Tell the Team Leader "Spin up another backend developer" or
-"Kill the frontend designer." It manages lifecycle via `scripts/spawn-agent.sh`
-and `scripts/kill-agent.sh`.
+"Kill the frontend designer." It manages lifecycle via the active orchestration
+backend (Agent Teams subagents or `scripts/spawn-agent.sh` / `scripts/kill-agent.sh`).
 
 **Switching profiles:** Tell the Team Leader "Switch to full team" or change
 `agents.team_profile` in config and restart.
@@ -446,8 +510,8 @@ forge directory without setting a separate workspace. Delete the generated files
 either set `project.directory` in config or run `./forge start --project-dir /path/to/workspace`.
 
 **Session will not start:** Run `./forge setup` to re-validate. Common issues:
-`claude` CLI not on PATH, `tmux` or `yq` not installed, scripts not executable
-(`chmod +x forge scripts/*.sh`).
+`claude` CLI not on PATH, `yq` not installed, scripts not executable
+(`chmod +x forge scripts/*.sh`). For tmux mode, also ensure `tmux` is installed.
 
 **Usage limits hit:** Agents auto-execute the `LIMIT_SAVE` protocol: save work, update
 memory, set status to `rate-limited`. The watchdog auto-resumes after the estimated
@@ -458,8 +522,9 @@ state coherently.
 only. Values are stored in `shared/.secrets/vault.env` (git-ignored). Check
 `shared/.logs/` and git history if you suspect a leak.
 
-**tmux issues:** No session found -- run `./forge start` first. Cannot detach --
-press `Ctrl+B` then `D`. Sessions are prefixed `forge-` (`tmux list-sessions`).
+**tmux issues (tmux mode only):** No session found -- run `./forge start` first.
+Cannot detach -- press `Ctrl+B` then `D`. Sessions are prefixed `forge-`
+(`tmux list-sessions`).
 
 ---
 
@@ -501,8 +566,9 @@ Critic (quality). In Production Ready+, Security Tester reviews for vulnerabilit
 Feedback becomes corrective tasks for the authoring agent.
 
 **Git workflow.** Agents work on `agent/{agent-name}/{task-id}` branches. Only the
-Team Leader merges to main. File locks (`shared/.locks/`) prevent simultaneous edits.
-Verified iterations are tagged: `git tag iteration-{N}-verified`.
+Team Leader merges to main. File contention is managed per the orchestration backend
+(Agent Teams natively, or `shared/.locks/` in tmux mode). Verified iterations are
+tagged: `git tag iteration-{N}-verified`.
 
 ---
 

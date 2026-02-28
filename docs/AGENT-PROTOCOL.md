@@ -2,7 +2,9 @@
 
 ## Overview
 
-Forge agents communicate through a **file-based protocol**. All agents share the same filesystem. There are no databases, no network sockets, no HTTP APIs — just files written with atomic operations. Every coordination primitive (message queues, status signals, locks, decisions) is a file or directory under `shared/`.
+Forge agents communicate through a **file-based protocol** regardless of orchestration backend (Agent Teams or tmux). All agents share the same filesystem. There are no databases, no network sockets, no HTTP APIs -- just files written with atomic operations. Every coordination primitive (message queues, status signals, file contention guards, decisions) is a file or directory under `shared/`.
+
+This protocol is **backend-agnostic**: whether agents run as sub-agents in Agent Teams mode or as separate processes in tmux windows, they use the same message queue, status files, memory files, and atomic write patterns described here.
 
 ## Message Queue System
 
@@ -122,7 +124,9 @@ Location: `shared/.artifacts/registry.json`
 
 **Registration:** After producing an artifact, acquire the registry lock, append an entry, release the lock. **Dependency declaration:** Populate `dependencies` with every file the artifact relies on. **Change notification:** When an artifact is modified, send a `dependency-change` message to every agent in `consumers`.
 
-## File Locking
+## File Contention
+
+Forge uses lightweight lock files to prevent concurrent edits to shared resources. In Agent Teams mode, contention is less frequent since sub-agents are coordinated by Claude Code, but the protocol still applies for safety. In tmux mode, where agents run as independent processes, contention guards are essential.
 
 Lock location: `shared/.locks/{md5-hash-of-filepath}.lock`
 
@@ -162,6 +166,8 @@ Stop all work on the payments module. Pivot to fixing the auth bug in issue #42.
 | `abort` | Terminate all agents immediately |
 
 **Monitoring:** Every agent must check this file at the start of each iteration and before any status transition. If `timestamp` is newer than the agent's last check, parse and obey before continuing.
+
+**Directive handling:** Agents follow the directive handling protocol defined in `_base-agent.md` Section 10. When a directive arrives, the agent must acknowledge receipt, evaluate whether the directive conflicts with current work, and either comply immediately or escalate to the Team Leader if compliance would violate safety constraints or quality standards. In interactive CLI mode, directives can also be issued via slash commands (e.g., `/forge-tell`).
 
 ## Structured Logging
 
