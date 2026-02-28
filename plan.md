@@ -34,6 +34,21 @@ fixed several critical bugs. See `CHANGELOG.md` for the full list.
 8. Strategy-based permission modes not passed to Claude Code CLI
 9. Auto-pilot Team Leader running in interactive mode instead of headless
 
+### Quality Improvements After Testing Output Software
+
+E2E testing revealed that agents could produce code that passed unit tests but
+didn't work from the user's perspective (e.g., server starts but endpoints hang,
+UI loads but interactions fail). Added:
+
+- **Smoke Test Protocol** in `team-leader.md` — mandatory verification that the
+  application starts, endpoints respond, UI functions, and integrations work
+- **Output Verification Mandate** in `_base-agent.md` — universal rule that
+  every agent must verify their code runs, not just that tests pass
+- **MVP developer testing** — backend and frontend developers must start the
+  server and verify real HTTP responses before marking tasks done
+- **Lean team fallback** — Team Leader acts as QA when QA Engineer is not in
+  the team profile
+
 ---
 
 ## Goal

@@ -61,10 +61,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `config/project-requirements.md` for an MVP chatbot with FastAPI backend,
   HTML/JS frontend, and llm-gateway local-claude integration.
 
+- **Smoke Test Protocol for Team Leader** — Added a mandatory Smoke Test
+  Protocol section to `team-leader.md`. Before marking any iteration complete,
+  the Team Leader must start the application, test endpoints with real HTTP
+  requests, verify the UI loads and functions, and test integrations end-to-end.
+  This is non-negotiable in all modes. In MVP without QA Engineer, the Team
+  Leader is personally responsible for smoke testing.
+
+- **Output Verification Mandate (_base-agent.md Section 14)** — New universal
+  rule: every agent that produces runnable code must verify it actually runs.
+  Passing unit tests is necessary but NOT sufficient. Agents must start the
+  application and exercise their feature before marking work as done.
+
+- **MVP testing enforcement for developers** — `backend-developer.md` and
+  `frontend-developer.md` now explicitly require starting the server and
+  verifying endpoints/UI respond correctly before marking tasks done. Unit
+  tests alone are no longer sufficient even in MVP mode.
+
+- **Lean team TEST phase fallback** — Team Leader's TEST phase now has
+  explicit instructions for when QA Engineer is not in the team: developer
+  agents run their own tests, then Team Leader executes the Smoke Test
+  Protocol as QA fallback.
+
 ### Changed
 
 - **team-config.yaml** — Updated with MVP chatbot description and tech stack
   preferences (Python, FastAPI, Docker) for end-to-end testing.
+
+- **_base-agent.md section numbering** — Inserted Section 14 (Output
+  Verification Mandate). Sections 14-20 shifted to 15-21. Updated all
+  cross-references in agent files.
 
 ## [0.1.0] — 2026-02-28
 

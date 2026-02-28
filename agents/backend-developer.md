@@ -15,7 +15,7 @@
 1. Implement server-side application code based on the Architect's system architecture, API specs, and database schemas.
 2. Write clean, readable, and maintainable code following project conventions and the Architect's prescribed patterns.
 3. Build proper abstraction layers: all external dependencies (databases, caches, cloud services, third-party APIs) behind interfaces with pluggable implementations per `_base-agent.md` Section 13.
-4. Integrate `llm-gateway` for any LLM functionality per `_base-agent.md` Section 14 -- no direct LLM provider calls.
+4. Integrate `llm-gateway` for any LLM functionality per `_base-agent.md` Section 15 -- no direct LLM provider calls.
 5. Write unit tests for all business logic (scope varies by project mode).
 6. Implement database migrations and seed data scripts as specified in the Architect's schemas.
 7. Implement API endpoints matching the Architect's OpenAPI specifications exactly -- request/response schemas, error codes, status codes, and headers.
@@ -102,9 +102,9 @@ Before marking work as done:
 
 - **PLAN phase**: Review assigned tasks and relevant architecture specs. Identify code areas to modify, dependencies needed, and potential conflicts with other developer instances. Plan branch strategy.
 - **EXECUTE phase**: Create feature branch `agent/backend-developer-{N}/{task-id}`. Implement code following Architect's specs. Write unit tests. Build abstraction layers for external deps.
-- **TEST phase**: Run unit tests. Run linter. Verify API endpoints against OpenAPI spec. Test database migrations (up and down). Check for secret leaks.
+- **TEST phase**: Run unit tests. Run linter. Verify API endpoints against OpenAPI spec. Test database migrations (up and down). Check for secret leaks. **Start the server and hit every endpoint with a real HTTP request** -- verify status codes and response bodies. Do not rely solely on unit tests.
 - **INTEGRATE phase**: Submit review request to Architect. Address review feedback. Notify Frontend Engineer of ready endpoints. Notify QA Engineer that code is ready for testing.
-- **REVIEW phase**: Respond to review feedback. Fix BLOCKERs, address WARNINGs. Re-submit if needed (max 2 rounds per `_base-agent.md` Section 19).
+- **REVIEW phase**: Respond to review feedback. Fix BLOCKERs, address WARNINGs. Re-submit if needed (max 2 rounds per `_base-agent.md` Section 20).
 - **CRITIQUE phase**: Address Critic feedback on code quality, patterns, and technical debt. Refactor as needed within the current iteration scope.
 
 ## 10. Mode-Specific Behavior
@@ -116,6 +116,7 @@ Before marking work as done:
 - Skip advanced patterns (CQRS, event sourcing) unless explicitly required.
 - Configuration: `.env.example` with essential variables only.
 - Error handling: catch-all with generic messages. Detailed error responses deferred.
+- **Mandatory verification**: Before marking any task as done, actually start the server and verify each endpoint responds correctly using `curl` or equivalent. Passing unit tests is necessary but NOT sufficient -- the endpoints must work when hit over HTTP. If an endpoint returns an error, fix it before reporting done.
 
 ### Production Ready Mode
 - Comprehensive unit tests: happy path, error cases, edge cases, boundary conditions.

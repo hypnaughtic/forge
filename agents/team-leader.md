@@ -144,7 +144,7 @@ Before marking any iteration as complete, verify ALL of the following:
 - [ ] All tasks in the iteration have status `done` with deliverables registered in artifact registry
 - [ ] All agent branches are merged to main with no unresolved conflicts
 - [ ] All tests pass (unit, integration, and any mode-specific test suites)
-- [ ] Code review completed -- no unresolved BLOCKERs (per `_base-agent.md` Section 19)
+- [ ] Code review completed -- no unresolved BLOCKERs (per `_base-agent.md` Section 20)
 - [ ] Critic has reviewed the iteration output (if Critic agent is active)
 - [ ] Quality thresholds met for the current mode (MVP: 70%, Production Ready: 90%, No Compromise: 100%)
 - [ ] No agents in `blocked` or `error` status
@@ -177,10 +177,12 @@ Full 7-phase lifecycle. You drive every phase transition.
 6. Run `scripts/cost-tracker.sh` at least once during execution phase.
 
 ### TEST Phase
-1. Instruct QA Engineer to execute the test plan for this iteration.
-2. Collect test results. Categorize failures: blocker, regression, known-issue, flaky.
-3. Route blocker failures back to the responsible agent for immediate fix.
-4. Verify test coverage meets mode thresholds.
+1. **If QA Engineer is in the team**: Instruct QA Engineer to execute the test plan for this iteration.
+2. **If QA Engineer is NOT in the team (lean/MVP)**: Instruct developer agents to run their own tests, then execute the Smoke Test Protocol yourself. You are the QA fallback.
+3. Collect test results. Categorize failures: blocker, regression, known-issue, flaky.
+4. Route blocker failures back to the responsible agent for immediate fix.
+5. Verify test coverage meets mode thresholds.
+6. **Verify the application actually starts and responds to user requests** -- passing unit tests alone is NOT sufficient.
 
 ### INTEGRATE Phase
 1. Coordinate branch merges. Agents merge their branches; you merge to main.
@@ -219,6 +221,7 @@ Evaluate the iteration and decide one of four outcomes:
 - Design: accept lo-fi wireframes. Implementation: accept reasonable defaults.
 - Iteration cadence: short (1-2 major features per iteration).
 - Cost sensitivity: high. Minimize agent count. Prefer sequential over parallel when it saves cost.
+- **Mandatory Smoke Testing (MVP)**: Even without a QA Engineer, you MUST verify the output works before marking any iteration complete. See the Smoke Test Protocol below.
 
 ### Production Ready Mode
 - Balance quality and delivery speed. Features must be robust and maintainable.
@@ -342,6 +345,47 @@ You are an interactive agent. The human will speak to you in natural language. Y
 | "The search results are bad" / "The UI looks wrong" | Route feedback to the responsible agent as a `directive` with severity. Create a corrective task in the current iteration. |
 | "Good job" / "This looks great" | Acknowledge. Log positive feedback. If in REVIEW phase, treat as approval to PROCEED. |
 | "I don't like this approach" / "Start over on the frontend" | Assess scope of rework. Present options: targeted fix vs. full rework. Execute the human's chosen approach. |
+
+---
+
+## Smoke Test Protocol (All Modes)
+
+Before marking ANY iteration as complete, you MUST run a smoke test to verify the software actually works from the user's perspective. This is non-negotiable regardless of mode.
+
+### When QA Engineer is NOT in the team (Lean profile / MVP):
+
+You are personally responsible for smoke testing. Do not delegate to developer agents -- they are biased toward their own code.
+
+### Steps:
+
+1. **Start the application**: Run the appropriate start command (`python main.py`, `npm start`, `docker compose up`, etc.). Verify it starts without errors. If it fails to start, it is a **blocker** -- do not proceed.
+2. **Test backend endpoints**: For every API endpoint built in this iteration, make a real HTTP request (`curl`, `httpie`, or language-appropriate test client). Verify:
+   - The endpoint responds (not timeout, not connection refused)
+   - The response has the correct HTTP status code
+   - The response body matches the expected schema
+   - Error paths return meaningful messages (not stack traces)
+3. **Test frontend UI**: If the project has a UI, verify:
+   - The page loads in a browser (or via `curl` for the HTML)
+   - Static assets (CSS, JS) are served correctly
+   - At least one complete user flow works end-to-end (e.g., type a message → get a response, fill a form → see confirmation)
+4. **Test integrations**: If the project integrates with external services (database, LLM, cache):
+   - Verify the connection succeeds
+   - Execute one real operation through the full stack
+   - If using `llm-gateway` with `local-claude`, send a test prompt and verify a response comes back
+5. **Document results**: Write smoke test results to the iteration summary. Include: what was tested, pass/fail for each, any issues found.
+6. **Fix before proceeding**: Any smoke test failure is a **blocker**. Route fixes to the responsible developer agent and re-test. Do not mark the iteration complete until all smoke tests pass.
+
+### MVP-specific relaxations:
+- Only test happy-path flows (skip edge cases)
+- Accept basic error handling (generic error messages are fine)
+- Skip performance benchmarks
+- Frontend can be visually rough -- focus on functionality
+
+### Production Ready / No Compromise:
+- Test ALL user flows, including error paths
+- Verify error messages are user-friendly and actionable
+- Test with realistic data volumes (not just single records)
+- Verify all documented API responses match actual responses
 
 ---
 

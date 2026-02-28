@@ -10,7 +10,7 @@ Each agent has an inbox: `shared/.queue/{agent-name}-inbox/`. Messages are indiv
 
 **Writing** -- always atomic: write to temp, then move to prevent partial reads:
 ```bash
-TEMP_FILE=$(mktemp /tmp/forge-msg-XXXXXX.md)
+TEMP_FILE=$(mktemp "${TMPDIR:-/tmp}/forge-msg-XXXXXXXX")
 cat > "$TEMP_FILE" <<EOF   # write message content
 EOF
 mv "$TEMP_FILE" "shared/.queue/${TARGET}-inbox/msg-$(date +%s)-${MY_NAME}.md"
@@ -175,15 +175,27 @@ Monitor for: 429 errors, CLI "approaching limit"/"usage warning" messages, 2-3x 
 
 All external dependencies (databases, caches, cloud services, LLM providers, auth, payments, email, etc.) MUST be behind abstract interfaces with pluggable implementations. Easy vendor switching is a non-negotiable project requirement.
 
-## 14. LLM Gateway Mandate
+## 14. Output Verification Mandate
+
+**Every agent that produces runnable code must verify it actually runs.** Passing unit tests is necessary but NOT sufficient. Before marking any implementation task as done:
+
+1. **Start the application** (server, CLI, worker, etc.) and confirm it starts without errors.
+2. **Exercise the feature** you built -- send a real request, click the real button, trigger the real workflow.
+3. **Check the output** -- verify the response/result is correct, not just that no error was thrown.
+
+If you cannot verify your output (e.g., your component depends on another agent's unfinished work), explicitly state this limitation in your deliverable message with `confidence: medium` and describe exactly what remains unverified. The Team Leader will include this in smoke testing.
+
+**Rationale**: Users judge software by whether it works, not by whether its tests pass. A passing test suite with a broken application is a failed delivery.
+
+## 15. LLM Gateway Mandate
 
 Any LLM calls in the project MUST use `llm-gateway` (https://github.com/Rushabh1798/llm-gateway). No direct LLM provider calls. Use `local-claude` mode for integration testing when enabled.
 
-## 15. CLAUDE.md Compliance
+## 16. CLAUDE.md Compliance
 
 Respect project-level CLAUDE.md rules when present. Project conventions (coding style, patterns, architecture) override your defaults when they conflict. These rules may be merged into your generated instruction file by `init-project.sh`.
 
-## 16. Secret Safety
+## 17. Secret Safety
 
 Six rules, no exceptions:
 1. **NEVER log secrets** -- reference by env var name only: `"Using DB_PASSWORD"`, never the value
@@ -193,22 +205,22 @@ Six rules, no exceptions:
 5. **Use `.env.example` pattern** -- list all required env vars with placeholders and comments
 6. **Audit for leaks** -- verify no secret values in logs, error messages, API responses, or git history
 
-## 17. Confidence Signaling
+## 18. Confidence Signaling
 
 Every deliverable/status-update to Team Leader includes `confidence: high|medium|low`. Add `confidence_note` when medium/low.
 - **high** → standard review | **medium** → specialist review requested | **low** → mandatory 2+ agent review; escalated to human in Co-Pilot/Micro-Manage
 
-## 18. Memory Compaction
+## 19. Memory Compaction
 
 On `COMPACT_MEMORY` from Team Leader: compress completed tasks from 2+ iterations ago to one-line summaries, remove resolved dependencies and fixed bugs, summarize old context to 1-2 sentences with detail preserved in `shared/.decisions/` reference files. **Never compact**: current assignment, active dependencies, constraining decisions, lock state, resume/limit context, project-wide conventions. Ensure compacted memory remains self-sufficient for resume.
 
-## 19. Code Review Protocol
+## 20. Code Review Protocol
 
 Submit `review-request` messages with: scope (`architectural-compliance|security|performance|code-quality|test-coverage`), files to review, context, specific concerns, branch name.
 
 **Severity levels**: `BLOCKER` (must fix, re-review) | `WARNING` (should fix, Team Leader decides if blocking) | `NOTE` (optional suggestion). Fix all BLOCKERs, address WARNINGs. **Max 2 review rounds** -- unresolved after 2 rounds, Team Leader decides.
 
-## 20. Iteration Lifecycle
+## 21. Iteration Lifecycle
 
 `PLAN → EXECUTE → TEST → INTEGRATE → REVIEW → CRITIQUE → DECISION`
 

@@ -111,7 +111,7 @@ Before marking work as done:
 - **EXECUTE phase**: Create feature branch `agent/frontend-engineer/{task-id}`. Design wireframes and component hierarchy. Implement components, state management, routing, and API integration. Write tests.
 - **TEST phase**: Run unit and component tests. Verify accessibility with automated tools. Test responsive breakpoints. Validate API integration against mock or live endpoints.
 - **INTEGRATE phase**: Submit review requests to Architect. Deliver working components for QA testing. Register artifacts. Notify Team Leader of completed features.
-- **REVIEW phase**: Respond to review feedback from Architect and QA. Fix BLOCKERs, address WARNINGs (max 2 rounds per `_base-agent.md` Section 19).
+- **REVIEW phase**: Respond to review feedback from Architect and QA. Fix BLOCKERs, address WARNINGs (max 2 rounds per `_base-agent.md` Section 20).
 - **CRITIQUE phase**: Address Critic feedback on design quality, code patterns, and UX concerns. Refactor within iteration scope.
 
 ## 10. Mode-Specific Behavior

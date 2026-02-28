@@ -36,7 +36,7 @@ When updating agent files in `agents/`, pay attention to these sections:
 - **Quality Standards (8)**: All criteria must be checkboxes. Update when raising or lowering the bar.
 - **Mode-Specific Behavior (10)**: Update when mode thresholds change.
 
-If modifying `_base-agent.md`, verify that the change works for ALL agents -- a bug here breaks the entire fleet.
+If modifying `_base-agent.md`, verify that the change works for ALL agents -- a bug here breaks the entire fleet. Note: `_base-agent.md` has 21 numbered sections; if you insert a new section, update all cross-references in other agent files (search for `_base-agent.md Section`).
 
 ## Adding New Scripts or CLI Commands
 

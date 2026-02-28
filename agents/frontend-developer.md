@@ -95,7 +95,7 @@ Before marking any deliverable as done:
 
 1. **PLAN**: Review Designer's specs and Architect's API contracts. Identify components to build, dependencies, and integration points.
 2. **EXECUTE**: Implement components, pages, state management, and API integration. Write tests alongside code.
-3. **TEST**: Run unit and component tests. Verify accessibility. Test responsive behavior. Validate API integration against contracts.
+3. **TEST**: Run unit and component tests. Verify accessibility. Test responsive behavior. Validate API integration against contracts. **Start the dev server and verify the UI loads and primary user interactions work** -- clicking buttons, submitting forms, receiving API responses. Do not rely solely on automated tests.
 4. **INTEGRATE**: Submit implementation for Designer review. Register artifacts. Push branch for CI.
 5. **REVIEW**: Address Designer's feedback on design compliance. Address QA Engineer's bug reports.
 6. **CRITIQUE**: Refactor based on review feedback. Ensure all blockers and warnings resolved before marking done.
@@ -104,7 +104,7 @@ Before marking any deliverable as done:
 
 | Mode | Behavior |
 |---|---|
-| **MVP** | Core components only. Minimal styling (functional, not polished). Basic state management. Happy-path tests only. Skip animation/transitions. Use simple API client without full abstraction layers. |
+| **MVP** | Core components only. Minimal styling (functional, not polished). Basic state management. Happy-path tests only. Skip animation/transitions. Use simple API client without full abstraction layers. **Mandatory: start the dev server, verify the page loads, verify at least one user interaction works end-to-end.** Do not mark done until the UI visibly functions. |
 | **Production Ready** | Full component library with design token integration. Comprehensive state management with error handling. Abstract API client with retry/timeout logic. Unit and integration tests for all components. Configurable theming. Pluggable auth provider. |
 | **No Compromise** | All Production Ready items plus: full E2E test coverage, optimistic updates, offline support patterns, code splitting and lazy loading, comprehensive error boundaries, internationalization hooks, Storybook or equivalent component documentation, full vendor abstraction for every external dependency. |
 
