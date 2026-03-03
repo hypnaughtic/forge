@@ -12,3 +12,4 @@ globs:
   - "README.md"
   - "CHANGELOG.md"
   - ".claude/commands/*.md"
+  - "skills/**/*.md"

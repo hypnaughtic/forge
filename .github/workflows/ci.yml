@@ -15,7 +15,7 @@ jobs:
       - name: Install shellcheck
         run: sudo apt-get install -y shellcheck
       - name: Run shellcheck
-        run: shellcheck --severity=warning forge setup.sh scripts/*.sh
+        run: shellcheck --severity=warning forge setup.sh scripts/*.sh scripts/cockpit/*.sh
 
   lint-yaml:
     name: Lint YAML
@@ -35,7 +35,7 @@ jobs:
       - name: Install markdownlint-cli2
         run: npm install -g markdownlint-cli2
       - name: Run markdownlint
-        run: markdownlint-cli2 "docs/**/*.md" "README.md" "CHANGELOG.md" ".claude/commands/*.md"
+        run: markdownlint-cli2 "docs/**/*.md" "README.md" "CHANGELOG.md" ".claude/commands/*.md" "skills/**/*.md"
 
   test-unit:
     name: Unit Tests (${{ matrix.os }})

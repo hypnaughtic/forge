@@ -85,25 +85,25 @@ teardown() {
 }
 
 @test "forge tell with message creates override.md" {
-    run bash "$FORGE_DIR/forge" tell "Switch to production mode"
+    run bash "$FORGE_DIR/forge" tell "Please redesign the database schema"
     assert_success
 
     local override_file="${SHARED_DIR}/.human/override.md"
     assert_file_exist "$override_file"
 
     run cat "$override_file"
-    assert_output --partial "Switch to production mode"
+    assert_output --partial "Please redesign the database schema"
     assert_output --partial "timestamp:"
     assert_output --partial "type: directive"
 }
 
 @test "forge tell writes message content into override.md body" {
-    run bash "$FORGE_DIR/forge" tell "Pause all work immediately"
+    run bash "$FORGE_DIR/forge" tell "Prioritize the login feature"
     assert_success
 
     local override_file="${SHARED_DIR}/.human/override.md"
     run cat "$override_file"
-    assert_output --partial "Pause all work immediately"
+    assert_output --partial "Prioritize the login feature"
     assert_output --partial "## Directive"
 }
 

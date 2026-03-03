@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify VERSION file matches tag
+        run: |
+          file_version=$(cat VERSION | tr -d '[:space:]')
+          tag_version="${{ steps.version.outputs.version }}"
+          if [[ "$file_version" != "$tag_version" ]]; then
+            echo "ERROR: VERSION file ($file_version) does not match tag ($tag_version)"
+            exit 1
+          fi
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          # Extract changelog section for this version
+          VERSION="${{ steps.version.outputs.version }}"
+          NOTES=$(awk "/^## .*${VERSION}/,/^## /" CHANGELOG.md | head -n -1 || echo "Release v${VERSION}")
+          echo "notes<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$NOTES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Create tarball
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          tar czf "forge-${VERSION}.tar.gz" \
+            --exclude='.git' \
+            --exclude='shared' \
+            --exclude='tests' \
+            --exclude='__pycache__' \
+            --exclude='.env' \
+            --exclude='node_modules' \
+            forge setup.sh scripts/ agents/ templates/ skills/ \
+            .claude-plugin/ .claude/ config/ docs/ \
+            VERSION LICENSE README.md CHANGELOG.md Makefile
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body: ${{ steps.notes.outputs.notes }}
+          files: forge-*.tar.gz
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

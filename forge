@@ -7,11 +7,12 @@
 # Usage: ./forge [options] [command] [command-options]
 set -euo pipefail
 
-FORGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FORGE_DIR="${FORGE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 SCRIPTS_DIR="${FORGE_DIR}/scripts"
 SHARED_DIR="${FORGE_DIR}/shared"
 CONFIG_FILE="${FORGE_DIR}/config/team-config.yaml"
 SNAPSHOTS_DIR="${SHARED_DIR}/.snapshots"
+VERSION_FILE="${FORGE_DIR}/VERSION"
 
 # Colors for output
 RED='\033[0;31m'
@@ -26,6 +27,15 @@ NC='\033[0m' # No Color
 log_info()  { echo -e "${GREEN}[Forge]${NC} $*"; }
 log_warn()  { echo -e "${YELLOW}[Forge]${NC} $*"; }
 log_error() { echo -e "${RED}[Forge]${NC} $*" >&2; }
+
+# --- Version ---
+get_version() {
+    if [[ -f "$VERSION_FILE" ]]; then
+        tr -d '[:space:]' < "$VERSION_FILE"
+    else
+        echo "dev"
+    fi
+}
 
 # --- Pre-flight checks ---
 check_claude_installed() {
@@ -46,10 +56,12 @@ check_config_exists() {
 
 # --- Banner ---
 print_banner() {
+    local version
+    version="$(get_version)"
     echo -e "${CYAN}"
-    echo "  ╔═══════════════════════════════════╗"
-    echo "  ║     Forge — AI Software Forge     ║"
-    echo "  ╚═══════════════════════════════════╝"
+    echo "  ╔═══════════════════════════════════════╗"
+    printf "  ║   Forge — AI Software Forge v%-8s ║\n" "$version"
+    echo "  ╚═══════════════════════════════════════╝"
     echo -e "${NC}"
 }
 
@@ -59,10 +71,12 @@ print_interactive_banner() {
     local strategy="$3"
     local orchestration="$4"
     local cost_cap="$5"
+    local version
+    version="$(get_version)"
 
     echo -e "${CYAN}"
     echo "  ╔═══════════════════════════════════════════╗"
-    echo "  ║         Forge — AI Software Forge         ║"
+    printf "  ║     Forge — AI Software Forge v%-9s ║\n" "$version"
     echo "  ╠═══════════════════════════════════════════╣"
     printf "  ║  Project: %-31s ║\n" "${project_name:0:31}"
     printf "  ║  Mode: %-7s │ Strategy: %-14s ║\n" "$mode" "$strategy"
@@ -77,28 +91,37 @@ usage() {
     echo "Usage: ./forge [options] [command] [command-options]"
     echo ""
     echo -e "${BOLD}Interactive mode (default):${NC}"
-    echo "  forge                         Launch interactive session (talk to Team Leader)"
+    echo "  forge                         Launch cockpit dashboard + interactive session"
+    echo "  forge --no-cockpit            Launch plain session (no tmux dashboard)"
     echo "  forge --tmux                  Force tmux orchestration backend"
     echo "  forge --agent-teams           Force Agent Teams orchestration backend"
     echo ""
-    echo -e "${BOLD}Subcommands (scripting/CI):${NC}"
+    echo -e "${BOLD}Commands:${NC}"
     echo "  setup                         One-time setup: validate deps, install prerequisites"
     echo "  init                          Interactive project setup (generates config + requirements)"
     echo "  start [--project-dir <path>] [--snapshot <path>]  Start tmux-based session"
     echo "  stop [--pause]                Graceful shutdown with state snapshot"
     echo "  status                        Show all agent statuses, iteration progress, costs"
     echo "  cost                          Show cost breakdown by agent"
-    echo "  tell \"<message>\"              Send natural language command to Team Leader"
+    echo "  team [agent-name]             Show detailed per-agent view"
+    echo "  ask \"<message>\"               Send message to Team Leader (smart NL routing)"
+    echo "  guide <agent> \"<message>\"     Direct a specific agent via Team Leader"
+    echo "  mode <value>                  Switch project mode (mvp/production-ready/no-compromise)"
+    echo "  strategy <value>              Switch execution strategy (auto-pilot/co-pilot/micro-manage)"
+    echo "  tell \"<message>\"              Send command to Team Leader (deprecated: use 'ask')"
     echo "  attach                        Attach to Team Leader's tmux session"
     echo "  logs [--agent <name>] [--tail] View combined agent logs"
+    echo "  --version                     Show version"
     echo ""
     echo "Examples:"
-    echo "  ./forge                              # Interactive session (recommended)"
-    echo "  ./forge --tmux                       # Interactive with tmux backend"
-    echo "  ./forge setup                        # First-time setup"
-    echo "  ./forge init                         # Interactive project config wizard"
-    echo "  ./forge start                        # Start tmux-based session"
-    echo "  ./forge stop                         # Graceful shutdown + snapshot"
+    echo "  ./forge                                          # Cockpit dashboard (recommended)"
+    echo "  ./forge --no-cockpit                             # Plain interactive session"
+    echo "  ./forge ask \"what is the status and cost?\"       # Smart NL routing"
+    echo "  ./forge guide backend-developer \"use PostgreSQL\" # Direct an agent"
+    echo "  ./forge mode production-ready                    # Switch quality mode"
+    echo "  ./forge strategy co-pilot                        # Switch execution strategy"
+    echo "  ./forge team                                     # View all agents"
+    echo "  ./forge team backend-developer                   # Deep dive on one agent"
     echo ""
     exit 0
 }
@@ -108,11 +131,13 @@ usage() {
 # ==============================================================================
 cmd_interactive() {
     local force_backend=""
+    local no_cockpit=false
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --tmux)         force_backend="tmux"; shift ;;
             --agent-teams)  force_backend="agent-teams"; shift ;;
+            --no-cockpit)   no_cockpit=true; shift ;;
             *)              shift ;;
         esac
     done
@@ -182,14 +207,25 @@ cmd_interactive() {
         micro-manage) permission_flags="" ;;
     esac
 
-    # 9. Launch claude in the project directory
+    # 9. Launch: cockpit dashboard or plain session
     echo ""
+    cd "$project_dir"
+
+    # Cockpit mode: tmux dashboard with auto-refreshing panels + Claude session
+    if ! $no_cockpit && command -v tmux &>/dev/null; then
+        log_info "Launching cockpit dashboard..."
+        log_info "Use Ctrl+B then arrow keys to switch panes. Ctrl+B D to detach."
+        echo ""
+        exec bash "${SCRIPTS_DIR}/cockpit/dashboard.sh" \
+            --project-dir "$project_dir" \
+            --permission-flags "$permission_flags"
+    fi
+
+    # Plain mode (--no-cockpit or tmux unavailable)
     log_info "Launching interactive session..."
     log_info "You are now talking to the Team Leader."
     log_info "Use /forge-start to begin building, /forge-status for status."
     echo ""
-
-    cd "$project_dir"
 
     # shellcheck disable=SC2086
     exec claude $permission_flags
@@ -368,42 +404,168 @@ cmd_cost() {
     bash "${SCRIPTS_DIR}/cost-tracker.sh" --report "$@"
 }
 
-# --- Command: tell ---
-cmd_tell() {
+# --- Command: ask (replaces tell) ---
+cmd_ask() {
     if [[ "${1:-}" == "--help" || $# -eq 0 ]]; then
-        echo "Usage: ./forge tell \"<message>\""
-        echo "  Send a natural language command to the Team Leader."
-        echo "  The message is written to shared/.human/override.md."
+        echo "Usage: ./forge ask \"<message>\""
+        echo "  Send a message to the Team Leader with smart NL routing."
+        echo "  INSTANT queries (status, cost, team) are handled directly."
+        echo "  Other messages are queued for the Team Leader."
         echo ""
         echo "Examples:"
-        echo "  ./forge tell \"Switch to production-ready mode\""
-        echo "  ./forge tell \"Pause all work\""
-        echo "  ./forge tell \"What's the status of the payment service?\""
+        echo "  ./forge ask \"what is the status and cost?\"    # Instant"
+        echo "  ./forge ask \"make the UX more modern\"          # Queued for TL"
         exit 0
     fi
 
     local message="$*"
-    local override_file="${SHARED_DIR}/.human/override.md"
 
-    # Ensure the directory exists
+    # Smart routing: check if this is an instant intent
+    if [[ -x "${SCRIPTS_DIR}/nl-router.sh" ]]; then
+        local intents
+        intents=$(bash "${SCRIPTS_DIR}/nl-router.sh" "$message" 2>/dev/null || echo "ASK")
+
+        # If all intents are instant, execute directly
+        local has_async=false
+        IFS=',' read -ra intent_array <<< "$intents"
+        for intent in "${intent_array[@]}"; do
+            case "$intent" in
+                ASK|GUIDE) has_async=true ;;
+            esac
+        done
+
+        # Execute instant intents
+        for intent in "${intent_array[@]}"; do
+            case "$intent" in
+                STATUS)   cmd_status ;;
+                COST)     cmd_cost ;;
+                TEAM)     cmd_team ;;
+                SNAPSHOT) bash "${SCRIPTS_DIR}/stop.sh" --snapshot-only ;;
+                MODE)     log_info "Use './forge mode <value>' to change mode." ;;
+                STRATEGY) log_info "Use './forge strategy <value>' to change strategy." ;;
+                START)    cmd_start ;;
+                STOP)     cmd_stop ;;
+            esac
+        done
+
+        # If no async intents, we're done
+        if ! $has_async; then
+            return
+        fi
+    fi
+
+    # Queue the message for Team Leader
+    _write_override "$message" "directive"
+}
+
+# --- Command: tell (deprecated alias for ask) ---
+cmd_tell() {
+    if [[ "${1:-}" == "--help" || $# -eq 0 ]]; then
+        echo "Usage: ./forge tell \"<message>\"  (deprecated: use 'ask' instead)"
+        echo "  Send a natural language command to the Team Leader."
+        exit 0
+    fi
+
+    log_warn "Note: 'tell' is deprecated. Use 'ask' instead."
+    cmd_ask "$@"
+}
+
+# --- Command: guide ---
+cmd_guide() {
+    if [[ "${1:-}" == "--help" || $# -lt 2 ]]; then
+        echo "Usage: ./forge guide <agent-name> \"<message>\""
+        echo "  Direct a specific agent via the Team Leader."
+        echo ""
+        echo "Examples:"
+        echo "  ./forge guide backend-developer \"use PostgreSQL instead of SQLite\""
+        echo "  ./forge guide frontend-engineer \"prioritize the login page\""
+        exit 0
+    fi
+
+    local target_agent="$1"
+    shift
+    local message="$*"
+
+    _write_override "$message" "agent-directive" "$target_agent"
+    log_info "Directive sent to Team Leader targeting: ${target_agent}"
+    log_info "  \"${message}\""
+}
+
+# --- Command: mode ---
+cmd_mode() {
+    if [[ "${1:-}" == "--help" || $# -eq 0 ]]; then
+        echo "Usage: ./forge mode <mvp|production-ready|no-compromise>"
+        echo "  Switch project quality mode."
+        exit 0
+    fi
+
+    bash "${SCRIPTS_DIR}/change-mode.sh" "$@"
+}
+
+# --- Command: strategy ---
+cmd_strategy() {
+    if [[ "${1:-}" == "--help" || $# -eq 0 ]]; then
+        echo "Usage: ./forge strategy <auto-pilot|co-pilot|micro-manage>"
+        echo "  Switch execution strategy."
+        exit 0
+    fi
+
+    bash "${SCRIPTS_DIR}/change-strategy.sh" "$@"
+}
+
+# --- Command: team ---
+cmd_team() {
+    if [[ "${1:-}" == "--help" ]]; then
+        echo "Usage: ./forge team [agent-name]"
+        echo "  Show detailed per-agent view."
+        echo "  Without arguments: all agents overview."
+        echo "  With agent name: deep dive on one agent."
+        exit 0
+    fi
+
+    bash "${SCRIPTS_DIR}/team-view.sh" "$@"
+}
+
+# --- Shared: write override.md ---
+_write_override() {
+    local message="$1"
+    local msg_type="${2:-directive}"
+    local target_agent="${3:-}"
+
+    local override_file="${SHARED_DIR}/.human/override.md"
     mkdir -p "${SHARED_DIR}/.human"
 
-    # Write the override file
     local timestamp
     timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-    cat > "$override_file" <<EOF
+    if [[ -n "$target_agent" ]]; then
+        cat > "$override_file" <<EOF
 ---
 timestamp: ${timestamp}
-type: directive
+type: ${msg_type}
+target_agent: ${target_agent}
+---
+
+## Agent Directive
+
+**Target:** ${target_agent}
+
+${message}
+EOF
+    else
+        cat > "$override_file" <<EOF
+---
+timestamp: ${timestamp}
+type: ${msg_type}
 ---
 
 ## Directive
 
 ${message}
 EOF
+    fi
 
-    log_info "Message sent to Team Leader:"
+    log_info "Message queued for Team Leader:"
     log_info "  \"${message}\""
     log_info "The Team Leader will process this at the next check cycle."
 }
@@ -518,8 +680,12 @@ fi
 
 # Check if first arg is a flag (interactive mode with options)
 case "$1" in
-    --tmux|--agent-teams)
+    --tmux|--agent-teams|--no-cockpit)
         cmd_interactive "$@"
+        exit 0
+        ;;
+    --version|-V)
+        echo "Forge v$(get_version)"
         exit 0
         ;;
 esac
@@ -528,17 +694,22 @@ COMMAND="$1"
 shift
 
 case "$COMMAND" in
-    setup)    cmd_setup "$@" ;;
-    init)     cmd_init "$@" ;;
-    start)    cmd_start "$@" ;;
-    stop)     cmd_stop "$@" ;;
-    status)   cmd_status "$@" ;;
-    cost)     cmd_cost "$@" ;;
-    tell)     cmd_tell "$@" ;;
-    attach)   cmd_attach "$@" ;;
-    logs)     cmd_logs "$@" ;;
+    setup)      cmd_setup "$@" ;;
+    init)       cmd_init "$@" ;;
+    start)      cmd_start "$@" ;;
+    stop)       cmd_stop "$@" ;;
+    status)     cmd_status "$@" ;;
+    cost)       cmd_cost "$@" ;;
+    team)       cmd_team "$@" ;;
+    ask)        cmd_ask "$@" ;;
+    guide)      cmd_guide "$@" ;;
+    mode)       cmd_mode "$@" ;;
+    strategy)   cmd_strategy "$@" ;;
+    tell)       cmd_tell "$@" ;;
+    attach)     cmd_attach "$@" ;;
+    logs)       cmd_logs "$@" ;;
     --help|-h|help)
-              usage ;;
+                usage ;;
     *)
         log_error "Unknown command: $COMMAND"
         echo "Run './forge --help' for usage information."
