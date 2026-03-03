@@ -3,7 +3,7 @@ repos:
     rev: v0.10.0.1
     hooks:
       - id: shellcheck
-        files: (^forge$|\.sh$)
+        files: (^forge$|scripts/.*\.sh$|setup\.sh$)
         args: ["--severity=warning"]
 
   - repo: https://github.com/adrienverge/yamllint

@@ -39,6 +39,21 @@ create_test_environment() {
         chmod +x "${FORGE_DIR}/scripts/$(basename "$script")"
     done
 
+    # Copy cockpit scripts
+    if [[ -d "${FORGE_ROOT}/scripts/cockpit" ]]; then
+        mkdir -p "${FORGE_DIR}/scripts/cockpit"
+        for script in "${FORGE_ROOT}/scripts/cockpit/"*.sh; do
+            [[ -f "$script" ]] || continue
+            cp "$script" "${FORGE_DIR}/scripts/cockpit/"
+            chmod +x "${FORGE_DIR}/scripts/cockpit/$(basename "$script")"
+        done
+    fi
+
+    # Copy VERSION file
+    if [[ -f "${FORGE_ROOT}/VERSION" ]]; then
+        cp "${FORGE_ROOT}/VERSION" "${FORGE_DIR}/VERSION"
+    fi
+
     # Copy agent templates
     for agent in "${FORGE_ROOT}/agents/"*.md; do
         cp "$agent" "${FORGE_DIR}/agents/"

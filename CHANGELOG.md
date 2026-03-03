@@ -4,6 +4,46 @@ All notable changes to the Forge project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.0] — 2026-03-03
+
+### Added
+
+- **Claude Code plugin distribution** — `.claude-plugin/plugin.json` manifest and 12
+  skill files in `skills/` directory. Use `/forge`, `/forge:status`, `/forge:cost`,
+  `/forge:team`, `/forge:ask`, `/forge:guide`, `/forge:mode`, `/forge:strategy`,
+  `/forge:snapshot`, `/forge:start`, `/forge:stop`, `/forge:init`.
+
+- **Cockpit dashboard** — tmux-based live display with auto-refreshing metrics panel,
+  color-coded agent status grid, activity feed, and interactive Claude session.
+  Launch with `./forge` (requires tmux). Fallback to plain session with `--no-cockpit`.
+
+- **Natural language routing** — `/forge what is the cost and status?` classifies
+  intent by keywords and runs instant commands directly. Multi-intent support.
+  Smart classification: intent always wins over invocation path.
+
+- **Separate mode and strategy** — `forge mode` and `forge strategy` are now
+  independent commands. Previously combined in `/forge-mode`.
+
+- **Per-agent guidance** — `forge guide <agent> "message"` sends prioritized
+  directives through the Team Leader.
+
+- **Team view** — `forge team` shows all agents overview. `forge team <name>`
+  shows deep dive with memory, decisions, artifacts, and cost.
+
+- **ask command** — `forge ask "message"` replaces `forge tell` with smart NL
+  routing. `tell` preserved as deprecated alias.
+
+- **Homebrew distribution** — Release workflow creates GitHub releases on `v*` tags.
+  Homebrew formula (external repo) wraps `FORGE_DIR` resolution.
+
+- **`--version` flag** — `forge --version` shows version from `VERSION` file.
+
+- **`FORGE_DIR` env support** — `forge` script respects `FORGE_DIR` environment
+  variable for Homebrew and plugin contexts.
+
+- **Comprehensive documentation** — `docs/PLUGIN.md`, `docs/HOMEBREW.md`,
+  `docs/COCKPIT.md` cover all new features.
+
 ## [Unreleased]
 
 ### Fixed

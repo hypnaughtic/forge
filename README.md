@@ -9,32 +9,32 @@ write code, a QA Engineer tests everything, a Critic enforces quality gates, and
 DevOps Specialist wires up CI/CD and infrastructure.
 
 You describe what you want to build, choose a quality mode and an execution strategy,
-then type `forge`. You get an interactive session where you talk directly to the Team
-Leader. Use `/forge-start` to begin building, and the Team Leader spawns agents,
-assigns tasks, manages iteration cycles, and drives the project to completion -- while
-you watch, guide, or step away entirely.
+then type `forge`. A cockpit dashboard launches with live metrics, agent status, and
+activity feed -- alongside your interactive Claude session where you talk directly to
+the Team Leader. Use `/forge:start` to begin building.
 
-**Two orchestration backends** with identical UX:
+**Three ways to install:**
 
-- **Agent Teams** (default) -- leverages Claude Code's native Agent Teams for spawning,
-  messaging, and task management. Recommended when available.
-- **tmux** -- uses tmux windows + file-based messaging. Works everywhere, no special
-  flags needed.
+- **Claude Code Plugin** -- `/forge` skills in any Claude Code session
+- **Homebrew** -- `brew install forge` for CLI access anywhere
+- **Git Clone** -- `./forge` for full control and development
 
-**How it works:**
+**Key features:**
 
-- **Interactive session.** Type `forge` and you're talking directly to the Team Leader.
-  Slash commands (`/forge-start`, `/forge-stop`, `/forge-status`) provide structured
-  operations. No tmux attach needed.
-- **Dual orchestration.** Agent Teams mode uses Claude Code's native subagent spawning.
-  tmux mode uses process isolation via tmux windows with file-based messaging.
-- **Iterative development with quality gates.** Work proceeds in iterations through
-  plan, execute, test, integrate, review, and critique phases. The Critic scores every
-  iteration, and it only advances when the mode's pass-rate threshold is met.
-- **Seamless stop and resume.** Fleet state is captured as JSON snapshots. Stop tonight,
-  resume tomorrow exactly where you left off.
-- **Human override at any time.** Even in Auto Pilot mode, intervene by talking directly
-  to the Team Leader or via `./forge tell "message"` from another terminal.
+- **Cockpit dashboard.** Live tmux-based display with auto-refreshing metrics panel,
+  color-coded agent grid, activity feed, and interactive Claude session.
+- **Natural language routing.** `/forge what is the cost and status?` classifies intent
+  and runs instant commands directly -- no AI reasoning overhead.
+- **Separate mode and strategy.** Quality mode (mvp/production-ready/no-compromise) and
+  execution strategy (auto-pilot/co-pilot/micro-manage) are independent controls.
+- **Per-agent guidance.** `/forge:guide backend-developer "use PostgreSQL"` sends a
+  prioritized directive through the Team Leader.
+- **Dual orchestration.** Agent Teams (native subagents) or tmux (file-based messaging).
+- **Iterative development with quality gates.** Critic scores every iteration; advances
+  only when the mode's pass-rate threshold is met.
+- **Seamless stop and resume.** Fleet state captured as JSON snapshots.
+- **Human override at any time.** Even in auto-pilot, intervene via the cockpit,
+  `./forge ask "message"`, or `/forge:guide`.
 
 ---
 
@@ -59,37 +59,189 @@ Node.js 18+ (JS/TS projects), Python 3.11+ (Python/AI-ML projects).
 
 ---
 
+## Installation
+
+### Option 1: Claude Code Plugin (recommended)
+
+```bash
+git clone https://github.com/Rushabh1798/forge.git
+claude --plugin-dir ./forge
+# Now use /forge:start, /forge:status, etc. in your Claude session
+```
+
+### Option 2: Homebrew
+
+```bash
+brew tap Rushabh1798/forge
+brew install forge
+forge --version
+```
+
+### Option 3: Git Clone (development)
+
+```bash
+git clone https://github.com/Rushabh1798/forge.git && cd forge
+./forge setup     # Validate dependencies
+```
+
+---
+
 ## Quick Start
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/your-org/forge.git && cd forge
-
-# 2. Validate dependencies
-./forge setup
-
-# 3. Configure your project
-./forge init                          # Interactive wizard (recommended)
+# 1. Configure your project
+forge init                            # Interactive wizard (recommended)
 # OR edit config/team-config.yaml and config/project-requirements.md directly
 
-# 4. Launch interactive session (you are now talking to the Team Leader)
-./forge
+# 2. Launch cockpit dashboard (tmux required) or plain session
+forge                                 # Cockpit dashboard
+forge --no-cockpit                    # Plain interactive session
 
-# 5. Inside the session, use slash commands:
-#    /forge-start                    # Begin building (spawns team, starts Iteration 1)
-#    /forge-status                   # Check progress, costs, blockers
-#    /forge-stop                     # Save state and end session
+# 3. Inside the session, use commands:
+#    /forge:start                     # Begin building (spawns team, starts Iteration 1)
+#    /forge:status                    # Check progress, costs, blockers
+#    /forge what is the cost?         # Natural language routing (instant)
+#    /forge:guide backend "use PG"    # Direct an agent
+#    /forge:stop                      # Save state and end session
 ```
 
-**That's it.** Type `forge` and you're in. The Team Leader greets you, and you
-communicate naturally. Use `/forge-start` to kick off the build.
+**That's it.** Type `forge` and the cockpit launches with live metrics, agent
+status, and activity feed. The Team Leader greets you in the bottom pane. Use
+`/forge:start` to kick off the build.
 
-**Alternative: tmux backend** -- force tmux mode with `./forge --tmux` or set
-`orchestration: "tmux"` in config. The legacy `./forge start` command also still
-works for tmux-based non-interactive sessions.
+**Plain mode** -- if tmux is unavailable or you prefer a simple session, use
+`forge --no-cockpit`. The legacy `./forge start` command also still works for
+tmux-based non-interactive sessions.
 
-When done for the day, use `/forge-stop` or tell the Team Leader "stop for today".
+When done for the day, use `/forge:stop` or tell the Team Leader "stop for today".
 Next time, run `forge` again -- it detects the saved snapshot and offers to resume.
+
+---
+
+## Cockpit Dashboard
+
+When launched with tmux available, `forge` opens a cockpit dashboard:
+
+```text
+┌─────────────────────────────┬──────────────────────┐
+│ FORGE COCKPIT v1.0.0        │ AGENT STATUS         │
+│ Project: MyApp              │ ● TL: Planning Iter2 │
+│ Mode: production-ready      │ ● AR: Designing API  │
+│ Strategy: co-pilot          │ ● BE: Writing auth   │
+│ Cost: $1.25 / $10.00       │ ● QA: Idle           │
+├─────────────────────────────┴──────────────────────┤
+│ RECENT ACTIVITY                                     │
+│ [14:32] BE: Completed user registration endpoint   │
+│ [14:28] AR: Delivered REST API contract v2         │
+├────────────────────────────────────────────────────┤
+│ claude> █                                          │
+└────────────────────────────────────────────────────┘
+```
+
+- **Top-left:** Metrics panel (project info, mode, strategy, cost, elapsed time)
+- **Top-right:** Agent status grid with color-coded indicators
+- **Middle:** Activity feed with Team Leader summary
+- **Bottom:** Interactive Claude session
+
+See [docs/COCKPIT.md](docs/COCKPIT.md) for details.
+
+---
+
+## Commands Reference
+
+### Natural Language (NL Router)
+
+The default `/forge` skill classifies intent by keywords. Instant queries execute directly; async messages queue for the Team Leader.
+
+```bash
+forge ask "what is the cost and status?"    # → runs COST + STATUS instantly
+forge ask "make the UX more modern"          # → queues for Team Leader
+forge ask "what is cost"                     # → instant (intent over invocation)
+```
+
+### CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `forge` | Launch cockpit dashboard |
+| `forge --no-cockpit` | Plain interactive session |
+| `forge status` | Agent statuses, iteration, costs |
+| `forge cost` | Detailed cost breakdown |
+| `forge team [agent]` | Per-agent view (or all agents) |
+| `forge ask "<msg>"` | Smart NL routing |
+| `forge guide <agent> "<msg>"` | Direct an agent via Team Leader |
+| `forge mode <value>` | Switch quality mode |
+| `forge strategy <value>` | Switch execution strategy |
+| `forge init` | Project configuration wizard |
+| `forge start` | Start tmux-based session |
+| `forge stop` | Graceful shutdown + snapshot |
+| `forge tell "<msg>"` | Deprecated: use `ask` |
+| `forge --version` | Show version |
+
+### Plugin Skills (inside Claude Code)
+
+| Skill | Description |
+|-------|-------------|
+| `/forge <NL>` | NL router (default) |
+| `/forge:status` | Project status |
+| `/forge:cost` | Cost breakdown |
+| `/forge:team` | Team overview |
+| `/forge:start` | Begin building |
+| `/forge:stop` | Save and shutdown |
+| `/forge:mode <val>` | Switch mode |
+| `/forge:strategy <val>` | Switch strategy |
+| `/forge:ask <msg>` | Message Team Leader |
+| `/forge:guide <agent> <msg>` | Direct an agent |
+| `/forge:snapshot` | Save state |
+| `/forge:init` | Configure project |
+
+See [docs/PLUGIN.md](docs/PLUGIN.md) for the full plugin reference.
+
+---
+
+## Mode and Strategy
+
+Mode and strategy are **separate, independent controls**.
+
+### Mode (Project Quality)
+
+| Mode | Critic Pass | Testing | Team |
+|------|------------|---------|------|
+| `mvp` | 70% | Happy-path + smoke | Lean (8 agents) |
+| `production-ready` | 90% | >90% coverage + integration | Full (12 agents) |
+| `no-compromise` | 100% | Exhaustive + chaos | Full (12 agents) |
+
+Switch: `forge mode production-ready` or `/forge:mode production-ready`
+
+### Strategy (Execution Control)
+
+| Strategy | Approval Behavior |
+|----------|-------------------|
+| `auto-pilot` | Fully autonomous |
+| `co-pilot` | Routine autonomous, architecture needs approval |
+| `micro-manage` | Every significant decision needs approval |
+
+Switch: `forge strategy co-pilot` or `/forge:strategy co-pilot`
+
+---
+
+## Agent Interaction
+
+### View Team
+
+```bash
+forge team                         # All agents overview
+forge team backend-developer       # Deep dive on one agent
+```
+
+### Guide an Agent
+
+```bash
+forge guide backend-developer "use PostgreSQL instead of SQLite"
+forge guide frontend-engineer "prioritize the login page"
+```
+
+Directives go through the Team Leader, keeping TL aware of all context changes.
 
 ---
 

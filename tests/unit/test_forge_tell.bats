@@ -18,17 +18,17 @@ teardown() {
 }
 
 @test "forge tell: creates override.md" {
-    run bash "$FORGE_DIR/forge" tell "Switch to production mode"
+    run bash "$FORGE_DIR/forge" tell "Please refactor the auth module"
     [ "$status" -eq 0 ]
     [ -f "${SHARED_DIR}/.human/override.md" ]
 }
 
 @test "forge tell: override.md contains message" {
-    run bash "$FORGE_DIR/forge" tell "Switch to production mode"
+    run bash "$FORGE_DIR/forge" tell "Please refactor the auth module"
     [ "$status" -eq 0 ]
 
     run cat "${SHARED_DIR}/.human/override.md"
-    [[ "$output" == *"Switch to production mode"* ]]
+    [[ "$output" == *"Please refactor the auth module"* ]]
 }
 
 @test "forge tell: override.md has YAML frontmatter" {
