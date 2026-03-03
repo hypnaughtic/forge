@@ -10,7 +10,7 @@ set -euo pipefail
 # --- ANSI Color Constants ---
 # Uses tput where available, falls back to raw ANSI codes
 
-if command -v tput &>/dev/null && [[ -n "${TERM:-}" ]]; then
+if command -v tput &>/dev/null && [[ -n "${TERM:-}" ]] && tput colors &>/dev/null; then
     CR_RESET="$(tput sgr0)"
     CR_BOLD="$(tput bold)"
     CR_DIM="$(tput dim)"

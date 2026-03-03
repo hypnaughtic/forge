@@ -114,13 +114,16 @@ EXPECTED_SKILLS=(forge status cost snapshot start stop mode strategy init ask gu
         local skill_file="${skill_dir}/SKILL.md"
         [[ -f "$skill_file" ]] || continue
         local name
-        name=$(awk '/^---$/,/^---$/{if(/^name:/){print $2}}' "$skill_file" | tr -d '"' | tr -d "'")
+        name=$(grep '^name:' "$skill_file" | head -1 | awk '{print $2}' | tr -d '"' | tr -d "'")
+        [[ -n "$name" ]] || continue
         # Check for duplicates
         for existing in "${names[@]}"; do
             [[ "$existing" != "$name" ]]
         done
         names+=("$name")
     done
+    # Ensure we actually found skills
+    [[ ${#names[@]} -gt 0 ]]
 }
 
 @test "skill files contain markdown content after frontmatter" {
