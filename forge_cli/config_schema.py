@@ -146,3 +146,48 @@ class ForgeConfig(BaseModel):
                 agents.append(agent)
 
         return agents
+
+    def has_frontend_involvement(self) -> bool:
+        """Detect if the project involves frontend/UI work.
+
+        Checks tech stack frameworks, active agents, and project description
+        for frontend indicators.
+        """
+        frontend_frameworks = {
+            "react", "vue", "angular", "svelte", "next", "nextjs", "next.js",
+            "nuxt", "nuxtjs", "nuxt.js", "gatsby", "remix", "astro",
+            "tailwind", "tailwindcss", "bootstrap", "css", "sass", "scss",
+            "html", "htmx", "alpine", "alpinejs", "solid", "solidjs",
+            "qwik", "flutter", "swift", "swiftui", "jetpack compose",
+            "react native", "electron", "tauri", "expo",
+        }
+        frontend_agents = {
+            "frontend-engineer", "frontend-developer", "frontend-designer",
+        }
+
+        # Check frameworks
+        for fw in self.tech_stack.frameworks:
+            if fw.lower().strip() in frontend_frameworks:
+                return True
+
+        # Check languages for frontend indicators
+        frontend_languages = {"javascript", "typescript", "html", "css", "dart", "swift"}
+        for lang in self.tech_stack.languages:
+            if lang.lower().strip() in frontend_languages:
+                return True
+
+        # Check if any frontend agent is in the active roster
+        active = self.get_active_agents()
+        if frontend_agents & set(active):
+            return True
+
+        # Check project description/requirements for frontend keywords
+        import re
+        text = f"{self.project.description} {self.project.requirements}".lower()
+        # Use word boundaries for short keywords that could match inside other words
+        frontend_patterns = [
+            r"\bfrontend\b", r"\bfront-end\b", r"\bui\b", r"\buser interface\b",
+            r"\bweb app\b", r"\bwebapp\b", r"\bdashboard\b", r"\blanding page\b",
+            r"\bresponsive\b", r"\bmobile app\b", r"\bspa\b", r"\bsingle page\b",
+        ]
+        return any(re.search(p, text) for p in frontend_patterns)

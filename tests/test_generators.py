@@ -13,6 +13,7 @@ from forge_cli.config_schema import (
     ProjectConfig,
     ProjectMode,
     TeamProfile,
+    TechStack,
 )
 from forge_cli.generators.agent_files import generate_agent_files
 from forge_cli.generators.claude_md import generate_claude_md
@@ -389,3 +390,110 @@ class TestVisualVerification:
         assert (skills_dir / "screenshot-review.md").exists()
         content = (skills_dir / "screenshot-review.md").read_text()
         assert "screenshot" in content.lower()
+
+    def test_team_leader_has_visual_when_frontend_project(self, tmp_path):
+        """Team leader gets visual verification when project involves frontend."""
+        config = _make_config()  # lean profile includes frontend-engineer
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+
+        generate_agent_files(config, agents_dir)
+
+        content = (agents_dir / "team-leader.md").read_text()
+        assert "Visual Verification Protocol" in content
+        assert "Iteration Visual Review (Team Leader-Specific)" in content
+
+    def test_critic_has_visual_when_frontend_project(self, tmp_path):
+        """Critic gets visual verification when project involves frontend."""
+        config = _make_config()  # lean profile includes frontend-engineer
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+
+        generate_agent_files(config, agents_dir)
+
+        content = (agents_dir / "critic.md").read_text()
+        assert "Visual Verification Protocol" in content
+        assert "Visual Critique (Critic-Specific)" in content
+
+    def test_team_leader_no_visual_when_no_frontend(self, tmp_path):
+        """Team leader skips visual verification for backend-only projects."""
+        config = _make_config(
+            project=ProjectConfig(
+                description="Backend microservice",
+                requirements="Build a REST API with auth",
+                directory="/tmp/test",
+            ),
+            agents=AgentsConfig(
+                team_profile=TeamProfile.CUSTOM,
+                include=["team-leader", "backend-developer", "devops-specialist", "critic"],
+            ),
+            tech_stack=TechStack(languages=["python"], frameworks=["fastapi"]),
+        )
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+
+        generate_agent_files(config, agents_dir)
+
+        content = (agents_dir / "team-leader.md").read_text()
+        assert "Visual Verification Protocol" not in content
+
+    def test_critic_no_visual_when_no_frontend(self, tmp_path):
+        """Critic skips visual verification for backend-only projects."""
+        config = _make_config(
+            project=ProjectConfig(
+                description="Backend microservice",
+                requirements="Build a REST API with auth",
+                directory="/tmp/test",
+            ),
+            agents=AgentsConfig(
+                team_profile=TeamProfile.CUSTOM,
+                include=["team-leader", "backend-developer", "devops-specialist", "critic"],
+            ),
+            tech_stack=TechStack(languages=["python"], frameworks=["fastapi"]),
+        )
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+
+        generate_agent_files(config, agents_dir)
+
+        content = (agents_dir / "critic.md").read_text()
+        assert "Visual Verification Protocol" not in content
+
+    def test_frontend_detection_via_tech_stack(self, tmp_path):
+        """Visual verification activates for team-leader when tech stack has React."""
+        config = _make_config(
+            agents=AgentsConfig(
+                team_profile=TeamProfile.CUSTOM,
+                include=["team-leader", "backend-developer", "critic"],
+            ),
+            tech_stack=TechStack(languages=["python", "typescript"], frameworks=["react", "fastapi"]),
+        )
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+
+        generate_agent_files(config, agents_dir)
+
+        content = (agents_dir / "team-leader.md").read_text()
+        assert "Visual Verification Protocol" in content
+
+    def test_frontend_detection_via_description(self, tmp_path):
+        """Visual verification activates when project description mentions frontend."""
+        config = _make_config(
+            project=ProjectConfig(
+                description="Full-stack web app with dashboard",
+                requirements="Build a dashboard UI with analytics",
+                directory="/tmp/test",
+            ),
+            agents=AgentsConfig(
+                team_profile=TeamProfile.CUSTOM,
+                include=["team-leader", "backend-developer", "critic"],
+            ),
+            tech_stack=TechStack(languages=["python"], frameworks=["fastapi"]),
+        )
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+
+        generate_agent_files(config, agents_dir)
+
+        content = (agents_dir / "team-leader.md").read_text()
+        assert "Visual Verification Protocol" in content

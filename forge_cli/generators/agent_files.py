@@ -51,9 +51,14 @@ def _build_agent_file(agent_type: str, config: ForgeConfig) -> str:
     if config.atlassian.enabled:
         sections.append(_atlassian_section(agent_type, config))
 
-    # Visual verification protocol (for frontend and QA agents)
-    visual_agents = {"frontend-engineer", "frontend-developer", "frontend-designer", "qa-engineer"}
-    if agent_type in visual_agents:
+    # Visual verification protocol
+    # Always-on for frontend specialists and QA (they inherently work on UI)
+    # Conditional on frontend involvement for team-leader and critic (review roles)
+    always_visual = {"frontend-engineer", "frontend-developer", "frontend-designer", "qa-engineer"}
+    review_visual = {"team-leader", "critic"}
+    if agent_type in always_visual:
+        sections.append(_visual_verification_section(agent_type, config))
+    elif agent_type in review_visual and config.has_frontend_involvement():
         sections.append(_visual_verification_section(agent_type, config))
 
     # Workspace detection
@@ -301,6 +306,8 @@ def _visual_verification_section(agent_type: str, config: ForgeConfig) -> str:
         "frontend-developer": "After implementing features that affect the UI",
         "frontend-designer": "After the frontend developer implements your designs",
         "qa-engineer": "As part of every test cycle and iteration review",
+        "team-leader": "During iteration review and before marking any iteration complete",
+        "critic": "When reviewing frontend deliverables and UI-related work",
     }
     trigger = role_specific.get(agent_type, "After implementing UI changes")
 
@@ -350,6 +357,41 @@ def _visual_verification_section(agent_type: str, config: ForgeConfig) -> str:
            - Description of the visual difference
            - Severity: BLOCKER if layout is broken, HIGH if styling is wrong, MEDIUM if minor
         5. **Visual regression is a BLOCKER for iteration completion** — the application must look correct, not just function correctly""")
+
+    leader_specific = ""
+    if agent_type == "team-leader":
+        leader_specific = dedent("""\
+
+        ### Iteration Visual Review (Team Leader-Specific)
+
+        As the orchestrator, you are the final quality gate for visual deliverables:
+
+        1. **Pre-review capture**: Before each iteration review, screenshot all key pages and user flows
+        2. **Visual evidence in summaries**: Include screenshots in every iteration summary presented to the human
+        3. **Cross-agent verification**: Compare frontend agent screenshots against designer specs and QA baselines
+        4. **Regression watch**: If a page looked correct last iteration but looks broken now, that is a BLOCKER
+        5. **Human communication**: When presenting to the human, screenshots speak louder than test results
+           - "All 47 tests pass" is good; "All 47 tests pass and here's what it looks like" is better
+        6. **Gate enforcement**: Do NOT advance an iteration if the UI looks broken, even if tests pass""")
+
+    critic_specific = ""
+    if agent_type == "critic":
+        critic_specific = dedent("""\
+
+        ### Visual Critique (Critic-Specific)
+
+        Your independent review MUST include visual assessment of frontend deliverables:
+
+        1. **Screenshot the current state**: Capture all pages/flows that were part of the iteration
+        2. **Visual consistency check**: Are colors, typography, spacing, and layout consistent across pages?
+        3. **UX assessment**: Does the flow make sense? Are interactive elements discoverable? Is feedback clear?
+        4. **Responsive sanity check**: Screenshot at desktop and mobile — does the layout degrade gracefully?
+        5. **Comparison with requirements**: Does what you see match what was asked for?
+        6. **Visual issues in critique report**: Include screenshots as evidence. Categorize:
+           - BLOCKER: Broken layout, unreadable text, missing critical elements
+           - HIGH: Inconsistent styling, poor responsive behavior, confusing UX
+           - MEDIUM: Minor polish issues, spacing inconsistencies
+        7. **Never skip visual review**: A critique that only reviews code without viewing the running application is incomplete""")
 
     designer_specific = ""
     if agent_type == "frontend-designer":
@@ -402,7 +444,7 @@ def _visual_verification_section(agent_type: str, config: ForgeConfig) -> str:
     - **Playwright MCP**: Use for interactive flows — navigate, click buttons, fill forms, then screenshot
     - **Read tool**: View any PNG/JPG file to see what the browser rendered
 
-    {mode_instructions}{qa_specific}{designer_specific}""")
+    {mode_instructions}{qa_specific}{designer_specific}{leader_specific}{critic_specific}""")
 
 
 # =============================================================================
