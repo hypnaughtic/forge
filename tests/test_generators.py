@@ -196,14 +196,31 @@ class TestMcpConfigGeneration:
         assert "atlassian" in data["mcpServers"]
         assert data["mcpServers"]["atlassian"]["env"]["ATLASSIAN_URL"] == "https://test.atlassian.net"
 
-    def test_skips_when_atlassian_disabled(self, tmp_path):
+    def test_always_has_playwright(self, tmp_path):
         config = _make_config(atlassian=AtlassianConfig(enabled=False))
         claude_dir = tmp_path / ".claude"
         claude_dir.mkdir()
 
         generate_mcp_config(config, claude_dir)
 
-        assert not (claude_dir / "mcp.json").exists()
+        mcp_path = claude_dir / "mcp.json"
+        assert mcp_path.exists()
+        data = json.loads(mcp_path.read_text())
+        assert "playwright" in data["mcpServers"]
+        assert "atlassian" not in data["mcpServers"]
+
+    def test_has_both_when_atlassian_enabled(self, tmp_path):
+        config = _make_config(
+            atlassian=AtlassianConfig(enabled=True, jira_base_url="https://test.atlassian.net")
+        )
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+
+        generate_mcp_config(config, claude_dir)
+
+        data = json.loads((claude_dir / "mcp.json").read_text())
+        assert "playwright" in data["mcpServers"]
+        assert "atlassian" in data["mcpServers"]
 
     def test_generates_env_example(self, tmp_path):
         config = _make_config(
@@ -292,3 +309,83 @@ class TestTeamInitPlanGeneration:
 
         content = (tmp_path / "team-init-plan.md").read_text()
         assert "Build a REST API with auth" in content
+
+
+class TestVisualVerification:
+    def test_frontend_agents_contain_visual_verification(self, tmp_path):
+        config = _make_config()
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+
+        generate_agent_files(config, agents_dir)
+
+        for agent in ["frontend-engineer", "qa-engineer"]:
+            content = (agents_dir / f"{agent}.md").read_text()
+            assert "Visual Verification Protocol" in content, f"{agent} missing Visual Verification"
+
+    def test_non_frontend_agents_no_visual_verification(self, tmp_path):
+        config = _make_config()
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+
+        generate_agent_files(config, agents_dir)
+
+        for agent in ["backend-developer", "devops-specialist"]:
+            content = (agents_dir / f"{agent}.md").read_text()
+            assert "Visual Verification Protocol" not in content, f"{agent} should not have Visual Verification"
+
+    def test_visual_verification_mode_scaled_mvp(self, tmp_path):
+        config = _make_config()  # default is MVP
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+
+        generate_agent_files(config, agents_dir)
+
+        content = (agents_dir / "frontend-engineer.md").read_text()
+        assert "MVP Visual Standards" in content
+        assert "Production Ready Visual Standards" not in content
+
+    def test_visual_verification_mode_scaled_production(self, tmp_path):
+        config = _make_config(mode=ProjectMode.PRODUCTION_READY)
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+
+        generate_agent_files(config, agents_dir)
+
+        content = (agents_dir / "frontend-engineer.md").read_text()
+        assert "Production Ready Visual Standards" in content
+        assert "visual regression baselines" in content.lower()
+
+    def test_visual_verification_mode_scaled_no_compromise(self, tmp_path):
+        config = _make_config(mode=ProjectMode.NO_COMPROMISE)
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+
+        generate_agent_files(config, agents_dir)
+
+        content = (agents_dir / "frontend-engineer.md").read_text()
+        assert "No Compromise Visual Standards" in content
+        assert "Cross-browser testing" in content
+        assert "Accessibility audit" in content
+
+    def test_qa_agent_has_visual_regression_section(self, tmp_path):
+        config = _make_config()
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+
+        generate_agent_files(config, agents_dir)
+
+        content = (agents_dir / "qa-engineer.md").read_text()
+        assert "Visual Regression Testing (QA-Specific)" in content
+        assert "BLOCKER" in content
+
+    def test_screenshot_review_skill_generated(self, tmp_path):
+        config = _make_config()
+        skills_dir = tmp_path / ".claude" / "skills"
+        skills_dir.mkdir(parents=True)
+
+        generate_skills(config, skills_dir)
+
+        assert (skills_dir / "screenshot-review.md").exists()
+        content = (skills_dir / "screenshot-review.md").read_text()
+        assert "screenshot" in content.lower()

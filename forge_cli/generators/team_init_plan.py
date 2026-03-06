@@ -170,8 +170,10 @@ def generate_team_init_plan(config: ForgeConfig, project_dir: Path) -> None:
 
     #### Quality (QA Engineer)
     - Set up testing framework
+    - Set up Playwright for visual verification: `npx playwright install chromium`
     - Write tests for iteration 1 deliverables
-    - Define quality gates
+    - Capture screenshot baselines for all key pages
+    - Define quality gates (including visual regression)
 
     #### Review (Critic)
     - Review all iteration 1 deliverables
@@ -183,9 +185,10 @@ def generate_team_init_plan(config: ForgeConfig, project_dir: Path) -> None:
     1. All tasks have deliverables
     2. All tests pass
     3. **Smoke test**: Application starts, endpoints respond, UI loads
-    4. Code review completed
-    5. Quality threshold met ({'70%' if config.mode.value == 'mvp' else '90%' if config.mode.value == 'production-ready' else '100%'})
-    6. Tag: `iteration-1-verified`
+    4. **Visual verification**: Screenshots of all key pages captured and reviewed
+    5. Code review completed
+    6. Quality threshold met ({'70%' if config.mode.value == 'mvp' else '90%' if config.mode.value == 'production-ready' else '100%'})
+    7. Tag: `iteration-1-verified`
 
     ## Agent File Locations
 

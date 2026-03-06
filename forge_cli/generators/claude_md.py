@@ -110,6 +110,14 @@ def generate_claude_md(config: ForgeConfig, project_dir: Path) -> None:
     Example: To spawn the backend developer, use the Agent tool and include the
     contents of `.claude/agents/backend-developer.md` in the system prompt.
     {atlassian_section}{spawning_section}{naming_section}
+    ## Visual Verification
+
+    Playwright MCP is configured in `.claude/mcp.json` for browser automation and screenshots.
+    - Frontend agents and QA must **visually verify** their work via screenshots before marking tasks complete
+    - Use Playwright CLI or MCP to capture screenshots, then use the Read tool to view them
+    - Screenshots are saved to `docs/screenshots/` for human review
+    - Smoke tests must include screenshot evidence of a working UI
+
     ## Project Requirements
 
     {config.project.requirements or config.project.description}

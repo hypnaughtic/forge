@@ -35,10 +35,9 @@ def generate_all(config: ForgeConfig) -> None:
     generate_claude_md(config, project_dir)
     console.print("[green]  ✓[/green] CLAUDE.md")
 
-    # 3. MCP configuration (if Atlassian enabled) → .claude/mcp.json
-    if config.atlassian.enabled:
-        generate_mcp_config(config, project_dir / ".claude")
-        console.print("[green]  ✓[/green] MCP configuration (Atlassian)")
+    # 3. MCP configuration → .claude/mcp.json (Playwright always, Atlassian if enabled)
+    generate_mcp_config(config, project_dir / ".claude")
+    console.print("[green]  ✓[/green] MCP configuration")
 
     # 4. Skills → .claude/skills/
     skills_dir = project_dir / ".claude" / "skills"

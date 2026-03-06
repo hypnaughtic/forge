@@ -51,6 +51,11 @@ def _build_agent_file(agent_type: str, config: ForgeConfig) -> str:
     if config.atlassian.enabled:
         sections.append(_atlassian_section(agent_type, config))
 
+    # Visual verification protocol (for frontend and QA agents)
+    visual_agents = {"frontend-engineer", "frontend-developer", "frontend-designer", "qa-engineer"}
+    if agent_type in visual_agents:
+        sections.append(_visual_verification_section(agent_type, config))
+
     # Workspace detection
     sections.append(_workspace_detection_section())
 
@@ -290,6 +295,116 @@ def _workspace_detection_section() -> str:
     If any of these exist, treat as single-repo. If the directory is empty or only contains forge-generated files, treat as fresh workspace.""")
 
 
+def _visual_verification_section(agent_type: str, config: ForgeConfig) -> str:
+    role_specific = {
+        "frontend-engineer": "After implementing any UI feature, page, or component",
+        "frontend-developer": "After implementing features that affect the UI",
+        "frontend-designer": "After the frontend developer implements your designs",
+        "qa-engineer": "As part of every test cycle and iteration review",
+    }
+    trigger = role_specific.get(agent_type, "After implementing UI changes")
+
+    mode_instructions = ""
+    if config.mode.value == "mvp":
+        mode_instructions = dedent("""\
+        ### MVP Visual Standards
+        - Screenshot happy-path states only (default, success)
+        - Desktop viewport is sufficient — skip mobile/tablet
+        - Skip visual regression baselines — focus on "does it look right?"
+        - Error and empty states: verify they don't crash, but don't screenshot""")
+    elif config.mode.value == "production-ready":
+        mode_instructions = dedent("""\
+        ### Production Ready Visual Standards
+        - Screenshot all states: default, loading, error, empty, success
+        - Capture desktop (1280px) and mobile (375px) viewports
+        - **Visual regression baselines**: Run `npx playwright test --update-snapshots` to establish baselines
+        - On subsequent iterations, compare against baselines — flag regressions as HIGH-priority bugs
+        - Screenshot form validation states (inline errors, success messages)""")
+    elif config.mode.value == "no-compromise":
+        mode_instructions = dedent("""\
+        ### No Compromise Visual Standards
+        - Screenshot ALL states: default, loading, error, empty, success, edge cases
+        - Capture at three viewports: desktop (1280px), tablet (768px), mobile (375px)
+        - **Cross-browser testing**: Capture in Chromium, Firefox, and WebKit
+          - Install all browsers: `npx playwright install`
+        - **Visual regression baselines**: Mandatory. Compare every iteration.
+        - **Accessibility audit**: Run `@axe-core/playwright` on every page
+          - Zero accessibility violations is a BLOCKER
+        - Screenshot animations/transitions at key frames where applicable
+        - Dark mode screenshots if the project supports dark mode""")
+
+    qa_specific = ""
+    if agent_type == "qa-engineer":
+        qa_specific = dedent("""\
+
+        ### Visual Regression Testing (QA-Specific)
+
+        Visual regression is part of your quality gates:
+
+        1. **Baseline capture**: At the start of each iteration, screenshot all key pages and save as baselines in `docs/screenshots/baseline/`
+        2. **Comparison capture**: After agents deliver changes, re-capture the same pages
+        3. **Diff analysis**: Compare new screenshots against baselines. Use the Read tool to view both and identify differences.
+        4. **Regression reporting**: File visual regressions as bugs with:
+           - Baseline screenshot (expected)
+           - Current screenshot (actual)
+           - Description of the visual difference
+           - Severity: BLOCKER if layout is broken, HIGH if styling is wrong, MEDIUM if minor
+        5. **Visual regression is a BLOCKER for iteration completion** — the application must look correct, not just function correctly""")
+
+    designer_specific = ""
+    if agent_type == "frontend-designer":
+        designer_specific = dedent("""\
+
+        ### Design Fidelity Verification (Designer-Specific)
+
+        After the frontend developer implements your designs:
+        1. Screenshot the implementation
+        2. Compare against your design specs/wireframes
+        3. File **visual fidelity bugs** for discrepancies:
+           - Include your design spec and the screenshot side by side
+           - Note specific differences: spacing, colors, typography, alignment
+           - Severity: HIGH for user-facing issues, MEDIUM for polish items
+        4. Re-verify after fixes — iterate until the implementation matches the design""")
+
+    return dedent(f"""\
+    ## Visual Verification Protocol
+
+    You have access to **Playwright** for browser automation and screenshots, both via CLI and MCP.
+    Claude Code can read images natively — use the **Read tool** on screenshot files to visually inspect your work.
+
+    ### Setup
+    - Ensure Playwright is installed: `npx playwright install chromium`
+    - Playwright MCP is configured in `.claude/mcp.json` for interactive browser control
+
+    ### Screenshot Workflow
+
+    {trigger}, follow this loop:
+
+    1. **Start the application** (dev server, `npm run dev`, etc.)
+    2. **Capture screenshot**:
+       - Simple full-page: `npx playwright screenshot --full-page http://localhost:{{port}}/path screenshot.png`
+       - Via Playwright MCP: use the browser tool to navigate, interact, then screenshot
+    3. **View the screenshot**: Use the Read tool on the saved PNG file — you will see the rendered page
+    4. **Assess**: Does it look correct? Layout intact? Styling right? Content rendering properly?
+    5. **Iterate**: If something looks wrong, fix it and re-screenshot. Repeat until satisfied.
+    6. **Save for review**: Commit screenshots to `docs/screenshots/{{iteration}}/{{feature}}/`
+
+    **CRITICAL**: Do NOT mark a UI task as complete without visually verifying it via screenshot.
+    Passing tests with a broken-looking UI is a failed delivery.
+
+    ### What to Capture
+    - **State variants**: default view, loading state, error state, empty state
+    - **Interactive flows**: before and after user actions (form submit, modal open, etc.)
+    - **Responsive viewports**: desktop (1280px) and mobile (375px) at minimum
+
+    ### Tools Available
+    - **Playwright CLI**: `npx playwright screenshot [options] <url> <output>` — fast, no code needed
+    - **Playwright MCP**: Use for interactive flows — navigate, click buttons, fill forms, then screenshot
+    - **Read tool**: View any PNG/JPG file to see what the browser rendered
+
+    {mode_instructions}{qa_specific}{designer_specific}""")
+
+
 # =============================================================================
 # Agent-specific template functions
 # =============================================================================
@@ -390,9 +505,14 @@ def _team_leader_template(config: ForgeConfig) -> str:
     1. Start the application — verify it starts without errors
     2. Test backend endpoints — real HTTP requests, correct status codes, correct response bodies
     3. Test frontend UI — page loads, assets served, at least one end-to-end flow works
-    4. Test integrations — database connects, services communicate
-    5. Document results in iteration summary
-    6. Any failure is a BLOCKER — fix before proceeding""")
+    4. **Capture screenshots** of all key pages using Playwright — save to `docs/screenshots/smoke-test/`
+    5. **View screenshots** with the Read tool — verify the UI looks correct, not just that it loads
+    6. Test integrations — database connects, services communicate
+    7. Document results in iteration summary — **include screenshots as visual evidence**
+    8. Any failure is a BLOCKER — fix before proceeding
+
+    Visual evidence of a working application is part of the iteration deliverable.
+    Include screenshots in the iteration summary for human review.""")
 
 
 def _scrum_master_template(config: ForgeConfig) -> str:
@@ -594,7 +714,9 @@ def _frontend_engineer_template(config: ForgeConfig) -> str:
     - Write component tests
     - Write integration tests for key user flows
     - Test responsive behavior
-    - Verify the UI loads in a browser and key flows work end-to-end""")
+    - Verify the UI loads in a browser and key flows work end-to-end
+    - **Take screenshots** of every page/component you build using Playwright
+    - **Visually verify** your work before marking complete — use the Read tool to view screenshots""")
 
 
 def _frontend_developer_template(config: ForgeConfig) -> str:
@@ -614,7 +736,8 @@ def _frontend_developer_template(config: ForgeConfig) -> str:
     - Handle auth flows, routing, data fetching, caching
     - Build reusable utility functions and hooks
     - Write unit and integration tests for frontend logic
-    - Coordinate with Frontend Designer for component implementations""")
+    - Coordinate with Frontend Designer for component implementations
+    - After implementing features, **screenshot the UI** to verify integration with Designer's specs""")
 
 
 def _frontend_designer_template(config: ForgeConfig) -> str:
@@ -634,7 +757,9 @@ def _frontend_designer_template(config: ForgeConfig) -> str:
     - Specify component designs with states (default, hover, active, disabled, loading, error)
     - Define animation and transition patterns
     - Ensure accessibility standards (WCAG AA minimum)
-    - Review frontend implementation for design fidelity""")
+    - Review frontend implementation for design fidelity
+    - **Screenshot the implemented UI** and compare against your design specs
+    - File visual fidelity bugs with screenshots showing expected vs actual""")
 
 
 def _qa_engineer_template(config: ForgeConfig) -> str:
@@ -666,6 +791,12 @@ def _qa_engineer_template(config: ForgeConfig) -> str:
     - Code coverage must meet threshold
     - No critical/high bugs open
     - Application must start and respond to real requests
+
+    ### Visual Testing
+    - Capture baseline screenshots for all key pages at iteration start
+    - After changes, re-capture and compare for visual regressions
+    - Include screenshots in bug reports — expected vs actual side by side
+    - Visual regression is a **BLOCKER** for iteration completion
 
     ### Bug Management
     - File bug tickets with: reproduction steps, expected vs actual, severity, screenshots/logs

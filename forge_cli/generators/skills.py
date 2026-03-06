@@ -30,6 +30,9 @@ def generate_skills(config: ForgeConfig, skills_dir: Path) -> None:
     # Smoke test skill
     _write_skill(skills_dir / "smoke-test.md", _smoke_test_skill())
 
+    # Screenshot review skill (visual verification)
+    _write_skill(skills_dir / "screenshot-review.md", _screenshot_review_skill())
+
     # Architecture review skill
     _write_skill(skills_dir / "arch-review.md", _arch_review_skill())
 
@@ -185,10 +188,53 @@ def _smoke_test_skill() -> str:
     1. **Start the application**: Run the appropriate start command. Verify no startup errors.
     2. **Test backend**: For every API endpoint, make a real HTTP request. Check status codes and response bodies.
     3. **Test frontend**: Verify pages load, assets serve correctly, at least one user flow works.
-    4. **Test integrations**: Database connects, services communicate, full-stack operations work.
-    5. **Report results**: List each test and its pass/fail status.
+    4. **Capture screenshots**: Take full-page screenshots of all UI pages using Playwright.
+       Save to `docs/screenshots/smoke-test/`. Use the Read tool to verify visual correctness.
+    5. **Test integrations**: Database connects, services communicate, full-stack operations work.
+    6. **Report results**: List each test and its pass/fail status. Include screenshots as visual evidence.
 
     Any failure is a BLOCKER. Do not mark the iteration complete until all smoke tests pass.
+
+    $ARGUMENTS
+    """)
+
+
+def _screenshot_review_skill() -> str:
+    return dedent("""\
+    ---
+    name: screenshot-review
+    description: "Capture and review screenshots of all key UI pages for iteration review"
+    argument-hint: "[url-or-feature]"
+    ---
+
+    # Screenshot Review
+
+    Capture a visual summary of the application's current state for iteration review.
+
+    ## Steps
+
+    1. **Start the application** if not already running
+    2. **Identify key pages**: List all user-facing pages and critical UI states
+    3. **Capture screenshots** using Playwright:
+       - Desktop viewport (1280x720): `npx playwright screenshot --full-page http://localhost:{port}/path page-desktop.png`
+       - Mobile viewport (375x812): `npx playwright screenshot --full-page --viewport-size=375,812 http://localhost:{port}/path page-mobile.png`
+    4. **Capture state variants** for key pages:
+       - Default/loaded state
+       - Empty state (no data)
+       - Error state (if triggerable)
+       - Loading state (if capturable)
+    5. **Save all screenshots** to `docs/screenshots/{iteration}/`
+    6. **View each screenshot** using the Read tool — verify visual correctness
+    7. **Compile summary**: List each page with its screenshot path and visual assessment
+
+    ## Output
+
+    Present to Team Leader:
+    - Page name → screenshot path → visual status (OK / ISSUE)
+    - Any visual issues found with description
+    - Overall visual quality assessment
+
+    This helps the human understand what was built without starting the app themselves.
 
     $ARGUMENTS
     """)
