@@ -1186,46 +1186,45 @@ class TestVisualVerificationConditional:
 # =============================================================================
 
 
-def _claude_available():
-    """Check if Claude CLI is available and can run (not nested inside another session)."""
+def _anthropic_available():
+    """Check if Anthropic SDK is available and an API key is configured."""
     try:
-        result = subprocess.run(
-            ["claude", "--version"],
-            capture_output=True, text=True, timeout=5,
-        )
-        if result.returncode != 0:
-            return False
-        # Can't run nested Claude sessions
-        if os.environ.get("CLAUDECODE"):
-            return False
-        return True
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+        import anthropic
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        return bool(api_key)
+    except ImportError:
         return False
 
 
-@pytest.mark.skipif(not _claude_available(), reason="Claude CLI not available")
+@pytest.mark.skipif(
+    not _anthropic_available(),
+    reason="ANTHROPIC_API_KEY not set (set it to run LLM verification tests)",
+)
 class TestLLMVerification:
-    """Tests that use Claude CLI to verify generated file quality with actual LLM responses.
+    """Tests that use the Anthropic SDK to verify generated file quality with actual LLM responses.
 
-    These tests use Claude CLI in --print mode to evaluate generated files,
+    These tests send generated files to Claude Haiku via the Anthropic API,
     acting as a quality gate that an actual LLM can understand and follow the instructions.
+
+    Set ANTHROPIC_API_KEY to enable these tests. They use Haiku for fast, cheap validation.
     """
 
-    CLAUDE_CMD = ["claude", "--print", "--model", "haiku"]
-    TIMEOUT = 60
+    MODEL = "claude-haiku-4-5-20251001"
+    MAX_TOKENS = 100
 
     def _ask_claude(self, prompt: str) -> str:
-        """Run a prompt through Claude CLI and return the response."""
-        result = subprocess.run(
-            self.CLAUDE_CMD,
-            input=prompt,
-            capture_output=True,
-            text=True,
-            timeout=self.TIMEOUT,
-        )
-        if result.returncode != 0:
-            pytest.skip(f"Claude CLI failed: {result.stderr[:200]}")
-        return result.stdout
+        """Send a prompt to Claude via the Anthropic SDK and return the response."""
+        import anthropic
+        try:
+            client = anthropic.Anthropic()
+            response = client.messages.create(
+                model=self.MODEL,
+                max_tokens=self.MAX_TOKENS,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return response.content[0].text
+        except Exception as e:
+            pytest.skip(f"Anthropic API call failed: {e}")
 
     def _generate_project(self, tmp_path, **kwargs) -> tuple[Path, ForgeConfig]:
         config = _make_config(**kwargs)
