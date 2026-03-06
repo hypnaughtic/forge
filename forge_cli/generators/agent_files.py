@@ -61,6 +61,10 @@ def _build_agent_file(agent_type: str, config: ForgeConfig) -> str:
     elif agent_type in review_visual and config.has_frontend_involvement():
         sections.append(_visual_verification_section(agent_type, config))
 
+    # LLM Gateway integration (if enabled)
+    if config.llm_gateway.enabled:
+        sections.append(_llm_gateway_section(agent_type, config))
+
     # Workspace detection
     sections.append(_workspace_detection_section())
 
@@ -96,6 +100,7 @@ def _project_context_section(config: ForgeConfig) -> str:
     - **Active Team**: {', '.join(agents)}
     - **Sub-agent Spawning**: {'Enabled' if config.agents.allow_sub_agent_spawning else 'Disabled'}
     - **Atlassian Integration**: {'Enabled' if config.atlassian.enabled else 'Disabled'}
+    - **LLM Gateway**: {'Enabled (local_claude: ' + ('on' if config.llm_gateway.enable_local_claude else 'off') + ')' if config.llm_gateway.enabled else 'Disabled'}
 
     ### Project Requirements
 
@@ -273,6 +278,110 @@ def _atlassian_section(agent_type: str, config: ForgeConfig) -> str:
     This creates a clear audit trail of which agent did what, enabling human oversight of the AI team.""")
 
     return base
+
+
+def _llm_gateway_section(agent_type: str, config: ForgeConfig) -> str:
+    """Generate llm-gateway integration instructions for agents."""
+    llm_cfg = config.llm_gateway
+
+    # Agents that write implementation code need the full mandate
+    implementor_agents = {
+        "backend-developer", "frontend-engineer", "frontend-developer",
+        "architect", "devops-specialist", "research-strategist",
+    }
+
+    local_claude_note = ""
+    if llm_cfg.enable_local_claude:
+        local_claude_note = dedent(f"""\
+
+        ### Local Claude for Development & Testing
+
+        For integration tests and development, use **local_claude** mode (free, no API key):
+        ```python
+        config = GatewayConfig(provider="local_claude", model="{llm_cfg.local_claude_model}")
+        llm = LLMClient(config=config)
+        ```
+        Environment variable: `LLM_PROVIDER=local_claude`
+        """)
+
+    cost_note = ""
+    if llm_cfg.cost_tracking:
+        cost_note = dedent("""\
+
+        ### Cost Tracking
+
+        Every LLM call MUST use llm-gateway cost tracking:
+        ```python
+        resp = await llm.complete(messages=..., response_model=...)
+        print(resp.usage.total_cost_usd)  # per-call cost
+        print(llm.total_cost_usd)         # cumulative cost
+        ```
+        Log costs in CI and expose them in the application's observability layer.
+        """)
+
+    section = dedent("""\
+    ## LLM Gateway Integration (MANDATORY)
+
+    All LLM calls in this project MUST go through [llm-gateway](https://github.com/Rushabh1798/llm-gateway).
+    **Direct vendor SDK calls (anthropic, openai, langchain providers) are NOT permitted.**
+
+    ### Required Pattern
+    ```python
+    from llm_gateway import LLMClient, GatewayConfig
+    from pydantic import BaseModel
+
+    class MyResponse(BaseModel):
+        result: str
+
+    async def call_llm():
+        llm = LLMClient()  # reads LLM_* env vars
+        resp = await llm.complete(
+            messages=[{"role": "user", "content": "..."}],
+            response_model=MyResponse,
+        )
+        return resp.content.result
+    ```
+
+    ### Why
+    - Vendor-agnostic: switch providers via `LLM_PROVIDER` env var (anthropic, local_claude, fake)
+    - Structured output: Pydantic models for validated, typed responses
+    - Cost tracking: per-call and cumulative USD tracking
+    - Testing: use `FakeLLMProvider` for deterministic unit tests
+    """)
+
+    section += local_claude_note + cost_note
+
+    if agent_type in implementor_agents:
+        section += dedent("""\
+
+        ### Implementation Rules
+        - Install: `pip install 'llm-gateway @ git+https://github.com/Rushabh1798/llm-gateway.git'`
+        - NEVER import `anthropic`, `openai`, or other vendor SDKs directly for LLM calls
+        - ALWAYS define Pydantic response models for structured output
+        - Use `FakeLLMProvider` in unit tests — never call real LLMs in tests
+        - Configure via environment variables (`LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY`)
+        """)
+
+    if agent_type == "qa-engineer":
+        section += dedent("""\
+
+        ### Testing LLM-Dependent Code
+        - Use `FakeLLMProvider` with `set_response()` for predictable test fixtures
+        - Use `response_factory` for dynamic test scenarios
+        - Verify `call_count` to assert expected LLM interaction patterns
+        - Test cost tracking assertions with `llm.total_cost_usd`
+        ```python
+        from llm_gateway import FakeLLMProvider, LLMClient
+
+        fake = FakeLLMProvider()
+        fake.set_response(MyResponse, MyResponse(result="test"))
+        llm = LLMClient(provider_instance=fake)
+        resp = await llm.complete(messages=..., response_model=MyResponse)
+        assert fake.call_count == 1
+        ```
+        """)
+
+    return section
 
 
 def _workspace_detection_section() -> str:
@@ -692,7 +801,7 @@ def _architect_template(config: ForgeConfig) -> str:
     - Database: repository pattern with interface
     - Cache: cache interface with Redis/in-memory implementations
     - External APIs: service interface with real/mock implementations
-    - LLM providers: gateway pattern (use llm-gateway if applicable)""")
+    - LLM providers: MUST use llm-gateway — direct vendor SDK calls are forbidden""")
 
 
 def _backend_developer_template(config: ForgeConfig) -> str:

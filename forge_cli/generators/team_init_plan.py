@@ -162,11 +162,13 @@ def generate_team_init_plan(config: ForgeConfig, project_dir: Path) -> None:
     - Set up Docker Compose for local development
     - Create CI/CD pipeline configuration
     - Set up project scaffolding (build tools, linting, testing framework)
+    {'- Install and configure llm-gateway: `pip install ' + "'llm-gateway @ git+https://github.com/Rushabh1798/llm-gateway.git'" + '`' + chr(10) + '    - Configure LLM_PROVIDER env var in .env and Docker Compose' if config.llm_gateway.enabled else ''}
 
     #### Implementation (Backend + Frontend)
     - Implement core feature(s) based on iteration 1 scope
     - Follow architecture patterns from Architect
     - Use API contracts for frontend-backend integration
+    {'- All LLM calls MUST use llm-gateway (never import vendor SDKs directly)' if config.llm_gateway.enabled else ''}
 
     #### Quality (QA Engineer)
     - Set up testing framework
@@ -210,6 +212,7 @@ def generate_team_init_plan(config: ForgeConfig, project_dir: Path) -> None:
     | Sub-agent Spawning | {'Enabled' if config.agents.allow_sub_agent_spawning else 'Disabled'} |
     | Atlassian | {'Enabled' if config.atlassian.enabled else 'Disabled'} |
     | Agent Naming | {config.agent_naming.style if config.agent_naming.enabled else 'Disabled'} |
+    | LLM Gateway | {'Enabled (local_claude: ' + ('on' if config.llm_gateway.enable_local_claude else 'off') + ')' if config.llm_gateway.enabled else 'Disabled'} |
 
     ---
 

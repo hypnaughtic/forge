@@ -23,6 +23,7 @@ from forge_cli.config_schema import (
     CostConfig,
     ExecutionStrategy,
     ForgeConfig,
+    LLMGatewayConfig,
     ProjectConfig,
     ProjectMode,
     TeamProfile,
@@ -1182,49 +1183,96 @@ class TestVisualVerificationConditional:
 
 
 # =============================================================================
-# 8. LLM-Verified Tests (Claude CLI Integration)
+# 8. LLM-Verified Tests (via llm-gateway)
 # =============================================================================
 
 
-def _anthropic_available():
-    """Check if Anthropic SDK is available and an API key is configured."""
+def _llm_gateway_available():
+    """Check if llm-gateway is installed and a provider can actually complete a call."""
     try:
-        import anthropic
-        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        return bool(api_key)
+        from llm_gateway import LLMClient, GatewayConfig
     except ImportError:
         return False
 
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return True
+
+    # local_claude needs `claude` CLI that's authenticated
+    import shutil
+    if not shutil.which("claude"):
+        return False
+
+    # Quick probe: run claude --version without CLAUDECODE to verify auth works
+    env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+    try:
+        r = subprocess.run(
+            ["claude", "-p", "hi", "--output-format", "json", "--max-budget-usd", "0.01"],
+            capture_output=True, text=True, timeout=15, env=env,
+        )
+        # "Not logged in" means auth doesn't work in subprocess context
+        if "Not logged in" in r.stdout or "Not logged in" in r.stderr:
+            return False
+        return r.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return False
+
+
+def _get_llm_provider():
+    """Determine best available llm-gateway provider."""
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return "anthropic"
+    return "local_claude"
+
 
 @pytest.mark.skipif(
-    not _anthropic_available(),
-    reason="ANTHROPIC_API_KEY not set (set it to run LLM verification tests)",
+    not _llm_gateway_available(),
+    reason="llm-gateway not available (install llm-gateway and have claude CLI or ANTHROPIC_API_KEY)",
 )
 class TestLLMVerification:
-    """Tests that use the Anthropic SDK to verify generated file quality with actual LLM responses.
+    """Tests that use llm-gateway to verify generated file quality with actual LLM responses.
 
-    These tests send generated files to Claude Haiku via the Anthropic API,
-    acting as a quality gate that an actual LLM can understand and follow the instructions.
+    These tests use llm-gateway (local_claude or anthropic provider) to evaluate
+    generated files, acting as a quality gate that an actual LLM can understand
+    and follow the instructions.
 
-    Set ANTHROPIC_API_KEY to enable these tests. They use Haiku for fast, cheap validation.
+    Providers (in priority order):
+    - anthropic: if ANTHROPIC_API_KEY is set
+    - local_claude: uses claude CLI (free, no API key)
     """
 
     MODEL = "claude-haiku-4-5-20251001"
-    MAX_TOKENS = 100
+    MAX_TOKENS = 150
 
     def _ask_claude(self, prompt: str) -> str:
-        """Send a prompt to Claude via the Anthropic SDK and return the response."""
-        import anthropic
-        try:
-            client = anthropic.Anthropic()
-            response = client.messages.create(
+        """Send a prompt through llm-gateway and return the text response."""
+        import asyncio
+        from pydantic import BaseModel
+        from llm_gateway import LLMClient, GatewayConfig
+
+        class TextAnswer(BaseModel):
+            text: str
+
+        async def _call():
+            provider = _get_llm_provider()
+            config = GatewayConfig(
+                provider=provider,
                 model=self.MODEL,
                 max_tokens=self.MAX_TOKENS,
-                messages=[{"role": "user", "content": prompt}],
+                timeout_seconds=30,
             )
-            return response.content[0].text
-        except Exception as e:
-            pytest.skip(f"Anthropic API call failed: {e}")
+            llm = LLMClient(config=config)
+            try:
+                resp = await llm.complete(
+                    messages=[{"role": "user", "content": prompt}],
+                    response_model=TextAnswer,
+                )
+                return resp.content.text
+            except Exception as e:
+                pytest.skip(f"llm-gateway ({provider}) call failed: {e}")
+            finally:
+                await llm.close()
+
+        return asyncio.run(_call())
 
     def _generate_project(self, tmp_path, **kwargs) -> tuple[Path, ForgeConfig]:
         config = _make_config(**kwargs)
@@ -1238,7 +1286,7 @@ class TestLLMVerification:
         tl_content = (project_dir / ".claude" / "agents" / "team-leader.md").read_text()
 
         response = self._ask_claude(
-            f"Read this agent instruction file and answer in exactly one word - "
+            f"Read this agent instruction file and answer in the text field with exactly one word - "
             f"what is the primary ROLE described? (answer: leader/developer/tester/designer)\n\n"
             f"{tl_content[:3000]}"
         )
@@ -1253,7 +1301,7 @@ class TestLLMVerification:
 
         response = self._ask_claude(
             f"Read this CLAUDE.md file. What is the development mode? "
-            f"Answer with ONLY the mode value, nothing else.\n\n{claude_md[:2000]}"
+            f"Answer in the text field with ONLY the mode value, nothing else.\n\n{claude_md[:2000]}"
         )
         assert "production" in response.lower(), f"LLM didn't extract mode: {response[:200]}"
 
@@ -1264,10 +1312,9 @@ class TestLLMVerification:
 
         response = self._ask_claude(
             f"Read this team initialization plan. How many agents are in the team? "
-            f"Answer with ONLY the number.\n\n{plan[:3000]}"
+            f"Answer in the text field with ONLY the number.\n\n{plan[:3000]}"
         )
         expected = len(config.get_active_agents())
-        # Allow some flexibility in LLM response parsing
         assert str(expected) in response, f"LLM didn't identify agent count ({expected}): {response[:200]}"
 
     def test_llm_finds_quality_threshold(self, tmp_path):
@@ -1279,7 +1326,7 @@ class TestLLMVerification:
 
         response = self._ask_claude(
             f"Read this team leader instruction file. What is the quality threshold percentage? "
-            f"Answer with ONLY the percentage (e.g., '90%').\n\n{tl[:3000]}"
+            f"Answer in the text field with ONLY the percentage (e.g., '90%').\n\n{tl[:3000]}"
         )
         assert "100%" in response, f"LLM didn't find quality threshold: {response[:200]}"
 
@@ -1290,9 +1337,8 @@ class TestLLMVerification:
 
         response = self._ask_claude(
             f"Rate this agent instruction file on a scale of 1-10 for clarity and coherence. "
-            f"Answer with ONLY a number from 1-10.\n\n{backend[:4000]}"
+            f"Answer in the text field with ONLY a number from 1-10.\n\n{backend[:4000]}"
         )
-        # Extract the number
         numbers = re.findall(r"\b(\d+)\b", response)
         assert numbers, f"LLM didn't return a number: {response[:200]}"
         score = int(numbers[0])
@@ -1305,8 +1351,8 @@ class TestLLMVerification:
 
         response = self._ask_claude(
             f"Read this frontend engineer instruction file. "
-            f"Is this agent required to take screenshots of their work? Answer YES or NO only.\n\n"
-            f"{fe[:4000]}"
+            f"Is this agent required to take screenshots of their work? "
+            f"Answer in the text field with YES or NO only.\n\n{fe[:4000]}"
         )
         assert "yes" in response.lower(), f"LLM didn't detect visual verification: {response[:200]}"
 
@@ -1317,10 +1363,148 @@ class TestLLMVerification:
 
         response = self._ask_claude(
             f"Read this MCP configuration JSON. List the MCP server names. "
-            f"Answer with comma-separated names only.\n\n{mcp}"
+            f"Answer in the text field with comma-separated names only.\n\n{mcp}"
         )
         assert "playwright" in response.lower()
         assert "atlassian" in response.lower()
+
+
+# =============================================================================
+# 8b. LLM Gateway Integration Tests (FakeLLMProvider - always run)
+# =============================================================================
+
+
+class TestLLMGatewayIntegration:
+    """Tests that verify llm-gateway integration in generated files.
+
+    Uses FakeLLMProvider for deterministic, offline testing.
+    These tests always run (no external dependencies needed).
+    """
+
+    def test_llm_gateway_section_in_agent_files(self, tmp_path):
+        """Agent files should contain LLM Gateway section when enabled."""
+        config = _make_config()
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        for agent in config.get_active_agents():
+            content = (tmp_path / ".claude" / "agents" / f"{agent}.md").read_text()
+            assert "LLM Gateway Integration" in content, f"{agent} missing LLM Gateway section"
+            assert "llm-gateway" in content
+
+    def test_llm_gateway_disabled_no_section(self, tmp_path):
+        """Agent files should NOT contain LLM Gateway section when disabled."""
+        config = _make_config()
+        config.llm_gateway = LLMGatewayConfig(enabled=False)
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        for agent in config.get_active_agents():
+            content = (tmp_path / ".claude" / "agents" / f"{agent}.md").read_text()
+            assert "LLM Gateway Integration (MANDATORY)" not in content
+
+    def test_llm_gateway_in_claude_md(self, tmp_path):
+        """CLAUDE.md should contain LLM Gateway section when enabled."""
+        config = _make_config()
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        claude_md = (tmp_path / "CLAUDE.md").read_text()
+        assert "LLM Gateway" in claude_md
+        assert "llm-gateway" in claude_md
+        assert "local_claude" in claude_md
+
+    def test_llm_gateway_in_team_init_plan(self, tmp_path):
+        """team-init-plan.md should reference LLM Gateway in quick reference."""
+        config = _make_config()
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        plan = (tmp_path / "team-init-plan.md").read_text()
+        assert "LLM Gateway" in plan
+
+    def test_llm_gateway_vendor_agnostic_mandate(self, tmp_path):
+        """Architect agent file should mandate llm-gateway for LLM providers."""
+        config = _make_config()
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        architect = (tmp_path / ".claude" / "agents" / "architect.md").read_text()
+        assert "MUST use llm-gateway" in architect
+
+    def test_llm_gateway_qa_testing_instructions(self, tmp_path):
+        """QA agent should have FakeLLMProvider testing instructions."""
+        config = _make_config()
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        qa = (tmp_path / ".claude" / "agents" / "qa-engineer.md").read_text()
+        assert "FakeLLMProvider" in qa
+
+    def test_llm_gateway_local_claude_config(self, tmp_path):
+        """Agent files should reference local_claude when enabled."""
+        config = _make_config()
+        config.llm_gateway.enable_local_claude = True
+        config.llm_gateway.local_claude_model = "claude-sonnet-4-20250514"
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        backend = (tmp_path / ".claude" / "agents" / "backend-developer.md").read_text()
+        assert "local_claude" in backend
+        assert "claude-sonnet-4-20250514" in backend
+
+    def test_llm_gateway_cost_tracking(self, tmp_path):
+        """Cost tracking instructions should appear when enabled."""
+        config = _make_config()
+        config.llm_gateway.cost_tracking = True
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        backend = (tmp_path / ".claude" / "agents" / "backend-developer.md").read_text()
+        assert "total_cost_usd" in backend
+
+    def test_fake_provider_works(self):
+        """FakeLLMProvider should produce deterministic responses."""
+        import asyncio
+        from pydantic import BaseModel
+        from llm_gateway import FakeLLMProvider, LLMClient
+
+        class Answer(BaseModel):
+            text: str
+
+        async def _test():
+            fake = FakeLLMProvider()
+            fake.set_response(Answer, Answer(text="hello"))
+            llm = LLMClient(provider_instance=fake)
+            resp = await llm.complete(
+                messages=[{"role": "user", "content": "test"}],
+                response_model=Answer,
+            )
+            assert resp.content.text == "hello"
+            assert fake.call_count == 1
+            assert resp.usage.total_cost_usd >= 0
+            await llm.close()
+
+        asyncio.run(_test())
+
+    def test_config_schema_has_llm_gateway(self):
+        """ForgeConfig should have llm_gateway field with correct defaults."""
+        config = ForgeConfig()
+        assert config.llm_gateway.enabled is True
+        assert config.llm_gateway.enable_local_claude is True
+        assert config.llm_gateway.cost_tracking is True
+        assert "claude" in config.llm_gateway.local_claude_model
+
+    def test_project_context_shows_llm_gateway(self, tmp_path):
+        """Project context section should show LLM Gateway status."""
+        config = _make_config()
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        for agent in config.get_active_agents():
+            content = (tmp_path / ".claude" / "agents" / f"{agent}.md").read_text()
+            assert "LLM Gateway" in content
+            assert "local_claude: on" in content
 
 
 # =============================================================================

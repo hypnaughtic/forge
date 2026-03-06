@@ -63,6 +63,23 @@ def generate_claude_md(config: ForgeConfig, project_dir: Path) -> None:
         This enables traceability — humans can see exactly which agent did what.
         """)
 
+    llm_gateway_section = ""
+    if config.llm_gateway.enabled:
+        local_note = ""
+        if config.llm_gateway.enable_local_claude:
+            local_note = f"\n    - **Local Claude**: enabled (model: {config.llm_gateway.local_claude_model}) — free local inference for dev/test"
+        llm_gateway_section = dedent(f"""\
+
+        ## LLM Gateway
+
+        All LLM calls in this project MUST use [llm-gateway](https://github.com/Rushabh1798/llm-gateway).
+        Direct vendor SDK imports (anthropic, openai) are forbidden.
+        - **Provider switching**: `LLM_PROVIDER` env var (anthropic, local_claude, fake)
+        - **Structured output**: Pydantic response models for every call
+        - **Cost tracking**: {'enabled' if config.llm_gateway.cost_tracking else 'disabled'} — per-call and cumulative USD tracking{local_note}
+        - **Testing**: use `FakeLLMProvider` for deterministic unit tests
+        """)
+
     content = dedent(f"""\
     # Forge — Team Leader Context
 
@@ -109,7 +126,7 @@ def generate_claude_md(config: ForgeConfig, project_dir: Path) -> None:
 
     Example: To spawn the backend developer, use the Agent tool and include the
     contents of `.claude/agents/backend-developer.md` in the system prompt.
-    {atlassian_section}{spawning_section}{naming_section}
+    {atlassian_section}{spawning_section}{naming_section}{llm_gateway_section}
     ## Visual Verification
 
     Playwright MCP is configured in `.claude/mcp.json` for browser automation and screenshots.

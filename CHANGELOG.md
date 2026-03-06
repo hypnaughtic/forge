@@ -4,6 +4,41 @@ All notable changes to the Forge project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.1.0] — 2026-03-06
+
+### Added
+
+- **LLMGatewayConfig in config schema** — New `llm_gateway` section in `ForgeConfig`
+  with fields: `enabled`, `local_claude_model`, `enable_local_claude`, `cost_tracking`.
+  Controls whether generated agent files include the LLM Gateway Integration mandate.
+
+- **LLM Gateway sections in generated files** — When `llm_gateway.enabled` is true,
+  every agent file includes an "LLM Gateway Integration (MANDATORY)" section with
+  `LLMClient`/`GatewayConfig` usage patterns, `FakeLLMProvider` test instructions
+  (QA agent), `local_claude` dev setup, and cost tracking requirements.
+  CLAUDE.md and team-init-plan.md also reference llm-gateway configuration.
+
+- **Comprehensive integration tests** — 191 tests covering all configuration
+  combinations, file quality scoring, CLI end-to-end flows, agent behavioral
+  verification, cross-file consistency, visual verification, llm-gateway integration,
+  and edge cases. LLM-verified tests use llm-gateway `local_claude` mode.
+
+- **TestLLMGatewayIntegration test class** — 11 offline tests using `FakeLLMProvider`
+  that verify llm-gateway sections appear in agent files, CLAUDE.md, and
+  team-init-plan.md; vendor-agnostic mandate in architect file; QA testing
+  instructions; local_claude config; cost tracking; and config schema defaults.
+
+- **TestLLMVerification test class** — 7 tests using llm-gateway `local_claude` or
+  `anthropic` provider to validate generated file quality with actual LLM responses.
+
+### Changed
+
+- **Vendor-agnostic mandate strengthened** — Architect agent template now says
+  "MUST use llm-gateway" instead of "gateway pattern (use llm-gateway if applicable)".
+
+- **Project context section** — All agent files now show LLM Gateway status
+  (enabled/disabled, local_claude on/off) in the project context header.
+
 ## [1.0.0] — 2026-03-03
 
 ### Added

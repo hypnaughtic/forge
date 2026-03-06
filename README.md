@@ -327,12 +327,23 @@ Leave arrays empty for the team to decide based on requirements.
 
 ```yaml
 llm_gateway:
-  local_claude_model: "claude-sonnet-4-20250514"  # Model for integration tests
-  enable_local_claude: true                        # Use Claude CLI for integration tests
-  cost_tracking: true                              # Track LLM token usage
+  enabled: true                                    # Include llm-gateway mandate in all agent files
+  local_claude_model: "claude-sonnet-4-20250514"   # Model for local_claude provider
+  enable_local_claude: true                        # Use Claude CLI for free local inference
+  cost_tracking: true                              # Track LLM token usage and costs
 ```
 
 All LLM calls in built projects must use [llm-gateway](https://github.com/Rushabh1798/llm-gateway).
+Direct vendor SDK imports (`anthropic`, `openai`) are forbidden. When enabled, every generated
+agent file includes the LLM Gateway Integration section with:
+
+- Required `LLMClient` / `GatewayConfig` usage patterns
+- `FakeLLMProvider` instructions for QA agent test suites
+- `local_claude` setup for free dev/test inference via the Claude CLI
+- Cost tracking (`resp.usage.total_cost_usd`) requirements
+
+Set `enabled: false` to omit the LLM gateway mandate from generated files (e.g., for projects
+that don't make LLM calls).
 
 ### `bootstrap_template` -- Starter scaffolding
 

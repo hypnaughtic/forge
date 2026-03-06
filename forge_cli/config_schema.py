@@ -71,6 +71,15 @@ class AgentNamingConfig(BaseModel):
     style: str = "creative"  # creative | functional | codename
 
 
+class LLMGatewayConfig(BaseModel):
+    """Configuration for llm-gateway integration in generated projects."""
+
+    enabled: bool = True
+    local_claude_model: str = "claude-sonnet-4-20250514"
+    enable_local_claude: bool = True
+    cost_tracking: bool = True
+
+
 class ForgeConfig(BaseModel):
     """Root configuration for a forge-initialized project."""
 
@@ -82,6 +91,7 @@ class ForgeConfig(BaseModel):
     tech_stack: TechStack = Field(default_factory=TechStack)
     atlassian: AtlassianConfig = Field(default_factory=AtlassianConfig)
     agent_naming: AgentNamingConfig = Field(default_factory=AgentNamingConfig)
+    llm_gateway: LLMGatewayConfig = Field(default_factory=LLMGatewayConfig)
 
     def resolve_team_profile(self) -> str:
         """Resolve 'auto' team profile based on mode."""
