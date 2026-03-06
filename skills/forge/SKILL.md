@@ -1,55 +1,43 @@
 ---
 name: forge
-description: "Smart NL router — classifies your request and routes to instant commands or Team Leader"
-argument-hint: "<natural language request>"
+description: "Initialize a project with Claude Code agent team configuration"
+argument-hint: "[project-description]"
 ---
 
-# /forge — Natural Language Router
+# /forge — Project Initialization
 
-You are the Forge concierge. When the user invokes `/forge <message>`, classify the intent and route accordingly.
+You are the Forge project initializer. When the user invokes `/forge`, help them set up their Claude Code agent team.
 
-## Step 1: Classify Intent
+## What Forge Does
 
-Run the NL router for fast keyword-based classification:
+Forge generates agent instruction files for Claude Code CLI agent teams. It creates:
+- `.claude/agents/*.md` — Agent instruction files for each team member
+- `CLAUDE.md` — Team Leader context and project configuration
+- `.claude/skills/*.md` — Reusable skills for the team
+- `team-init-plan.md` — Bootstrap plan for the first Claude session
+- `.claude/mcp.json` — MCP server configuration (if Atlassian enabled)
+- `forge-config.yaml` — Project configuration
+
+## How to Use
+
+Run the forge CLI to start the interactive wizard:
 
 ```bash
-bash "$FORGE_DIR/scripts/nl-router.sh" "$ARGUMENTS"
+forge init
 ```
 
-The router returns comma-separated intents: `STATUS`, `COST`, `TEAM`, `MODE`, `STRATEGY`, `SNAPSHOT`, `START`, `STOP`, `GUIDE`, `ASK`.
+Or if forge is installed as a Python package:
 
-## Step 2: Route by Intent Type
+```bash
+forge init --project-dir /path/to/project
+```
 
-### INSTANT intents (execute directly, no AI reasoning needed)
+## After Initialization
 
-| Intent | Action |
-|--------|--------|
-| `STATUS` | Run `bash "$FORGE_DIR/scripts/status.sh"` and summarize from your working memory |
-| `COST` | Run `bash "$FORGE_DIR/scripts/cost-tracker.sh" --report` |
-| `TEAM` | Run `bash "$FORGE_DIR/scripts/team-view.sh"` |
-| `SNAPSHOT` | Run `bash "$FORGE_DIR/scripts/stop.sh" --snapshot-only` |
-| `MODE` | Extract mode value, run `bash "$FORGE_DIR/scripts/change-mode.sh" <value>` |
-| `STRATEGY` | Extract strategy value, run `bash "$FORGE_DIR/scripts/change-strategy.sh" <value>` |
-| `START` | Begin iteration workflow (spawn team, decompose tasks) |
-| `STOP` | Run `bash "$FORGE_DIR/scripts/stop.sh"` |
-
-### ASYNC intents (queue for Team Leader)
-
-| Intent | Action |
-|--------|--------|
-| `ASK` | Write the full message to `shared/.human/override.md` as a directive |
-| `GUIDE` | Extract target agent and message, write to `shared/.human/override.md` with `type: agent-directive` and `target_agent` metadata |
-
-## Step 3: Handle Multi-Intent
-
-If the router returns multiple intents (e.g., `STATUS,COST`):
-
-1. Execute all INSTANT intents, combine their outputs
-2. If there are also ASYNC intents, queue those separately
-3. Present combined results to the user
-
-## Critical Rule: Intent Over Invocation
-
-Even if the user arrives here via `/forge:ask what is the cost`, the NL router recognizes "cost" as an INSTANT intent. **Intent always wins over invocation path.** Do not force async processing just because the user typed "ask".
+Once files are generated:
+1. Navigate to the project directory
+2. Run `claude` to start a Claude Code session
+3. Tell Claude: "Read team-init-plan.md and initialize the team"
+4. The Team Leader agent will spawn the team and begin Iteration 1
 
 $ARGUMENTS

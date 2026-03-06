@@ -1,22 +1,27 @@
 ---
 name: init
-description: "Interactive project configuration wizard"
-argument-hint: ""
+description: "Run the interactive project configuration wizard"
+argument-hint: "[--project-dir <path>]"
 ---
 
-# /forge:init — Project Setup
+# /forge:init — Configure Project
 
-Launch the interactive project configuration wizard:
+Run the Forge interactive wizard to configure your Claude Code agent team.
 
+The wizard walks you through:
+1. **Project basics** — description, requirements, type (new/existing)
+2. **Mode & Strategy** — MVP/Production/No-Compromise, Auto-Pilot/Co-Pilot/Micro-Manage
+3. **Budget** — development cost cap
+4. **Tech stack** — preferred languages, frameworks, databases
+5. **Team composition** — auto/lean/full/custom agent profiles
+6. **Sub-agent spawning** — allow agents to spawn sub-agents for parallel work
+7. **Atlassian integration** — Jira/Confluence for project management
+8. **Agent naming** — unique identities for traceability
+9. **Per-agent customization** — additional instructions per agent
+
+Run with:
 ```bash
-bash "$FORGE_DIR/scripts/init-project.sh" --wizard
+forge init
 ```
-
-This generates:
-
-- `config/team-config.yaml` — Project configuration
-- `config/project-requirements.md` — Project requirements document
-
-Guide the user through project type, mode, strategy, tech stack, and team composition.
 
 $ARGUMENTS

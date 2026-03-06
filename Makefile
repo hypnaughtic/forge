@@ -1,47 +1,38 @@
-.PHONY: lint lint-shell lint-yaml lint-markdown lint-skills test-unit test-integration test-validation test-plugin test-cockpit test-all ci-local
+.PHONY: install dev lint test test-all ci-local clean
+
+# --- Setup ---
+install:
+	pip install -e .
+
+dev:
+	pip install -e ".[dev]"
 
 # --- Linting ---
-lint: lint-shell lint-yaml lint-markdown
-
-lint-shell:
-	@echo "==> Linting shell scripts..."
-	shellcheck --severity=warning forge setup.sh scripts/*.sh scripts/cockpit/*.sh
-
-lint-yaml:
-	@echo "==> Linting YAML files..."
-	find config templates -name '*.yaml' -o -name '*.yml' | xargs yamllint -c .yamllint.yml
-
-lint-markdown:
-	@echo "==> Linting Markdown files..."
-	markdownlint-cli2 "docs/**/*.md" "README.md" "CHANGELOG.md" ".claude/commands/*.md" "skills/**/*.md"
-
-lint-skills:
-	@echo "==> Validating skill structure..."
-	bats tests/validation/test_skill_structure.bats
+lint:
+	@echo "==> Linting Python code..."
+	python3 -m py_compile forge_cli/main.py
+	python3 -m py_compile forge_cli/wizard.py
+	python3 -m py_compile forge_cli/config_schema.py
+	python3 -m py_compile forge_cli/config_loader.py
+	python3 -m py_compile forge_cli/generators/orchestrator.py
+	python3 -m py_compile forge_cli/generators/agent_files.py
+	python3 -m py_compile forge_cli/generators/claude_md.py
+	python3 -m py_compile forge_cli/generators/mcp_config.py
+	python3 -m py_compile forge_cli/generators/skills.py
+	python3 -m py_compile forge_cli/generators/team_init_plan.py
 
 # --- Testing ---
-test-unit:
-	@echo "==> Running unit tests..."
-	bats tests/unit/
+test:
+	@echo "==> Running tests..."
+	python3 -m pytest tests/ -v
 
-test-integration:
-	@echo "==> Running integration tests..."
-	bats tests/integration/
-
-test-validation:
-	@echo "==> Running validation tests..."
-	bats tests/validation/
-
-test-plugin:
-	@echo "==> Running plugin tests..."
-	bats tests/validation/test_skill_structure.bats tests/integration/test_plugin_structure.bats
-
-test-cockpit:
-	@echo "==> Running cockpit tests..."
-	bats tests/unit/test_cockpit_render.bats tests/integration/test_cockpit_layout.bats
-
-test-all: test-validation test-unit test-integration
+test-all: lint test
 
 # --- Full CI mirror ---
-ci-local: lint test-all
+ci-local: test-all
 	@echo "==> All checks passed!"
+
+# --- Cleanup ---
+clean:
+	rm -rf build/ dist/ *.egg-info .pytest_cache __pycache__
+	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true

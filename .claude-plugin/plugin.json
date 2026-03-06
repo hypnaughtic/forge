@@ -1,7 +1,7 @@
 {
   "name": "forge",
-  "version": "1.0.0",
-  "description": "AI Software Forge — Orchestrate a team of Claude Code agents to build software",
+  "version": "2.0.0",
+  "description": "Forge — Project initialization tool that generates agent instruction files, CLAUDE.md, skills, and team plans for Claude Code CLI agent teams",
   "author": {
     "name": "Rushabh Thakkar"
   },
