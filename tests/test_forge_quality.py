@@ -87,7 +87,7 @@ pytestmark = pytest.mark.skipif(
 
 LLM_MODEL = "claude-opus-4-6"
 LLM_MAX_TOKENS = 4096
-LLM_TIMEOUT = 120
+LLM_TIMEOUT = 180
 
 
 class LLMScore(BaseModel):
@@ -1072,10 +1072,14 @@ def _run_structural_checks(project_dir: Path, config: ForgeConfig) -> list[str]:
 # Pytest test class
 # ---------------------------------------------------------------------------
 
+QUALITY_CASES_DIR = Path(__file__).parent / "quality_cases"
+
+
 @pytest.fixture(scope="module")
-def test_suite_root(tmp_path_factory) -> Path:
-    """Create a root directory for all test cases."""
-    return tmp_path_factory.mktemp("forge_quality")
+def test_suite_root() -> Path:
+    """Persistent directory for all test case outputs under tests/quality_cases/."""
+    QUALITY_CASES_DIR.mkdir(exist_ok=True)
+    return QUALITY_CASES_DIR
 
 
 class TestForgeQuality:
@@ -1091,8 +1095,10 @@ class TestForgeQuality:
         case = TEST_CASES[case_name]
         config = _build_config(case)
 
-        # Create test case directory
+        # Create test case directory (clean previous run)
         case_dir = test_suite_root / case_name
+        if case_dir.exists():
+            shutil.rmtree(case_dir)
         project_dir = case_dir / "project"
         output_dir = case_dir / "outputs"
         project_dir.mkdir(parents=True, exist_ok=True)

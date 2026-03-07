@@ -41,5 +41,8 @@ build/
 # BATS test temp files
 .bats-tmp/
 
+# LLM quality test outputs (generated per-run, not committed)
+tests/quality_cases/
+
 # Virtual environments
 .venv/
