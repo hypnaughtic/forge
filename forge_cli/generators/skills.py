@@ -33,6 +33,12 @@ def generate_skills(config: ForgeConfig, skills_dir: Path) -> None:
     # Screenshot review skill (visual verification)
     _write_skill(skills_dir / "screenshot-review.md", _screenshot_review_skill())
 
+    # PR workflow skill
+    _write_skill(skills_dir / "create-pr.md", _pr_workflow_skill(config))
+
+    # Release management skill
+    _write_skill(skills_dir / "release.md", _release_management_skill(config))
+
     # Architecture review skill
     _write_skill(skills_dir / "arch-review.md", _arch_review_skill())
 
@@ -235,6 +241,84 @@ def _screenshot_review_skill() -> str:
     - Overall visual quality assessment
 
     This helps the human understand what was built without starting the app themselves.
+
+    $ARGUMENTS
+    """)
+
+
+def _pr_workflow_skill(config: ForgeConfig) -> str:
+    jira_step = ""
+    if config.atlassian.enabled:
+        project_key = config.atlassian.jira_project_key or "PROJ"
+        jira_step = f"""
+    4. **Reference Jira ticket** in the PR description: `Closes {project_key}-<number>`
+    5. **Verify branch name** follows convention: `<type>-{project_key}-<N>-<description>`"""
+    else:
+        jira_step = """
+    4. **Reference task ID** in the PR description
+    5. **Verify branch name** follows convention: `<type>/<agent-name>/<task-id>-<description>`"""
+
+    return dedent(f"""\
+    ---
+    name: create-pr
+    description: "Create a Pull Request following the team's workflow conventions"
+    argument-hint: "<target-branch> [title]"
+    ---
+
+    # Create Pull Request
+
+    Create a PR following the team's workflow conventions.
+
+    ## Steps
+
+    1. **Verify all changes are committed** and pushed to the remote branch
+    2. **Run tests** locally — ensure they pass before creating the PR
+    3. **Create the PR** using `gh pr create` with:
+       - Clear, descriptive title
+       - Summary of changes in the description
+       - Target branch (parent feature branch or default branch){jira_step}
+    6. **Request review** from the appropriate lead agent
+    7. **Wait for approval** — at least one approval required before merge
+
+    ## PR Size Guidelines
+
+    - **Big PRs** (new features, cross-cutting changes): reviewer should test the feature end-to-end
+    - **Small PRs** (docs, config, bug fixes): code review is sufficient
+
+    $ARGUMENTS
+    """)
+
+
+def _release_management_skill(config: ForgeConfig) -> str:
+    confluence_step = ""
+    if config.atlassian.enabled:
+        confluence_step = """
+    5. **Update Confluence** release notes page with the release summary
+    6. **Update Jira** — mark the release version as released, move remaining tickets to next version"""
+
+    return dedent(f"""\
+    ---
+    name: release
+    description: "Create a GitHub release with tag and release notes"
+    argument-hint: "<version-tag> [title]"
+    ---
+
+    # Release Management
+
+    Create a GitHub release after a major milestone.
+
+    ## Steps
+
+    1. **Verify readiness**: All tests pass, smoke tests pass, iteration is verified
+    2. **Create git tag**: `git tag v<version>` (e.g., `v1.0.0`, `v0.1.0-alpha`)
+    3. **Push tag**: `git push origin v<version>`
+    4. **Create GitHub release**: `gh release create v<version> --generate-notes --title "<title>"`{confluence_step}
+
+    ## Version Numbering
+
+    - Major releases: `v1.0.0`, `v2.0.0` — breaking changes or major milestones
+    - Minor releases: `v1.1.0`, `v1.2.0` — new features
+    - Patch releases: `v1.0.1`, `v1.0.2` — bug fixes
 
     $ARGUMENTS
     """)

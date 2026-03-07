@@ -82,6 +82,39 @@ def generate_team_init_plan(config: ForgeConfig, project_dir: Path) -> None:
         - Each sub-agent follows the full protocol from its instruction file
         """)
 
+    sub_team_critic_rule = ""
+    if config.agents.allow_sub_agent_spawning:
+        sub_team_critic_rule = "\n    4. **Sub-Team Critics**: Every agent that spawns sub-agents must also spawn a Critic for its micro-team"
+
+    workflow_init = ""
+    if config.atlassian.enabled:
+        project_key = config.atlassian.jira_project_key or "PROJ"
+        next_num = 5 if config.agents.allow_sub_agent_spawning else 4
+        workflow_init = dedent(f"""\
+
+        ### Workflow Rules
+
+        These rules are enforced from the first commit:
+
+        1. **Jira-First**: No agent starts coding without a Jira ticket. Create tickets before work begins.
+        2. **Branch Naming**: `<type>-<{project_key}-N>-<description>` — every branch maps to a Jira ticket
+        3. **PR Workflow**: All code changes go through Pull Requests. At least one approval required.{sub_team_critic_rule}
+        {next_num}. **PR Review Quality**: Big PRs (new features, cross-cutting changes) require actual testing by the reviewer
+        {next_num + 1}. **Release Management**: After major milestones, create a GitHub release with tag and update Confluence release notes
+        """)
+    else:
+        next_num = 3 if config.agents.allow_sub_agent_spawning else 2
+        workflow_init = dedent(f"""\
+
+        ### Workflow Rules
+
+        These rules are enforced from the first commit:
+
+        1. **PR Workflow**: All code changes go through Pull Requests. At least one approval required.{sub_team_critic_rule}
+        {next_num}. **PR Review Quality**: Big PRs (new features, cross-cutting changes) require actual testing by the reviewer
+        {next_num + 1}. **Hierarchical Branches**: Sub-task branches PR into parent feature branches, feature branches into default
+        """)
+
     workspace_note = ""
     if config.project.type == "new":
         workspace_note = dedent("""\
@@ -144,7 +177,7 @@ def generate_team_init_plan(config: ForgeConfig, project_dir: Path) -> None:
     - Include the contents of their instruction file (`.claude/agents/{{agent}}.md`) as context
     - Give each agent a clear initial task based on Iteration 1 plan below
     - Wait for agents to acknowledge initialization and report their chosen names
-    {naming_init}{atlassian_init}{spawning_init}{workspace_note}
+    {naming_init}{atlassian_init}{spawning_init}{workflow_init}{workspace_note}
     ### Phase 3: Iteration 1 — Bootstrap
 
     The first iteration should establish the project foundation:

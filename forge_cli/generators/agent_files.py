@@ -39,6 +39,9 @@ def _build_agent_file(agent_type: str, config: ForgeConfig) -> str:
     # Base protocol (embedded, not referenced)
     sections.append(_base_protocol_section(config))
 
+    # Workflow enforcement protocol (always included, adapts to config)
+    sections.append(_workflow_enforcement_section(agent_type, config))
+
     # Sub-agent spawning protocol (if enabled)
     if config.agents.allow_sub_agent_spawning:
         sections.append(_sub_agent_spawning_section(agent_type, config))
@@ -122,9 +125,9 @@ def _base_protocol_section(config: ForgeConfig) -> str:
 
     ### Git Workflow
 
-    - **Branches**: `agent/{agent-name}/{task-id}-{short-description}`
-    - **Commits**: `[{agent-name}] {type}: {description}` — types: `feat`, `fix`, `refactor`, `test`, `docs`, `ci`, `chore`
-    - **Only Team Leader merges to main.** After each verified iteration: `git tag iteration-{N}-verified`
+    - **Commits**: `[{agent-name}] {type}: {description}` — types: feat, fix, refactor, test, docs, ci, chore
+    - **Branch naming and PR workflow**: See Workflow Enforcement Protocol below
+    - After each verified iteration: `git tag iteration-{N}-verified`
 
     ### Confidence Signaling
 
@@ -169,7 +172,75 @@ def _base_protocol_section(config: ForgeConfig) -> str:
     Max 2 review rounds — unresolved after 2 rounds, Team Leader decides.""")
 
 
+def _workflow_enforcement_section(agent_type: str, config: ForgeConfig) -> str:
+    """Generate workflow enforcement protocol — branch naming, PR workflow, review quality, release management."""
+    if config.atlassian.enabled:
+        project_key = config.atlassian.jira_project_key or "PROJ"
+        branch_naming = dedent(f"""\
+        ### Branch Naming Convention
+
+        Format: `<type>-<JIRA-KEY>-<hyphen-separated-description>`
+        - Example: `feat-{project_key}-42-add-user-authentication`
+        - Example: `fix-{project_key}-99-handle-null-response`
+        - Types: `feat`, `fix`, `chore`, `test`, `refactor`, `docs`, `ci`, `perf`
+        - Every branch maps 1:1 to a Jira ticket — no branch without a ticket""")
+    else:
+        branch_naming = dedent("""\
+        ### Branch Naming Convention
+
+        Format: `<type>/<agent-name>/<task-id>-<short-description>`
+        - Example: `feat/backend-dev/T1-add-user-auth`
+        - Example: `fix/frontend-eng/T5-fix-login-redirect`
+        - Types: `feat`, `fix`, `chore`, `test`, `refactor`, `docs`, `ci`, `perf`
+        - Every branch maps 1:1 to a unique task""")
+
+    pr_workflow = dedent("""\
+    ### Hierarchical PR Workflow
+
+    **No direct merges to the default branch** — all code changes go through Pull Requests.
+
+    - At least one approval required from the lead agent (sub-team leader or Team Leader)
+    - Sub-task branches PR into parent feature branch, reviewed by the feature lead
+    - Feature branches PR into the default branch, reviewed by the Team Leader
+    - Delete branches after merge
+    - Non-code tickets (docs updates, process tasks) don't require PRs
+
+    ### PR Review Quality Standards
+
+    - **Big PRs** (new features, cross-cutting changes): reviewer must actually test — run the app, exercise the feature, judge quality against expectations, not just check if it compiles
+    - **Straightforward PRs** (docs, config, small fixes): code review is sufficient
+    - Reviewer signs off with agent name and confidence level""")
+
+    release_section = "### Release Management\n\n"
+    release_section += "- After major merges into the default branch: create a GitHub release with a version tag\n"
+    release_section += "- Generate release notes summarizing changes since the last release\n"
+    if config.atlassian.enabled:
+        release_section += "- Update the Confluence release notes page with the release summary\n"
+    release_section += "- Documentation Specialist or Team Leader handles release artifacts"
+
+    return dedent("""\
+    ## Workflow Enforcement Protocol
+
+    > These rules govern branching, PRs, reviews, and releases. All agents must follow them.
+
+    """) + branch_naming + "\n\n" + pr_workflow + "\n\n" + release_section
+
+
 def _sub_agent_spawning_section(agent_type: str, config: ForgeConfig) -> str:
+    if config.atlassian.enabled:
+        jira_note = "Jira Tickets"
+        jira_instruction = "Create Jira sub-tasks for each piece of work"
+    else:
+        jira_note = "Task Tracking"
+        jira_instruction = "Document sub-tasks clearly with IDs and descriptions"
+
+    mode_quality_map = {
+        "mvp": "MVP — 70% threshold, speed over polish",
+        "production-ready": "Production Ready — 90% threshold, robust and maintainable",
+        "no-compromise": "No Compromise — 100% threshold, maximum quality",
+    }
+    mode_quality_text = mode_quality_map.get(config.mode.value, config.mode.value)
+
     return dedent(f"""\
     ## Sub-Agent Spawning Protocol
 
@@ -206,7 +277,46 @@ def _sub_agent_spawning_section(agent_type: str, config: ForgeConfig) -> str:
     - Frontend engineer needs a quick API endpoint → spawn a backend sub-agent
     - Any agent can spawn a QA sub-agent to validate their own output
 
-    Always load the correct specialty's instruction file from `.claude/agents/` for cross-specialty spawns.""")
+    Always load the correct specialty's instruction file from `.claude/agents/` for cross-specialty spawns.
+
+    ### Leadership Responsibilities (You Are a Team Leader)
+
+    When you spawn sub-agents, you become the **leader of your micro-team**. This is not optional:
+
+    1. **Task Decomposition**: Break your task into clear sub-tasks with acceptance criteria
+    2. **{jira_note}**: {jira_instruction}
+    3. **Feature Branch**: Create a parent feature branch; sub-agents branch off it
+    4. **Assignment**: Assign sub-tasks to sub-agents with full context
+    5. **Progress Monitoring**: Check sub-agent status regularly, unblock them
+    6. **PR Review**: You are the reviewer for all PRs from your sub-agents (at least one approval required)
+    7. **Quality Gates**: Review sub-agent deliverables before integrating into your work
+    8. **Integration**: Merge approved sub-agent PRs into your feature branch, resolve conflicts
+    9. **Reporting**: Aggregate results and report to YOUR leader (Team Leader or parent agent)
+    10. **Accountability**: You are responsible for your sub-agents' output quality
+
+    Apply the same rigor the Team Leader applies to you.
+
+    ### Mandatory Sub-Team Critic
+
+    When you form a micro-team (you + sub-agents), you MUST spawn a **Critic sub-agent**:
+
+    1. **Spawn the Critic**: Use `.claude/agents/critic.md` as the instruction file
+    2. **Provide Context**: Give the Critic:
+       - Project requirements (from your instruction file's Project Context)
+       - Your specific task scope and acceptance criteria
+       - Clear KPIs and quality gates for the sub-team's deliverables
+       - Test cases or expected outcomes to judge against
+    3. **Critic Reviews Before Integration**: Sub-agent deliverables pass through the sub-team Critic BEFORE you merge them
+    4. **Big Picture Awareness**: The Critic evaluates against:
+       - Overall project requirements and user preferences (not just the immediate sub-task)
+       - Broader system architecture and integration points
+       - Quality mode standards ({mode_quality_text})
+       - Real-world usability — would an actual user find this valuable and usable?
+       - Pragmatic balance — perfection vs. shipping, but never ship broken code
+    5. **Critic Reports to You**: The sub-team Critic reports to you (the sub-team leader), not to the main Team Leader
+    6. **Escalation**: Issues affecting the broader project get escalated to the main Team Leader
+
+    This is crucial for long/complex projects. Without independent review at every layer, quality degrades as teams scale.""")
 
 
 def _agent_naming_section(config: ForgeConfig) -> str:
@@ -257,6 +367,19 @@ def _atlassian_section(agent_type: str, config: ForgeConfig) -> str:
     - **Base URL**: {config.atlassian.confluence_base_url or '[configured in .claude/mcp.json]'}
     - **Space Key**: {config.atlassian.confluence_space_key or '[configured in .claude/mcp.json]'}
 
+    ### MANDATORY: Jira Task Before Work
+
+    **No code without a ticket.** Before starting ANY work (feature, fix, refactor, chore, spike):
+
+    1. A Jira ticket MUST exist for the work item
+    2. Tickets can be created by: Team Leader, Sub-Team Leader, Scrum Master, or the assignee agent itself
+    3. The ticket must have: type (Epic/Story/Sub-task/Task/Bug), description, acceptance criteria, assignee
+    4. The ticket's Jira key is used in the branch name (see Workflow Enforcement Protocol)
+    5. Full traceability chain: Jira ticket -> branch -> PR -> merged code
+
+    **Zero tolerance for dark work.** If you discover work that needs doing, create a Jira ticket FIRST, then start.
+    Leaders, Scrum Master, and Critics enforce this — any work without a ticket is a BLOCKER.
+
     ### Your Jira Responsibilities
 
     - **When starting a task**: Move the Jira ticket to "In Progress". Add a comment with your approach.
@@ -264,6 +387,7 @@ def _atlassian_section(agent_type: str, config: ForgeConfig) -> str:
     - **When blocked**: Update ticket status to "Blocked". Add a comment explaining the blocker and what you need.
     - **When done**: Move ticket to "In Review". Add a comment summarizing what was implemented, link the branch/PR.
     - **Bug found**: Create a Bug ticket with reproduction steps, expected vs actual behavior, severity.
+    - **Linking PRs**: Every PR description must reference its Jira ticket key using `Closes <KEY>-123` format.
 
     ### Your Confluence Responsibilities
 
@@ -663,7 +787,28 @@ def _team_leader_template(config: ForgeConfig) -> str:
     8. Any failure is a BLOCKER — fix before proceeding
 
     Visual evidence of a working application is part of the iteration deliverable.
-    Include screenshots in the iteration summary for human review.""")
+    Include screenshots in the iteration summary for human review.
+
+    ## Workflow Governance (Enforcement)
+
+    As Team Leader, you are the **primary enforcer** of workflow discipline:
+
+    ### What You Enforce
+    1. {'**Jira-First**: No agent starts coding without a Jira ticket' if config.atlassian.enabled else '**Task-First**: No agent starts coding without a tracked task'}
+    2. **Branch Discipline**: Every branch follows the naming convention and maps to a ticket/task
+    3. **PR-Before-Merge**: No direct merges — all code goes through PRs with at least one approval
+    4. **Review Quality**: Significant PRs require actual testing (run the app, exercise the feature), not just code review
+    {'5. **Sub-Team Critics**: Every agent that spawns sub-agents must also spawn a Critic for its micro-team' if config.agents.allow_sub_agent_spawning else ''}
+    {'6' if config.agents.allow_sub_agent_spawning else '5'}. **Traceability**: Every PR links to a {'Jira ticket' if config.atlassian.enabled else 'task'}, every branch traces to a task
+    {'7' if config.agents.allow_sub_agent_spawning else '6'}. **Release Management**: After major releases, ensure GitHub release is created and release notes updated
+
+    ### How You Enforce
+    - When reviewing agent deliverables, verify the PR was properly reviewed and approved
+    - Check that branch names follow the convention
+    - Reject deliverables that bypassed the PR process
+    {'- Verify sub-team leaders spawned their Critics' if config.agents.allow_sub_agent_spawning else ''}
+    - Include governance compliance in iteration review criteria
+    - Delegation: {'Scrum Master and Critics' if config.atlassian.enabled else 'Critics'} are co-enforcers — leverage them""")
 
 
 def _scrum_master_template(config: ForgeConfig) -> str:
@@ -730,7 +875,21 @@ def _scrum_master_template(config: ForgeConfig) -> str:
     | All Agents | Collect status updates for standup, ensure they update ticket status |
     | Architect | Coordinate architecture documentation in Confluence |
     | QA Engineer | Track bug tickets, test coverage metrics |
-    | Human | Sprint demos, planning sessions, retro facilitation |""")
+    | Human | Sprint demos, planning sessions, retro facilitation |
+
+    ### Workflow Enforcement
+
+    As Scrum Master, you are a **co-enforcer** of workflow discipline:
+
+    1. **Jira-First Verification**: Verify all active work has a corresponding Jira ticket. Flag dark work.
+    2. **Board Accuracy**: Jira board must reflect reality — active work = In Progress ticket
+    3. **PR Traceability**: Verify merged PRs reference their Jira tickets
+    4. **Release Notes**: After major releases, update Confluence release notes and coordinate GitHub release creation
+    5. **Process Compliance Reporting**: In retrospectives, report:
+       - Work items with tickets before starting
+       - PRs with proper reviews
+       - Sub-teams that spawned Critics
+    6. **Gentle Enforcement**: Spot a violation? Notify the agent and Team Leader. Flag for correction, don't block.""")
 
 
 def _research_strategist_template(config: ForgeConfig) -> str:
@@ -1058,7 +1217,13 @@ def _documentation_specialist_template(config: ForgeConfig) -> str:
 
 
 def _critic_template(config: ForgeConfig) -> str:
-    return dedent("""\
+    atlassian_governance = ""
+    if config.atlassian.enabled:
+        atlassian_governance = "\n       - Were Jira tickets created before work started?"
+    else:
+        atlassian_governance = ""
+
+    return dedent(f"""\
     # Critic
 
     ## Identity & Role
@@ -1084,7 +1249,29 @@ def _critic_template(config: ForgeConfig) -> str:
     3. Code quality — is it maintainable, readable, testable?
     4. Security — any obvious vulnerabilities?
     5. User experience — would a real user find this usable?
-    6. Integration — does it work with the rest of the system?""")
+    6. Integration — does it work with the rest of the system?
+
+    ## Governance Oversight
+
+    As the project Critic, you are also a **governance watchdog**:
+
+    1. **Workflow Compliance**: Verify agents followed the workflow:{atlassian_governance}
+       - Do branch names follow the naming convention?
+       - Were PRs created and reviewed before merging?
+       - Did sub-team leaders spawn their own Critics?
+    2. **Process Violations**: Flag workflow violations as findings in your critique report
+    3. **Pragmatic Enforcement**: Be practical — minor process violations with high-quality work = WARNING. Systemic violations or quality issues = BLOCKER.
+
+    ## Sub-Team Critic Role
+
+    You may be spawned as a **sub-team Critic** (by an agent leading a micro-team):
+
+    1. **Your Leader**: Report to the sub-team leader (who spawned you), not the main Team Leader
+    2. **Your Scope**: Review against the KPIs, quality gates, and test cases provided by your leader
+    3. **Big Picture**: Even as a sub-team Critic, keep overall project requirements and user preferences in mind. A sub-task can pass its criteria while harming the broader system.
+    4. **Quality & Usability**: Judge work pragmatically — does it meet the bar for the project mode? Is it usable in the real world? Keep the bigger picture in mind always.
+    5. **Escalation**: Issues affecting the broader project (not just your sub-team) get escalated to the main Team Leader
+    6. **Missing Context**: If your leader didn't provide KPIs/test cases, flag this as a WARNING immediately""")
 
 
 # Template registry

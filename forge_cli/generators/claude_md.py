@@ -52,6 +52,33 @@ def generate_claude_md(config: ForgeConfig, project_dir: Path) -> None:
         - Maximum spawning depth: 2-3 levels
         """)
 
+    sub_team_critic_line = ""
+    if config.agents.allow_sub_agent_spawning:
+        sub_team_critic_line = "\n    - **Sub-Team Critics**: Every agent that spawns sub-agents must also spawn a Critic for its micro-team"
+
+    workflow_section = ""
+    if config.atlassian.enabled:
+        project_key = config.atlassian.jira_project_key or "PROJ"
+        workflow_section = dedent(f"""\
+
+        ## Workflow Enforcement
+
+        - **Jira-First**: No agent starts coding without a Jira ticket. Zero tolerance for dark work.
+        - **Branch Naming**: `<type>-<{project_key}-N>-<description>` — every branch maps to a Jira ticket
+        - **PR-Before-Merge**: All code changes go through Pull Requests with at least one approval{sub_team_critic_line}
+        - **Traceability**: Jira ticket -> branch -> PR -> merged code. Every PR references its ticket.
+        - **Release Management**: Major releases get a GitHub release tag and Confluence release notes update
+        """)
+    else:
+        workflow_section = dedent(f"""\
+
+        ## Workflow Enforcement
+
+        - **PR-Before-Merge**: All code changes go through Pull Requests with at least one approval
+        - **Hierarchical Branching**: Sub-task branches PR into parent feature branches, feature branches PR into default{sub_team_critic_line}
+        - **Release Management**: Major releases get a GitHub release tag with generated release notes
+        """)
+
     naming_section = ""
     if config.agent_naming.enabled:
         naming_section = dedent(f"""\
@@ -126,7 +153,7 @@ def generate_claude_md(config: ForgeConfig, project_dir: Path) -> None:
 
     Example: To spawn the backend developer, use the Agent tool and include the
     contents of `.claude/agents/backend-developer.md` in the system prompt.
-    {atlassian_section}{spawning_section}{naming_section}{llm_gateway_section}
+    {atlassian_section}{spawning_section}{workflow_section}{naming_section}{llm_gateway_section}
     ## Visual Verification
 
     Playwright MCP is configured in `.claude/mcp.json` for browser automation and screenshots.

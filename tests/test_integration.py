@@ -531,9 +531,9 @@ class TestOrchestratorE2E:
         agents = list((tmp_path / ".claude" / "agents").glob("*.md"))
         assert len(agents) == 8
 
-        # Skills: team-status, iteration-review, spawn-agent, smoke-test, screenshot-review, arch-review
+        # Skills: team-status, iteration-review, spawn-agent, smoke-test, screenshot-review, arch-review, create-pr, release
         skills = list((tmp_path / ".claude" / "skills").glob("*.md"))
-        assert len(skills) == 6  # no jira/sprint skills when atlassian disabled
+        assert len(skills) == 8  # no jira/sprint skills when atlassian disabled
 
     def test_full_generation_full_no_compromise_atlassian(self, tmp_path):
         """Full generation with all features enabled."""
@@ -552,9 +552,9 @@ class TestOrchestratorE2E:
         assert len(agents) == expected_count
         assert (tmp_path / ".claude" / "agents" / "scrum-master.md").exists()
 
-        # Skills: 6 base + 2 atlassian
+        # Skills: 8 base + 2 atlassian
         skills = list((tmp_path / ".claude" / "skills").glob("*.md"))
-        assert len(skills) == 8
+        assert len(skills) == 10
 
         # No-compromise mode should be reflected everywhere
         claude_md = (tmp_path / "CLAUDE.md").read_text()
@@ -1508,7 +1508,248 @@ class TestLLMGatewayIntegration:
 
 
 # =============================================================================
-# 9. Edge Cases and Error Handling Tests
+# 9. Workflow Enforcement Tests
+# =============================================================================
+
+
+class TestWorkflowEnforcement:
+    """Test workflow enforcement content in generated files."""
+
+    def test_workflow_enforcement_present_all_agents(self, tmp_path):
+        """Every agent file contains the Workflow Enforcement Protocol."""
+        config = _make_config()
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        agents_dir = tmp_path / ".claude" / "agents"
+        for agent_file in agents_dir.glob("*.md"):
+            content = agent_file.read_text()
+            assert "Workflow Enforcement Protocol" in content, (
+                f"{agent_file.name} missing Workflow Enforcement Protocol"
+            )
+
+    def test_jira_before_work_with_atlassian(self, tmp_path):
+        """When Atlassian enabled, Jira-before-work mandate is present."""
+        config = _make_config(atlassian=True)
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        agents_dir = tmp_path / ".claude" / "agents"
+        backend = (agents_dir / "backend-developer.md").read_text()
+        assert "Jira Task Before Work" in backend
+        assert "No code without a ticket" in backend
+        assert "Zero tolerance for dark work" in backend
+
+    def test_no_jira_references_without_atlassian(self, tmp_path):
+        """Without Atlassian, no Jira references in workflow sections."""
+        config = _make_config(atlassian=False)
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        agents_dir = tmp_path / ".claude" / "agents"
+        backend = (agents_dir / "backend-developer.md").read_text()
+        assert "Jira Task Before Work" not in backend
+        assert "Jira ticket" not in backend.split("Workflow Enforcement Protocol")[1].split("---")[0]
+
+    def test_branch_naming_with_atlassian(self, tmp_path):
+        """Atlassian ON: branch naming uses Jira keys."""
+        config = _make_config(atlassian=True)
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        backend = (tmp_path / ".claude" / "agents" / "backend-developer.md").read_text()
+        assert "feat-ECOM-42" in backend
+
+    def test_branch_naming_without_atlassian(self, tmp_path):
+        """Atlassian OFF: fallback branch naming."""
+        config = _make_config(atlassian=False)
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        backend = (tmp_path / ".claude" / "agents" / "backend-developer.md").read_text()
+        assert "<type>/<agent-name>/" in backend
+
+    def test_pr_workflow_present(self, tmp_path):
+        """PR workflow is present in all agents."""
+        config = _make_config()
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        backend = (tmp_path / ".claude" / "agents" / "backend-developer.md").read_text()
+        assert "Hierarchical PR Workflow" in backend
+        assert "No direct merges" in backend
+        assert "PR Review Quality Standards" in backend
+
+    def test_review_quality_standards(self, tmp_path):
+        """PR Review Quality Standards section present."""
+        config = _make_config()
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        backend = (tmp_path / ".claude" / "agents" / "backend-developer.md").read_text()
+        assert "Big PRs" in backend
+        assert "Straightforward PRs" in backend
+
+    def test_release_management_in_workflow(self, tmp_path):
+        """Release management section present in workflow."""
+        config = _make_config()
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        backend = (tmp_path / ".claude" / "agents" / "backend-developer.md").read_text()
+        assert "Release Management" in backend
+        assert "GitHub release" in backend
+
+    def test_team_leader_governance(self, tmp_path):
+        """Team Leader has Workflow Governance enforcement section."""
+        config = _make_config(atlassian=True)
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        tl = (tmp_path / ".claude" / "agents" / "team-leader.md").read_text()
+        assert "Workflow Governance (Enforcement)" in tl
+        assert "Jira-First" in tl
+        assert "PR-Before-Merge" in tl
+        assert "Sub-Team Critics" in tl
+
+    def test_critic_governance(self, tmp_path):
+        """Critic has Governance Oversight section."""
+        config = _make_config()
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        critic = (tmp_path / ".claude" / "agents" / "critic.md").read_text()
+        assert "Governance Oversight" in critic
+        assert "governance watchdog" in critic
+        assert "Workflow Compliance" in critic
+
+    def test_scrum_master_enforcement(self, tmp_path):
+        """Scrum Master has Workflow Enforcement section."""
+        config = _make_config(atlassian=True)
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        sm = (tmp_path / ".claude" / "agents" / "scrum-master.md").read_text()
+        assert "Workflow Enforcement" in sm
+        assert "Jira-First Verification" in sm
+        assert "PR Traceability" in sm
+
+    def test_claude_md_workflow_section(self, tmp_path):
+        """CLAUDE.md contains workflow enforcement summary."""
+        config = _make_config(atlassian=True)
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        claude = (tmp_path / "CLAUDE.md").read_text()
+        assert "Workflow Enforcement" in claude
+        assert "Jira-First" in claude
+
+    def test_claude_md_workflow_without_atlassian(self, tmp_path):
+        """CLAUDE.md workflow section adapts when Atlassian is off."""
+        config = _make_config(atlassian=False)
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        claude = (tmp_path / "CLAUDE.md").read_text()
+        assert "Workflow Enforcement" in claude
+        assert "PR-Before-Merge" in claude
+        assert "Jira-First" not in claude
+
+    def test_team_init_plan_workflow(self, tmp_path):
+        """team-init-plan.md contains workflow rules."""
+        config = _make_config(atlassian=True)
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        plan = (tmp_path / "team-init-plan.md").read_text()
+        assert "Workflow Rules" in plan
+        assert "Jira-First" in plan
+
+
+class TestSubTeamCriticEnforcement:
+    """Test sub-team critic and leadership content in generated files."""
+
+    def test_leadership_responsibilities_with_spawning(self, tmp_path):
+        """Spawning section includes leadership responsibilities."""
+        config = _make_config(spawning=True)
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        backend = (tmp_path / ".claude" / "agents" / "backend-developer.md").read_text()
+        assert "Leadership Responsibilities" in backend
+        assert "leader of your micro-team" in backend
+
+    def test_mandatory_sub_team_critic_with_spawning(self, tmp_path):
+        """Spawning section includes mandatory sub-team critic."""
+        config = _make_config(spawning=True)
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        backend = (tmp_path / ".claude" / "agents" / "backend-developer.md").read_text()
+        assert "Mandatory Sub-Team Critic" in backend
+        assert "critic.md" in backend
+
+    def test_no_leadership_without_spawning(self, tmp_path):
+        """Without spawning, no leadership or critic sections."""
+        config = _make_config(spawning=False)
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        backend = (tmp_path / ".claude" / "agents" / "backend-developer.md").read_text()
+        assert "Leadership Responsibilities" not in backend
+        assert "Mandatory Sub-Team Critic" not in backend
+
+    def test_critic_sub_team_role(self, tmp_path):
+        """Critic template includes Sub-Team Critic Role section."""
+        config = _make_config()
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        critic = (tmp_path / ".claude" / "agents" / "critic.md").read_text()
+        assert "Sub-Team Critic Role" in critic
+        assert "sub-team leader" in critic
+        assert "Escalation" in critic
+
+    def test_leadership_jira_note_with_atlassian(self, tmp_path):
+        """Leadership section references Jira when Atlassian enabled."""
+        config = _make_config(atlassian=True, spawning=True)
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        backend = (tmp_path / ".claude" / "agents" / "backend-developer.md").read_text()
+        assert "Jira Tickets" in backend
+        assert "Create Jira sub-tasks" in backend
+
+    def test_leadership_task_note_without_atlassian(self, tmp_path):
+        """Leadership section uses generic task tracking without Atlassian."""
+        config = _make_config(atlassian=False, spawning=True)
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        backend = (tmp_path / ".claude" / "agents" / "backend-developer.md").read_text()
+        assert "Task Tracking" in backend
+
+    def test_critic_governance_atlassian_condition(self, tmp_path):
+        """Critic governance mentions Jira tickets only when Atlassian enabled."""
+        config_on = _make_config(atlassian=True)
+        config_on.project.directory = str(tmp_path / "on")
+        (tmp_path / "on").mkdir()
+        generate_all(config_on)
+
+        config_off = _make_config(atlassian=False)
+        config_off.project.directory = str(tmp_path / "off")
+        (tmp_path / "off").mkdir()
+        generate_all(config_off)
+
+        critic_on = (tmp_path / "on" / ".claude" / "agents" / "critic.md").read_text()
+        critic_off = (tmp_path / "off" / ".claude" / "agents" / "critic.md").read_text()
+
+        assert "Jira tickets created before work started" in critic_on
+        assert "Jira tickets created before work started" not in critic_off
+
+
+# =============================================================================
+# 10. Edge Cases and Error Handling Tests
 # =============================================================================
 
 

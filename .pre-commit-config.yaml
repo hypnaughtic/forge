@@ -21,18 +21,10 @@ repos:
 
   - repo: local
     hooks:
-      - id: bats-unit
-        name: BATS unit tests
-        entry: bats tests/unit/
+      - id: pytest-unit
+        name: Python unit tests
+        entry: python -m pytest tests/test_generators.py -x -q --tb=short
         language: system
         pass_filenames: false
-        files: (^forge$|\.sh$|^tests/)
-        stages: [pre-commit]
-
-      - id: bats-validation
-        name: BATS validation tests
-        entry: bats tests/validation/
-        language: system
-        pass_filenames: false
-        files: (^forge$|\.sh$|\.md$|\.yaml$|\.yml$|^tests/)
+        files: (^forge_cli/|^tests/)
         stages: [pre-commit]

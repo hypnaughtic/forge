@@ -497,3 +497,195 @@ class TestVisualVerification:
 
         content = (agents_dir / "team-leader.md").read_text()
         assert "Visual Verification Protocol" in content
+
+
+class TestWorkflowEnforcementSection:
+    """Test _workflow_enforcement_section output."""
+
+    def test_workflow_section_present_without_atlassian(self, tmp_path):
+        config = _make_config()
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+
+        generate_agent_files(config, agents_dir)
+
+        content = (agents_dir / "backend-developer.md").read_text()
+        assert "Workflow Enforcement Protocol" in content
+        assert "Hierarchical PR Workflow" in content
+        assert "No direct merges" in content
+        assert "<type>/<agent-name>/" in content
+
+    def test_workflow_section_with_atlassian(self, tmp_path):
+        config = _make_config(atlassian=AtlassianConfig(enabled=True, jira_project_key="TEST"))
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+
+        generate_agent_files(config, agents_dir)
+
+        content = (agents_dir / "backend-developer.md").read_text()
+        assert "Workflow Enforcement Protocol" in content
+        assert "feat-TEST-42" in content
+        assert "Jira ticket" in content
+
+    def test_release_management_with_confluence(self, tmp_path):
+        config = _make_config(atlassian=AtlassianConfig(enabled=True, jira_project_key="TEST"))
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+
+        generate_agent_files(config, agents_dir)
+
+        content = (agents_dir / "backend-developer.md").read_text()
+        assert "Confluence release notes" in content
+
+    def test_release_management_without_confluence(self, tmp_path):
+        config = _make_config()
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+
+        generate_agent_files(config, agents_dir)
+
+        content = (agents_dir / "backend-developer.md").read_text()
+        assert "Release Management" in content
+        assert "Confluence release notes" not in content
+
+    def test_pr_review_quality_standards(self, tmp_path):
+        config = _make_config()
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+
+        generate_agent_files(config, agents_dir)
+
+        content = (agents_dir / "backend-developer.md").read_text()
+        assert "PR Review Quality Standards" in content
+        assert "Big PRs" in content
+        assert "Straightforward PRs" in content
+
+
+class TestSubTeamCriticInSpawning:
+    """Test leadership and mandatory critic in spawning section."""
+
+    def test_leadership_in_spawning(self, tmp_path):
+        config = _make_config()
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+
+        generate_agent_files(config, agents_dir)
+
+        content = (agents_dir / "backend-developer.md").read_text()
+        assert "Leadership Responsibilities" in content
+        assert "leader of your micro-team" in content
+
+    def test_mandatory_critic_in_spawning(self, tmp_path):
+        config = _make_config()
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+
+        generate_agent_files(config, agents_dir)
+
+        content = (agents_dir / "backend-developer.md").read_text()
+        assert "Mandatory Sub-Team Critic" in content
+        assert "critic.md" in content
+
+    def test_no_leadership_when_spawning_disabled(self, tmp_path):
+        config = _make_config(agents=AgentsConfig(team_profile=TeamProfile.LEAN, allow_sub_agent_spawning=False))
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+
+        generate_agent_files(config, agents_dir)
+
+        content = (agents_dir / "backend-developer.md").read_text()
+        assert "Leadership Responsibilities" not in content
+        assert "Mandatory Sub-Team Critic" not in content
+
+    def test_critic_sub_team_role_section(self, tmp_path):
+        config = _make_config()
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+
+        generate_agent_files(config, agents_dir)
+
+        content = (agents_dir / "critic.md").read_text()
+        assert "Sub-Team Critic Role" in content
+        assert "Your Leader" in content
+        assert "Escalation" in content
+
+
+class TestJiraBeforeWork:
+    """Test Jira-before-work mandate in Atlassian section."""
+
+    def test_jira_before_work_present(self, tmp_path):
+        config = _make_config(atlassian=AtlassianConfig(enabled=True, jira_project_key="TEST"))
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+
+        generate_agent_files(config, agents_dir)
+
+        content = (agents_dir / "backend-developer.md").read_text()
+        assert "MANDATORY: Jira Task Before Work" in content
+        assert "No code without a ticket" in content
+        assert "Linking PRs" in content
+
+    def test_no_jira_before_work_without_atlassian(self, tmp_path):
+        config = _make_config()
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+
+        generate_agent_files(config, agents_dir)
+
+        content = (agents_dir / "backend-developer.md").read_text()
+        assert "Jira Task Before Work" not in content
+
+
+class TestNewSkills:
+    """Test new PR workflow and release management skills."""
+
+    def test_create_pr_skill_generated(self, tmp_path):
+        config = _make_config()
+        skills_dir = tmp_path / ".claude" / "skills"
+        skills_dir.mkdir(parents=True)
+
+        generate_skills(config, skills_dir)
+
+        assert (skills_dir / "create-pr.md").exists()
+        content = (skills_dir / "create-pr.md").read_text()
+        assert "create-pr" in content
+        assert "Pull Request" in content
+
+    def test_release_skill_generated(self, tmp_path):
+        config = _make_config()
+        skills_dir = tmp_path / ".claude" / "skills"
+        skills_dir.mkdir(parents=True)
+
+        generate_skills(config, skills_dir)
+
+        assert (skills_dir / "release.md").exists()
+        content = (skills_dir / "release.md").read_text()
+        assert "release" in content
+        assert "GitHub release" in content
+
+    def test_pr_skill_references_jira(self, tmp_path):
+        config = _make_config(atlassian=AtlassianConfig(enabled=True, jira_project_key="PROJ"))
+        skills_dir = tmp_path / ".claude" / "skills"
+        skills_dir.mkdir(parents=True)
+
+        generate_skills(config, skills_dir)
+
+        content = (skills_dir / "create-pr.md").read_text()
+        assert "PROJ" in content
+
+    def test_release_skill_confluence_conditional(self, tmp_path):
+        config_on = _make_config(atlassian=AtlassianConfig(enabled=True, jira_project_key="PROJ"))
+        skills_on = tmp_path / "on" / ".claude" / "skills"
+        skills_on.mkdir(parents=True)
+        generate_skills(config_on, skills_on)
+
+        config_off = _make_config()
+        skills_off = tmp_path / "off" / ".claude" / "skills"
+        skills_off.mkdir(parents=True)
+        generate_skills(config_off, skills_off)
+
+        content_on = (skills_on / "release.md").read_text()
+        content_off = (skills_off / "release.md").read_text()
+
+        assert "Confluence" in content_on
+        assert "Confluence" not in content_off
