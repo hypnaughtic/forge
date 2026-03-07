@@ -1,9 +1,0 @@
-shell=bash
-# Unused vars are common in sourced scripts
-disable=SC2034
-# Can't follow non-constant/dynamic source paths
-disable=SC1091
-# ls usage is fine for our snapshot/log file patterns (controlled naming)
-disable=SC2012
-# sed replacement suggestion — not always cleaner for our patterns
-disable=SC2001

@@ -1,17 +1,16 @@
-.PHONY: install dev lint test test-all ci-local clean
+.PHONY: install dev lint test test-live test-all ci-local clean
 
 # --- Setup ---
 install:
 	pip install -e .
 
 dev:
-	pip install -e ".[dev]"
+	pip install -e ".[test]"
 
 # --- Linting ---
 lint:
 	@echo "==> Linting Python code..."
 	python3 -m py_compile forge_cli/main.py
-	python3 -m py_compile forge_cli/wizard.py
 	python3 -m py_compile forge_cli/config_schema.py
 	python3 -m py_compile forge_cli/config_loader.py
 	python3 -m py_compile forge_cli/generators/orchestrator.py
@@ -20,11 +19,16 @@ lint:
 	python3 -m py_compile forge_cli/generators/mcp_config.py
 	python3 -m py_compile forge_cli/generators/skills.py
 	python3 -m py_compile forge_cli/generators/team_init_plan.py
+	python3 -m py_compile forge_cli/generators/refinement.py
 
 # --- Testing ---
 test:
-	@echo "==> Running tests..."
-	python3 -m pytest tests/ -v
+	@echo "==> Running tests (dry-run mode)..."
+	FORGE_TEST_DRY_RUN=1 python3 -m pytest tests/test_generators.py tests/test_config_schema.py tests/test_config_loader.py tests/test_refinement.py tests/test_integration.py -v
+
+test-live:
+	@echo "==> Running refinement tests with real LLM..."
+	FORGE_TEST_DRY_RUN=0 python3 -m pytest tests/test_integration.py -v -k "Refinement" --timeout=1200
 
 test-all: lint test
 

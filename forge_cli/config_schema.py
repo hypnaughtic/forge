@@ -80,6 +80,20 @@ class LLMGatewayConfig(BaseModel):
     cost_tracking: bool = True
 
 
+class RefinementConfig(BaseModel):
+    """Configuration for LLM-powered post-generation refinement."""
+
+    enabled: bool = False
+    provider: str = "local_claude"
+    model: str = "claude-opus-4-6"
+    max_tokens: int = 8192
+    score_threshold: int = 90
+    max_iterations: int = 5
+    max_concurrency: int = 0  # 0 = unlimited (all files in parallel)
+    timeout_seconds: int = 180
+    cost_limit_usd: float = 10.0
+
+
 class ForgeConfig(BaseModel):
     """Root configuration for a forge-initialized project."""
 
@@ -92,6 +106,8 @@ class ForgeConfig(BaseModel):
     atlassian: AtlassianConfig = Field(default_factory=AtlassianConfig)
     agent_naming: AgentNamingConfig = Field(default_factory=AgentNamingConfig)
     llm_gateway: LLMGatewayConfig = Field(default_factory=LLMGatewayConfig)
+    refinement: RefinementConfig = Field(default_factory=RefinementConfig)
+    non_negotiables: list[str] = Field(default_factory=list)
 
     def resolve_team_profile(self) -> str:
         """Resolve 'auto' team profile based on mode."""

@@ -1,0 +1,46 @@
+project:
+  description: >-
+    Real-time collaborative task management app with
+    Kanban boards, due dates, and team chat
+  requirements: >-
+    Build a full-stack collaborative task management application.
+    Features: user authentication (OAuth + email/password),
+    real-time Kanban board with drag-and-drop, task assignments
+    with due dates and priorities, team chat with @mentions, file
+    attachments, activity feed, email notifications. Tech: React
+    frontend with TypeScript, Python FastAPI backend, PostgreSQL,
+    Redis for real-time events, WebSocket support.
+  type: new
+mode: mvp
+strategy: auto-pilot
+cost:
+  max_development_cost: 50
+agents:
+  team_profile: lean
+  exclude: []
+  additional: []
+  include: []
+  allow_sub_agent_spawning: true
+  custom_instructions: {}
+tech_stack:
+  languages:
+    - typescript
+    - python
+  frameworks:
+    - react
+    - fastapi
+    - tailwind
+  databases:
+    - postgresql
+    - redis
+  infrastructure: []
+atlassian:
+  enabled: false
+agent_naming:
+  enabled: true
+  style: creative
+llm_gateway:
+  enabled: true
+  local_claude_model: claude-opus-4-6
+  enable_local_claude: true
+  cost_tracking: true

@@ -4,7 +4,7 @@
 # ==============================================================================
 # Thin wrapper that delegates to the Python CLI.
 # Install: pip install -e . (or brew install forge-init)
-# Usage: ./forge [init|generate|validate] [options]
+# Usage: ./forge --config PATH [--project-dir DIR] [--validate-only]
 set -euo pipefail
 
 FORGE_DIR="${FORGE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"

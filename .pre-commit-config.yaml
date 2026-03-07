@@ -1,11 +1,4 @@
 repos:
-  - repo: https://github.com/shellcheck-py/shellcheck-py
-    rev: v0.10.0.1
-    hooks:
-      - id: shellcheck
-        files: (^forge$|scripts/.*\.sh$|setup\.sh$)
-        args: ["--severity=warning"]
-
   - repo: https://github.com/adrienverge/yamllint
     rev: v1.35.1
     hooks:
@@ -23,7 +16,13 @@ repos:
     hooks:
       - id: pytest-unit
         name: Python unit tests
-        entry: python -m pytest tests/test_generators.py -x -q --tb=short
+        entry: >-
+          python -m pytest
+          tests/test_generators.py
+          tests/test_config_schema.py
+          tests/test_config_loader.py
+          tests/test_refinement.py
+          -x -q --tb=short
         language: system
         pass_filenames: false
         files: (^forge_cli/|^tests/)

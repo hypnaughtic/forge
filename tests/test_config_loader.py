@@ -10,6 +10,7 @@ from forge_cli.config_schema import (
     ForgeConfig,
     ProjectConfig,
     ProjectMode,
+    RefinementConfig,
 )
 
 
@@ -65,3 +66,78 @@ class TestConfigLoader:
         config = load_config(config_file)
         assert config.mode == ProjectMode.MVP
         assert config.project.description == ""
+
+    def test_load_config_with_non_negotiables(self, tmp_path):
+        config_data = {
+            "mode": "mvp",
+            "non_negotiables": [
+                "All APIs must be authenticated",
+                "100% test coverage on core modules",
+            ],
+        }
+        config_file = tmp_path / "forge-config.yaml"
+        with open(config_file, "w") as f:
+            yaml.dump(config_data, f)
+
+        config = load_config(config_file)
+        assert len(config.non_negotiables) == 2
+        assert "All APIs must be authenticated" in config.non_negotiables
+
+    def test_round_trip_non_negotiables(self, tmp_path):
+        config = ForgeConfig(
+            project=ProjectConfig(description="Roundtrip NN"),
+            non_negotiables=["No vendor lock-in", "All data encrypted at rest"],
+        )
+
+        config_file = tmp_path / "forge-config.yaml"
+        save_config(config, config_file)
+
+        reloaded = load_config(config_file)
+        assert reloaded.non_negotiables == ["No vendor lock-in", "All data encrypted at rest"]
+
+    def test_load_config_with_refinement(self, tmp_path):
+        config_data = {
+            "mode": "production-ready",
+            "refinement": {
+                "enabled": True,
+                "provider": "anthropic",
+                "model": "claude-sonnet-4-20250514",
+                "score_threshold": 85,
+                "max_iterations": 3,
+            },
+        }
+        config_file = tmp_path / "forge-config.yaml"
+        with open(config_file, "w") as f:
+            yaml.dump(config_data, f)
+
+        config = load_config(config_file)
+        assert config.refinement.enabled is True
+        assert config.refinement.provider == "anthropic"
+        assert config.refinement.score_threshold == 85
+        assert config.refinement.max_iterations == 3
+        # Defaults for unspecified fields
+        assert config.refinement.timeout_seconds == 180
+        assert config.refinement.cost_limit_usd == 10.0
+
+    def test_round_trip_refinement(self, tmp_path):
+        config = ForgeConfig(
+            project=ProjectConfig(description="Roundtrip Refinement"),
+            refinement=RefinementConfig(
+                enabled=True,
+                provider="anthropic",
+                model="claude-opus-4-6",
+                score_threshold=92,
+                max_iterations=4,
+                cost_limit_usd=7.5,
+            ),
+        )
+
+        config_file = tmp_path / "forge-config.yaml"
+        save_config(config, config_file)
+
+        reloaded = load_config(config_file)
+        assert reloaded.refinement.enabled is True
+        assert reloaded.refinement.provider == "anthropic"
+        assert reloaded.refinement.score_threshold == 92
+        assert reloaded.refinement.max_iterations == 4
+        assert reloaded.refinement.cost_limit_usd == 7.5

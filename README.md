@@ -1,87 +1,35 @@
-# Forge -- AI Software Forge
+# Forge
 
-> A team of AI agents, powered by Claude Code, that collaborate to build your software.
+> Config-driven project initializer for Claude Code CLI agent teams.
 
-Forge orchestrates a team of specialized AI agents to design, implement, test, and ship
-software projects. Think of it as a virtual development team: a Team Leader decomposes
-your requirements, an Architect designs the system, Backend and Frontend developers
-write code, a QA Engineer tests everything, a Critic enforces quality gates, and a
-DevOps Specialist wires up CI/CD and infrastructure.
-
-You describe what you want to build, choose a quality mode and an execution strategy,
-then type `forge`. A cockpit dashboard launches with live metrics, agent status, and
-activity feed -- alongside your interactive Claude session where you talk directly to
-the Team Leader. Use `/forge:start` to begin building.
-
-**Three ways to install:**
-
-- **Claude Code Plugin** -- `/forge` skills in any Claude Code session
-- **Homebrew** -- `brew install forge` for CLI access anywhere
-- **Git Clone** -- `./forge` for full control and development
-
-**Key features:**
-
-- **Cockpit dashboard.** Live tmux-based display with auto-refreshing metrics panel,
-  color-coded agent grid, activity feed, and interactive Claude session.
-- **Natural language routing.** `/forge what is the cost and status?` classifies intent
-  and runs instant commands directly -- no AI reasoning overhead.
-- **Separate mode and strategy.** Quality mode (mvp/production-ready/no-compromise) and
-  execution strategy (auto-pilot/co-pilot/micro-manage) are independent controls.
-- **Per-agent guidance.** `/forge:guide backend-developer "use PostgreSQL"` sends a
-  prioritized directive through the Team Leader.
-- **Dual orchestration.** Agent Teams (native subagents) or tmux (file-based messaging).
-- **Iterative development with quality gates.** Critic scores every iteration; advances
-  only when the mode's pass-rate threshold is met.
-- **Seamless stop and resume.** Fleet state captured as JSON snapshots.
-- **Human override at any time.** Even in auto-pilot, intervene via the cockpit,
-  `./forge ask "message"`, or `/forge:guide`.
-
----
-
-## Prerequisites
-
-**Required:**
-
-| Tool | Purpose | Install |
-|------|---------|---------|
-| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI (`claude`) | Powers every agent | `npm install -g @anthropic-ai/claude-code` |
-| git | Version control, branch management | `sudo apt install git` / `brew install git` |
-| yq | YAML config parsing | `sudo apt install yq` / `brew install yq` |
-
-**Required for tmux mode only:**
-
-| Tool | Purpose | Install |
-|------|---------|---------|
-| tmux | Process isolation for agents (tmux backend) | `sudo apt install tmux` / `brew install tmux` |
-
-**Optional:** docker (Production Ready+ modes), jq (enhanced status display),
-Node.js 18+ (JS/TS projects), Python 3.11+ (Python/AI-ML projects).
+Forge reads a `forge-config.yaml` and generates customized agent instruction files,
+CLAUDE.md, skills, and team-init-plan.md for your project workspace. Configure once,
+then let Claude Code agents build your project with precision.
 
 ---
 
 ## Installation
 
-### Option 1: Claude Code Plugin (recommended)
-
-```bash
-git clone https://github.com/Rushabh1798/forge.git
-claude --plugin-dir ./forge
-# Now use /forge:start, /forge:status, etc. in your Claude session
-```
-
-### Option 2: Homebrew
+### Homebrew
 
 ```bash
 brew tap Rushabh1798/forge
-brew install forge
+brew install forge-init
 forge --version
 ```
 
-### Option 3: Git Clone (development)
+### pip
+
+```bash
+pip install -e .
+forge --version
+```
+
+### Development
 
 ```bash
 git clone https://github.com/Rushabh1798/forge.git && cd forge
-./forge setup     # Validate dependencies
+pip install -e ".[test]"
 ```
 
 ---
@@ -89,759 +37,247 @@ git clone https://github.com/Rushabh1798/forge.git && cd forge
 ## Quick Start
 
 ```bash
-# 1. Configure your project
-forge init                            # Interactive wizard (recommended)
-# OR edit config/team-config.yaml and config/project-requirements.md directly
+# 1. Create forge-config.yaml (see Configuration below)
 
-# 2. Launch cockpit dashboard (tmux required) or plain session
-forge                                 # Cockpit dashboard
-forge --no-cockpit                    # Plain interactive session
+# 2. Generate files
+forge --config forge-config.yaml --project-dir ./my-project
 
-# 3. Inside the session, use commands:
-#    /forge:start                     # Begin building (spawns team, starts Iteration 1)
-#    /forge:status                    # Check progress, costs, blockers
-#    /forge what is the cost?         # Natural language routing (instant)
-#    /forge:guide backend "use PG"    # Direct an agent
-#    /forge:stop                      # Save state and end session
+# 3. Start building
+cd my-project
+claude
+# Tell Claude: "Read team-init-plan.md and initialize the team"
 ```
 
-**That's it.** Type `forge` and the cockpit launches with live metrics, agent
-status, and activity feed. The Team Leader greets you in the bottom pane. Use
-`/forge:start` to kick off the build.
-
-**Plain mode** -- if tmux is unavailable or you prefer a simple session, use
-`forge --no-cockpit`. The legacy `./forge start` command also still works for
-tmux-based non-interactive sessions.
-
-When done for the day, use `/forge:stop` or tell the Team Leader "stop for today".
-Next time, run `forge` again -- it detects the saved snapshot and offers to resume.
-
----
-
-## Cockpit Dashboard
-
-When launched with tmux available, `forge` opens a cockpit dashboard:
-
-```text
-┌─────────────────────────────┬──────────────────────┐
-│ FORGE COCKPIT v1.0.0        │ AGENT STATUS         │
-│ Project: MyApp              │ ● TL: Planning Iter2 │
-│ Mode: production-ready      │ ● AR: Designing API  │
-│ Strategy: co-pilot          │ ● BE: Writing auth   │
-│ Cost: $1.25 / $10.00       │ ● QA: Idle           │
-├─────────────────────────────┴──────────────────────┤
-│ RECENT ACTIVITY                                     │
-│ [14:32] BE: Completed user registration endpoint   │
-│ [14:28] AR: Delivered REST API contract v2         │
-├────────────────────────────────────────────────────┤
-│ claude> █                                          │
-└────────────────────────────────────────────────────┘
-```
-
-- **Top-left:** Metrics panel (project info, mode, strategy, cost, elapsed time)
-- **Top-right:** Agent status grid with color-coded indicators
-- **Middle:** Activity feed with Team Leader summary
-- **Bottom:** Interactive Claude session
-
-See [docs/COCKPIT.md](docs/COCKPIT.md) for details.
-
----
-
-## Commands Reference
-
-### Natural Language (NL Router)
-
-The default `/forge` skill classifies intent by keywords. Instant queries execute directly; async messages queue for the Team Leader.
+### Validate without generating
 
 ```bash
-forge ask "what is the cost and status?"    # → runs COST + STATUS instantly
-forge ask "make the UX more modern"          # → queues for Team Leader
-forge ask "what is cost"                     # → instant (intent over invocation)
+forge --config forge-config.yaml --validate-only
 ```
-
-### CLI Commands
-
-| Command | Description |
-|---------|-------------|
-| `forge` | Launch cockpit dashboard |
-| `forge --no-cockpit` | Plain interactive session |
-| `forge status` | Agent statuses, iteration, costs |
-| `forge cost` | Detailed cost breakdown |
-| `forge team [agent]` | Per-agent view (or all agents) |
-| `forge ask "<msg>"` | Smart NL routing |
-| `forge guide <agent> "<msg>"` | Direct an agent via Team Leader |
-| `forge mode <value>` | Switch quality mode |
-| `forge strategy <value>` | Switch execution strategy |
-| `forge init` | Project configuration wizard |
-| `forge start` | Start tmux-based session |
-| `forge stop` | Graceful shutdown + snapshot |
-| `forge tell "<msg>"` | Deprecated: use `ask` |
-| `forge --version` | Show version |
-
-### Plugin Skills (inside Claude Code)
-
-| Skill | Description |
-|-------|-------------|
-| `/forge <NL>` | NL router (default) |
-| `/forge:status` | Project status |
-| `/forge:cost` | Cost breakdown |
-| `/forge:team` | Team overview |
-| `/forge:start` | Begin building |
-| `/forge:stop` | Save and shutdown |
-| `/forge:mode <val>` | Switch mode |
-| `/forge:strategy <val>` | Switch strategy |
-| `/forge:ask <msg>` | Message Team Leader |
-| `/forge:guide <agent> <msg>` | Direct an agent |
-| `/forge:snapshot` | Save state |
-| `/forge:init` | Configure project |
-
-See [docs/PLUGIN.md](docs/PLUGIN.md) for the full plugin reference.
 
 ---
 
-## Mode and Strategy
+## Configuration
 
-Mode and strategy are **separate, independent controls**.
+All configuration lives in a single `forge-config.yaml` file.
 
-### Mode (Project Quality)
+### Minimal example
 
-| Mode | Critic Pass | Testing | Team |
-|------|------------|---------|------|
+```yaml
+project:
+  description: "E-commerce platform"
+  requirements: "Build a full-stack e-commerce platform with auth, product catalog, cart, and checkout"
+  type: new
+
+mode: production-ready
+strategy: co-pilot
+```
+
+### Full example
+
+```yaml
+project:
+  description: "E-commerce platform"
+  requirements: "Build a full-stack e-commerce platform with auth, product catalog, cart, and checkout"
+  type: new                      # new | existing
+
+mode: production-ready           # mvp | production-ready | no-compromise
+strategy: co-pilot               # auto-pilot | co-pilot | micro-manage
+
+cost:
+  max_development_cost: 50       # USD cap
+
+agents:
+  team_profile: auto             # auto | lean | full | custom
+  include: []                    # agent list for custom profile
+  exclude: []                    # agents to remove from profile
+  additional: []                 # extra agents to add
+  allow_sub_agent_spawning: true
+  custom_instructions:
+    backend-developer: "Use PostgreSQL, not SQLite"
+
+tech_stack:
+  languages: [typescript, python]
+  frameworks: [react, fastapi]
+  databases: [postgresql]
+  infrastructure: [docker]
+
+atlassian:
+  enabled: true
+  jira_project_key: ECOM
+  jira_base_url: "https://your-domain.atlassian.net"
+  confluence_space_key: ECOM
+  confluence_base_url: "https://your-domain.atlassian.net/wiki"
+
+agent_naming:
+  enabled: true
+  style: creative                # creative | functional | codename
+
+llm_gateway:
+  enabled: true
+  local_claude_model: "claude-sonnet-4-20250514"
+  enable_local_claude: true
+  cost_tracking: true
+
+non_negotiables:
+  - "All APIs must require authentication"
+  - "100% test coverage on core business logic"
+  - "No raw SQL queries — use ORM exclusively"
+
+refinement:
+  enabled: false                 # default: false
+  provider: local_claude         # local_claude | anthropic
+  model: claude-opus-4-6
+  score_threshold: 90            # 0-100, files must score >= this
+  max_iterations: 5              # max refine loops per file
+  max_concurrency: 0             # 0 = all files in parallel (default)
+  timeout_seconds: 180           # per-LLM-call timeout
+  cost_limit_usd: 10.0           # stop if cumulative cost exceeds this
+```
+
+### Refinement (LLM-powered)
+
+After generating files, Forge can optionally refine them using an LLM to improve
+quality. Each `.md` file is scored against weighted quality criteria and iteratively
+improved until it meets a configurable threshold (default 90%). All files are refined
+in parallel for fast turnaround (~4–7 minutes for 18 files with `local_claude`).
+
+**Scoring criteria** (weighted):
+
+| Criterion | Weight | Description |
+|-----------|--------|-------------|
+| Completeness | 25% | Covers all role responsibilities and protocols |
+| Config fidelity | 25% | Accurately reflects project config (mode, stack, agents) |
+| Specificity | 20% | Uses project-specific details, not generic placeholders |
+| Clarity | 20% | Clear, actionable instructions an AI agent can follow |
+| Consistency | 10% | Internally consistent, no contradictions |
+
+CLI override:
+
+```bash
+# Force refinement on (overrides config)
+forge --config forge-config.yaml --project-dir ./my-project --refine
+
+# Force refinement off
+forge --config forge-config.yaml --project-dir ./my-project --no-refine
+```
+
+Install the refinement dependency:
+
+```bash
+pip install -e ".[refinement]"
+```
+
+### `non_negotiables`
+
+A list of absolute requirements injected into every generated file:
+
+- **Team Leader**: Enforcement framing — rejects work that violates these, includes compliance checks in every iteration review
+- **Critic**: Evaluation framing — every critique includes a Non-Negotiable Compliance section scoring each rule as PASS/FAIL
+- **All other agents**: Compliance framing — must verify compliance before reporting work as complete
+
+When the list is empty (default), no non-negotiables section appears in generated files.
+
+### Mode
+
+| Mode | Critic Pass | Testing | Default Team |
+|------|------------|---------|--------------|
 | `mvp` | 70% | Happy-path + smoke | Lean (8 agents) |
 | `production-ready` | 90% | >90% coverage + integration | Full (12 agents) |
 | `no-compromise` | 100% | Exhaustive + chaos | Full (12 agents) |
 
-Switch: `forge mode production-ready` or `/forge:mode production-ready`
+### Strategy
 
-### Strategy (Execution Control)
-
-| Strategy | Approval Behavior |
-|----------|-------------------|
+| Strategy | Behavior |
+|----------|----------|
 | `auto-pilot` | Fully autonomous |
 | `co-pilot` | Routine autonomous, architecture needs approval |
 | `micro-manage` | Every significant decision needs approval |
 
-Switch: `forge strategy co-pilot` or `/forge:strategy co-pilot`
+### Team Profiles
+
+- **lean** (8 agents): team-leader, research-strategist, architect, backend-developer, frontend-engineer, qa-engineer, devops-specialist, critic
+- **full** (12 agents): Adds frontend-designer, frontend-developer, security-tester, performance-engineer, documentation-specialist
+- **auto**: lean for MVP, full for production-ready and no-compromise
+- **custom**: Explicit agent list via `agents.include`
+
+Atlassian integration automatically adds a scrum-master agent.
 
 ---
 
-## Agent Interaction
-
-### View Team
-
-```bash
-forge team                         # All agents overview
-forge team backend-developer       # Deep dive on one agent
-```
-
-### Guide an Agent
-
-```bash
-forge guide backend-developer "use PostgreSQL instead of SQLite"
-forge guide frontend-engineer "prioritize the login page"
-```
-
-Directives go through the Team Leader, keeping TL aware of all context changes.
-
----
-
-## Configuration Guide
-
-All configuration lives in `config/team-config.yaml`. See
-`config/team-config.example.yaml` for a fully worked example.
-
-### `project` -- What to build
-
-```yaml
-project:
-  description: ""                              # Short inline description (simple projects)
-  requirements_file: "config/project-requirements.md"  # Detailed requirements (overrides description)
-  type: "new"                                  # "new" (greenfield) | "existing" (brownfield)
-  existing_project_path: ""                    # Required if type is "existing"
-  directory: ""                                # Workspace directory for the project (see below)
-```
-
-**Project directory:** Forge builds your project in a separate workspace directory -- not
-inside the forge repository. When `directory` is empty, `./forge start` prompts for a
-path (defaulting to `~/forge-projects/<project-name>`). The choice is saved to config for
-future sessions. You can also pass `--project-dir <path>` to override on the command line.
-
-### `mode`, `strategy`, and `orchestration`
-
-```yaml
-mode: "mvp"              # "mvp" | "production-ready" | "no-compromise" (see Mode Comparison)
-strategy: "co-pilot"      # "auto-pilot" | "co-pilot" | "micro-manage" (see Strategy Comparison)
-orchestration: "agent-teams"  # "agent-teams" (default) | "tmux" (see Orchestration Backends)
-```
-
-### `cost` -- Budget limits
-
-```yaml
-cost:
-  max_development_cost: 50       # Max USD for Claude Code usage. "no-cap" for unlimited.
-  max_project_runtime_cost: "no-cap"  # Max USD for project infra/API costs.
-```
-
-At 80% of cap, the Team Leader reduces parallelism. At 100%, non-critical agents pause.
-
-### `agents` -- Team composition
-
-```yaml
-agents:
-  team_profile: "auto"    # "auto" | "lean" | "full" | "custom"
-  exclude: []             # Remove agents, e.g. ["security-tester"]
-  additional: []          # Add agents, e.g. ["performance-engineer"]
-  include: []             # Only for team_profile: "custom"
-```
-
-- **auto**: `lean` for MVP, `full` for Production Ready+.
-- **lean**: 8 agents with merged roles. Cost-efficient.
-- **full**: 12 specialized agents. Production-grade.
-- **custom**: explicit agent list via `include`.
-
-### `claude_md` -- CLAUDE.md integration
-
-```yaml
-claude_md:
-  source: "both"            # "project" | "global" | "both" | "none"
-  priority: "project-first" # "project-first" | "global-first"
-  global_path: ""           # Default: ~/.claude/CLAUDE.md
-  project_path: ""          # Default: {project_root}/CLAUDE.md
-```
-
-See [CLAUDE.md Integration](#claudemd-integration) below.
-
-### `tech_stack` -- Technology preferences
-
-```yaml
-tech_stack:
-  languages: []        # e.g. ["typescript", "python"]
-  frameworks: []       # e.g. ["nextjs", "fastapi"]
-  databases: []        # e.g. ["postgresql", "redis"]
-  infrastructure: []   # e.g. ["aws", "docker", "kubernetes"]
-```
-
-Leave arrays empty for the team to decide based on requirements.
-
-### `llm_gateway` -- LLM integration for AI projects
-
-```yaml
-llm_gateway:
-  enabled: true                                    # Include llm-gateway mandate in all agent files
-  local_claude_model: "claude-sonnet-4-20250514"   # Model for local_claude provider
-  enable_local_claude: true                        # Use Claude CLI for free local inference
-  cost_tracking: true                              # Track LLM token usage and costs
-```
-
-All LLM calls in built projects must use [llm-gateway](https://github.com/Rushabh1798/llm-gateway).
-Direct vendor SDK imports (`anthropic`, `openai`) are forbidden. When enabled, every generated
-agent file includes the LLM Gateway Integration section with:
-
-- Required `LLMClient` / `GatewayConfig` usage patterns
-- `FakeLLMProvider` instructions for QA agent test suites
-- `local_claude` setup for free dev/test inference via the Claude CLI
-- Cost tracking (`resp.usage.total_cost_usd`) requirements
-
-Set `enabled: false` to omit the LLM gateway mandate from generated files (e.g., for projects
-that don't make LLM calls).
-
-### `bootstrap_template` -- Starter scaffolding
-
-Set to `"auto"` (Architect selects), a template name, comma-separated names, or `""` to skip.
-Templates are reference scaffolding -- the Architect adapts them to actual requirements.
-
-### `session` and `usage_limits`
-
-```yaml
-session:
-  snapshot_retention: 5                   # Snapshots to keep (oldest deleted first)
-  auto_stop_after_hours: 0               # Auto-stop after N hours (0 = disabled)
-  shutdown_grace_period_seconds: 60       # Grace period before forced shutdown
-usage_limits:
-  proactive_save_interval_hours: 4       # Proactive state save interval
-  estimated_refresh_window_hours: 1      # Estimated rate limit refresh time
-  auto_resume_after_limit: true          # Auto-resume after refresh
-  fleet_limit_threshold: 3              # N+ agents limited triggers fleet stop
-  scheduled_resume_time: ""             # Optional fixed resume time, e.g. "06:00"
-```
-
----
-
-## Agent Roster and Team Profiles
-
-Each agent runs in its own Claude Code session. In Agent Teams mode, agents are
-spawned as subagents. In tmux mode, each runs in a dedicated tmux window.
-
-### Lean Team (8 agents) -- Default for MVP
-
-| Agent | Merges | Role |
-|-------|--------|------|
-| Team Leader | -- | Orchestration, task assignment, human interface |
-| Research-Strategist | Researcher + Strategist | Research, strategy, iteration planning |
-| Architect | -- | System design, API contracts, template selection |
-| Backend Developer | -- | Server-side implementation (multiple instances supported) |
-| Frontend Engineer | Designer + Developer | UI/UX design and frontend implementation |
-| QA Engineer | Manual + Automation | Testing, coverage, bug tracking |
-| DevOps Specialist | -- | CI/CD, Docker, infrastructure as code |
-| Critic | -- | Quality gates, acceptance criteria, scoring |
-
-Lean team advantage: ~40% fewer context windows, ~60% less inter-agent messaging.
-
-### Full Team (12 agents) -- Default for Production Ready / No Compromise
-
-Splits merged roles and adds specialists beyond the lean roster:
-
-| Agent | Why Separate |
-|-------|-------------|
-| Researcher (standalone) | Deep research: vendor benchmarks, competitor analysis |
-| Strategist (standalone) | Complex tradeoff analysis, capacity planning, roadmaps |
-| Frontend Designer (standalone) | Design system: tokens, component library, accessibility |
-| Frontend Developer (standalone) | Production-grade implementation, state management |
-| Security Tester (new) | Independent security review, separate from code authors |
-| Performance Engineer (new) | Load testing, profiling, caching, capacity planning |
-| Documentation Specialist (new) | API docs, architecture diagrams, runbooks |
-
-QA Engineer is always merged (manual + automation) in both profiles -- the context
-overlap is too high to justify separation. Spawn multiple QA instances if needed.
-
-### Auto Selection
-
-| Mode | Profile | Notes |
-|------|---------|-------|
-| MVP | Lean (8) | Cost-efficient, fewer context windows |
-| Production Ready | Full (12) | Specialized roles, objective security reviews |
-| No Compromise | Full (12) | Performance Engineer always included |
-
-Override with `team_profile`, `exclude`, and `additional` in config.
-
----
-
-## CLAUDE.md Integration
-
-Claude Code uses `CLAUDE.md` files for project conventions, coding standards, and
-preferences. Forge incorporates these into agent instruction files during init.
-
-### Source Options
-
-| Source | Behavior | Best For |
-|--------|----------|----------|
-| `"project"` | Project's `CLAUDE.md`, falls back to global | Brownfield with established conventions |
-| `"global"` | `~/.claude/CLAUDE.md`, falls back to none | Personal coding style enforcement |
-| `"both"` | Merge both; project overrides global on conflict | Most users (default) |
-| `"none"` | Agents use only their own instruction files | Clean, reproducible setups |
-
-### Priority (when source is "both")
-
-- **`"project-first"`** (default): Project rules override global. Best for brownfield.
-- **`"global-first"`**: Global overrides project. Rare -- for enforcing personal standards.
-
-### Brownfield Projects
-
-For existing projects (`project.type: "existing"`), use `source: "project"` or `"both"`
-so agents inherit your coding conventions, linting rules, and architectural patterns.
-Agents analyze your codebase and adapt to existing patterns rather than imposing defaults.
-
----
-
-## Mode Comparison
-
-| Aspect | MVP | Production Ready | No Compromise |
-|--------|-----|-----------------|---------------|
-| **Goal** | Working prototype | Industrial-grade software | Market-ready product |
-| **Critic Pass Rate** | 70% per category | 90% per category | 100% per category |
-| **Default Team** | Lean (8 agents) | Full (12 agents) | Full (12 agents) |
-| **Testing** | Happy-path + smoke tests | >90% coverage + integration | Exhaustive + chaos/fault injection |
-| **CI/CD** | None required | GitHub Actions, pre-commit | Full pipeline + single-click deploy |
-| **Infrastructure** | Local only | Docker Compose, scalable | IaC (Terraform/Pulumi), LocalStack |
-| **Documentation** | Basic README | API docs, arch diagrams | Full traceability, runbooks |
-| **Architecture** | Monolith OK | DDD, bounded contexts | Horizontal scaling, capacity plan |
-| **LLM Integration** | llm-gateway | + local-claude testing | + cost estimation |
-
-Switch modes mid-session: tell the Team Leader "Switch to production-ready mode".
-It re-evaluates work, spawns agents if needed, and updates Critic thresholds.
-
-**Smoke testing in all modes:** Before marking any iteration complete, the Team Leader
-runs a mandatory Smoke Test Protocol: start the application, test backend endpoints with
-real HTTP requests, verify the UI loads and functions, and test integrations. In MVP mode
-without a QA Engineer, the Team Leader performs smoke testing directly. Agents must also
-verify their own output runs (not just that unit tests pass) before reporting tasks as done.
-
----
-
-## Strategy Comparison
-
-| Aspect | Auto Pilot | Co-Pilot | Micro-Manage |
-|--------|-----------|----------|-------------|
-| **Human Involvement** | Zero (observe only) | Design approvals only | Every significant decision |
-| **Decision Authority** | Fully autonomous | Architecture + tech choices | Everything modifying state |
-| **Permissions** | `--dangerously-skip-permissions` | `--permission-mode acceptEdits` | Default (interactive approval) |
-| **Best For** | Overnight runs | Default -- balanced control | Critical projects, learning |
-| **Override Available** | Yes (always) | Yes (always) | Yes (always) |
-| **Cost Cap** | Enforced | Enforced | Enforced |
-
-All strategies monitor `shared/.human/override.md` -- you can always intervene.
-
----
-
-## Human Override
-
-You can intervene in any mode, including Auto Pilot, at any time.
-
-**Direct interaction** (interactive mode) -- just type in the session:
+## Generated Files
 
 ```text
-> What's the status?
-> Focus on the payment service, deprioritize admin panel
-> Switch to production-ready mode
+my-project/
+  CLAUDE.md                          # Team Leader context
+  team-init-plan.md                  # Bootstrap document for first session
+  .claude/
+    agents/
+      team-leader.md
+      backend-developer.md
+      ...                            # One file per active agent
+    skills/
+      create-pr.md
+      release.md
+      arch-review.md
+      smoke-test.md
+      screenshot-review.md
+      iteration-review.md
+      team-status.md
+      spawn-agent.md                 # When sub-agent spawning enabled
+      jira-update.md                 # When Atlassian enabled
+      sprint-report.md               # When Atlassian enabled
+    mcp.json                         # MCP server configuration
+  .env.example                       # Required environment variables
 ```
-
-**Slash commands** -- structured operations:
-
-```text
-/forge-status                    # Show iteration, agents, tasks, cost
-/forge-cost                      # Detailed cost breakdown
-/forge-mode production-ready     # Switch mode
-/forge-snapshot                  # Save state without stopping
-/forge-stop                      # Graceful shutdown
-```
-
-**`./forge tell`** -- send a directive from another terminal:
-
-```bash
-./forge tell "Switch to production-ready mode"
-./forge tell "Pause all work"
-```
-
-The message is written to `shared/.human/override.md` and processed at the next
-task boundary.
-
-**`./forge attach`** (tmux mode only) -- enter the Team Leader's tmux session:
-
-```bash
-./forge attach
-# Ctrl+B then D to detach without stopping.
-```
-
----
-
-## Stopping and Resuming Sessions
-
-### Three ways to stop
-
-1. **`/forge-stop` slash command.** In the interactive session, saves state and
-   captures a snapshot. The session ends cleanly.
-2. **Talk to the Team Leader.** Type "Stop for today" in the interactive session.
-   It coordinates graceful shutdown, saves a snapshot, and confirms completion.
-3. **`./forge stop`.** Graceful shutdown from outside (tmux mode). Agents finalize
-   working memory, checkpoint-commit, release locks, and set status to `suspended`.
-
-### Resuming
-
-```bash
-./forge
-# The generated CLAUDE.md includes resume context from the latest snapshot.
-# The Team Leader offers to resume from where you left off.
-```
-
-For tmux mode:
-
-```bash
-./forge start
-# [Forge] Found previous session from 2025-07-15 18:30
-# [Forge]   Iteration: 3 (phase: EXECUTE)
-# [Forge]   Resume? [Y/n/fresh]
-```
-
-### What snapshots contain
-
-Snapshots capture iteration number and phase, agent roster with status and working
-memory references, cost tracking totals, decision log state, dependency graph, and
-configuration. Stored in `shared/.snapshots/` with retention controlled by
-`session.snapshot_retention` (default: 5).
-
----
-
-## Orchestration Backends
-
-Forge supports two orchestration backends with identical UX. The backend is set via
-`orchestration` in `team-config.yaml` or overridden with `--tmux` / `--agent-teams` flags.
-
-### Agent Teams (default)
-
-Uses Claude Code's native Agent Teams for spawning subagents, task management, and
-inter-agent communication. Agents are spawned as subagents of the Team Leader's
-interactive session.
-
-**Advantages:** native integration, no tmux dependency, simpler setup.
-
-### tmux
-
-Uses tmux windows with file-based messaging (`shared/.queue/`). Each agent runs in
-its own tmux window with an isolated Claude Code instance.
-
-**Advantages:** works everywhere, full process isolation, inspectable via `./forge attach`.
-
-### Choosing a Backend
-
-| Consideration | Agent Teams | tmux |
-|--------------|------------|------|
-| Setup complexity | Minimal | Requires tmux |
-| Agent visibility | Via `/forge-status` | tmux windows + status files |
-| Process isolation | Claude Code managed | OS-level (tmux) |
-| Debugging | Agent Teams logs | `./forge attach`, `./forge logs` |
-| Fallback | -- | Available everywhere |
-
-The `/forge-status` command works identically regardless of backend.
-
----
-
-## Customization
-
-**Adding a custom agent:** Create a markdown file in `agents/` following the
-12-section structure from `agents/_base-agent.md` (Identity, Responsibilities,
-Skills, Inputs, Outputs, Communication, Collaboration, Quality, Iteration, Mode
-Behavior, Memory, Artifacts). Add the name to `agents.additional` or use
-`team_profile: "custom"` with an explicit `include` list.
-
-**Modifying existing agents:** Edit the markdown file in `agents/` directly. Changes
-take effect on next spawn. For mid-session changes, stop and restart the agent.
-
-**Runtime changes:** Tell the Team Leader "Spin up another backend developer" or
-"Kill the frontend designer." It manages lifecycle via the active orchestration
-backend (Agent Teams subagents or `scripts/spawn-agent.sh` / `scripts/kill-agent.sh`).
-
-**Switching profiles:** Tell the Team Leader "Switch to full team" or change
-`agents.team_profile` in config and restart.
-
----
-
-## Templates
-
-Forge includes 34 project templates across 8 categories. Templates provide reference
-scaffolding -- the Architect adapts them to actual requirements.
-
-### Template Catalog
-
-| Category | Template | Description |
-|----------|----------|-------------|
-| **Backend** | python-fastapi | Python + FastAPI, SQLAlchemy, Alembic, Pydantic v2 |
-| | node-express-api | Node.js + Express, TypeScript, Prisma, JWT auth |
-| | go-microservice | Go + Gin, GORM, Docker multi-stage build |
-| | graphql-api | GraphQL with Apollo Server or Strawberry |
-| | grpc-service | gRPC + Protobuf, streaming, health checks |
-| **Frontend** | react-spa | React + TypeScript, Vite, Tailwind, React Router |
-| | vue-spa | Vue 3 + TypeScript, Vite, Pinia, Tailwind |
-| | react-native-mobile | React Native + Expo, React Navigation |
-| | flutter-mobile | Flutter + Riverpod, GoRouter, Dio |
-| **Full Stack** | nextjs-fullstack | Next.js App Router, Prisma, NextAuth |
-| | nuxt-fullstack | Nuxt 3, Nitro, Drizzle ORM |
-| | t3-stack | Next.js + tRPC + Prisma + Tailwind |
-| | django-fullstack | Django + DRF/HTMX, Celery |
-| **AI/ML** | langchain-agent | LangChain/LangGraph agentic AI + llm-gateway |
-| | rag-pipeline | RAG: ingestion, vector DB, retrieval + llm-gateway |
-| | temporal-ai-workflow | Temporal AI pipelines + llm-gateway |
-| | ml-model-serving | FastAPI + model inference, A/B testing |
-| | crewai-multi-agent | CrewAI multi-agent + llm-gateway |
-| **Event-Driven** | kafka-microservice | Kafka consumer/producer, schema registry |
-| | rabbitmq-worker | RabbitMQ task worker, retries, priority queues |
-| | temporal-workflow | Temporal durable workflows, saga pattern |
-| **Platform** | saas-multi-tenant | SaaS: auth, Stripe billing, tenant isolation |
-| | chrome-extension | Chrome Manifest V3, popup, content script |
-| | vscode-extension | VS Code commands, webview panels, LSP |
-| | cli-tool | CLI subcommands, config files, completions |
-| | slack-bot | Slack Bolt: slash commands, event handlers |
-| | discord-bot | Discord.js/py: slash commands, embeds |
-| **Data** | etl-pipeline | Airflow/Dagster + dbt transformations |
-| | streaming-pipeline | Flink/Spark Streaming + Kafka |
-| | data-api | dbt models + FastAPI data serving |
-| **Infrastructure** | terraform-aws | Terraform IaC: VPC, ECS/EKS, RDS, S3, IAM |
-| | pulumi-multi-cloud | Pulumi IaC, TypeScript/Python, multi-cloud |
-| | k8s-helm-charts | Kubernetes Helm charts, autoscaling |
-| | monorepo-turborepo | Turborepo/Nx monorepo, shared packages |
-
-### How templates work
-
-- **Reference, not mandate.** The Architect adapts scaffolds to fit requirements.
-- **Multi-template composition.** Combine templates for complex projects (e.g.,
-  `react-spa` + `python-fastapi` + `terraform-aws`). Set `bootstrap_template: "auto"`.
-- **Priority templates** (python-fastapi, node-express-api, react-spa,
-  nextjs-fullstack, langchain-agent, rag-pipeline) include full working scaffolds.
-  Others include pattern docs and minimal placeholders.
-
-### Custom templates
-
-Create a directory in `templates/{category}/` with `README.md`, `PATTERNS.md`,
-`template-config.yaml`, and `scaffold/`. Register in `templates/_template-manifest.yaml`.
-
-### AI/ML template notes
-
-All AI/ML templates with LLM calls require
-[llm-gateway](https://github.com/Rushabh1798/llm-gateway). Direct vendor SDK calls
-(LangChain providers, CrewAI configs) are not permitted. Configure via `llm_gateway`
-in `team-config.yaml`.
-
----
-
-## Troubleshooting
-
-**Agent not responding:** The watchdog (`scripts/watchdog.sh`) monitors health. If a
-status file is stale (>5 minutes) or the tmux window has died, the Team Leader
-respawns the agent with `--resume`, restoring from working memory. Check manually
-with `./forge status`.
-
-**Project files appearing inside forge repo:** You likely ran `./forge start` from the
-forge directory without setting a separate workspace. Delete the generated files, then
-either set `project.directory` in config or run `./forge start --project-dir /path/to/workspace`.
-
-**Session will not start:** Run `./forge setup` to re-validate. Common issues:
-`claude` CLI not on PATH, `yq` not installed, scripts not executable
-(`chmod +x forge scripts/*.sh`). For tmux mode, also ensure `tmux` is installed.
-
-**Usage limits hit:** Agents auto-execute the `LIMIT_SAVE` protocol: save work, update
-memory, set status to `rate-limited`. The watchdog auto-resumes after the estimated
-refresh window. If 3+ agents hit limits simultaneously, a full fleet stop preserves
-state coherently.
-
-**Secrets in logs or commits:** Agents reference secrets by environment variable name
-only. Values are stored in `shared/.secrets/vault.env` (git-ignored). Check
-`shared/.logs/` and git history if you suspect a leak.
-
-**tmux issues (tmux mode only):** No session found -- run `./forge start` first.
-Cannot detach -- press `Ctrl+B` then `D`. Sessions are prefixed `forge-`
-(`tmux list-sessions`).
-
----
-
-## Cost Management
-
-Forge tracks estimated token usage across all agents via `./forge cost`.
-
-**Setting budgets:** Set `cost.max_development_cost` in `team-config.yaml`. At 80%,
-parallelism is reduced. At 100%, non-critical agents pause. Use `"no-cap"` for
-unlimited -- costs are always tracked for visibility.
-
-**Lean vs full team:** The lean team (8 agents) uses ~40% fewer context windows and
-~60% less messaging than the full team (12 agents). Choose lean for MVP cost
-efficiency; full when you need security reviews, performance engineering, and
-comprehensive docs.
-
-**Monitoring:**
-
-```bash
-./forge cost                             # Breakdown by agent
-./forge status                           # Includes cost summary
-./forge tell "How much has this cost?"   # Ask Team Leader
-```
-
----
-
-## Advanced Orchestration
-
-**Parallel work streams.** The Team Leader runs independent tasks concurrently --
-e.g., backend APIs and frontend scaffolding in parallel once the Architect defines
-API contracts. Multiple agent instances can be spawned (`backend-developer-1`,
-`backend-developer-2`) for separate services.
-
-**Integration testing.** When components are ready to merge, the Team Leader
-coordinates integration. The QA Engineer tests the merged codebase; failures are
-routed back to responsible agents with specific details.
-
-**Code review.** All changes pass through the Architect (architectural compliance) and
-Critic (quality). In Production Ready+, Security Tester reviews for vulnerabilities.
-Feedback becomes corrective tasks for the authoring agent.
-
-**Git workflow.** Agents work on `agent/{agent-name}/{task-id}` branches. Only the
-Team Leader merges to main. File contention is managed per the orchestration backend
-(Agent Teams natively, or `shared/.locks/` in tmux mode). Verified iterations are
-tagged: `git tag iteration-{N}-verified`.
 
 ---
 
 ## Development & Testing
 
-Forge includes automated linting, testing, and CI to catch regressions early.
-
-### Prerequisites
-
-Install [BATS](https://github.com/bats-core/bats-core) (Bash Automated Testing
-System), [shellcheck](https://www.shellcheck.net/), [yamllint](https://yamllint.readthedocs.io/),
-and [markdownlint-cli2](https://github.com/DavidAnson/markdownlint-cli2):
-
 ```bash
-# macOS
-brew install bats-core shellcheck
-pip install yamllint
-npm install -g markdownlint-cli2
+# Run all tests (dry-run mode, no LLM needed)
+make test
 
-# Ubuntu/Debian
-sudo apt-get install bats shellcheck
-pip install yamllint
-npm install -g markdownlint-cli2
+# Run unit tests only
+python -m pytest tests/test_generators.py tests/test_config_schema.py \
+  tests/test_config_loader.py tests/test_refinement.py -v
+
+# Run integration tests (dry-run, uses FakeLLMProvider)
+FORGE_TEST_DRY_RUN=1 python -m pytest tests/test_integration.py -v
+
+# Run refinement tests with real LLM (requires local_claude)
+FORGE_TEST_DRY_RUN=0 python -m pytest tests/test_integration.py -v \
+  -k "Refinement" --timeout=1200
+
+# Full CI mirror
+make ci-local
 ```
 
-Initialize BATS test library submodules:
+### Test structure
 
-```bash
-git submodule update --init --recursive
-```
+| File | Scope | Count | LLM? |
+|------|-------|-------|------|
+| `test_generators.py` | Generator unit tests | ~59 | No |
+| `test_config_schema.py` | Config schema validation | ~15 | No |
+| `test_config_loader.py` | YAML loading/round-trip | ~9 | No |
+| `test_refinement.py` | Refinement unit tests (FakeLLMProvider) | ~12 | No |
+| `test_integration.py` | Full pipeline, CLI, edge cases, refinement | ~178 | Dry-run default |
 
-### Makefile Targets
+The `FORGE_TEST_DRY_RUN` environment variable controls whether integration tests
+use a `FakeLLMProvider` (instant, default) or real `local_claude` (requires
+`llm-gateway` and Claude CLI). CI always runs in dry-run mode.
 
-```bash
-make lint              # Run all linters (shellcheck, yamllint, markdownlint)
-make test-unit         # Run unit tests (~127 tests, <30s)
-make test-integration  # Run integration tests (~26 tests, <60s)
-make test-validation   # Run validation tests (~44 tests)
-make test-all          # Run all test tiers
-make ci-local          # Full CI mirror: lint + all tests
-```
-
-### Pre-Commit Hooks
-
-Install and activate pre-commit hooks to run checks before every commit:
+### Pre-commit hooks
 
 ```bash
 pip install pre-commit
 pre-commit install
 ```
 
-Hooks run shellcheck, yamllint, markdownlint, unit tests, and validation tests
-automatically. Integration tests are excluded from pre-commit (they require `yq`
-and take longer) but run in CI.
-
-### Test Architecture
-
-Tests are organized into three tiers under `tests/`:
-
-- **`validation/`** -- Lint wrappers and structural checks (shellcheck on every
-  script, yamllint on configs, markdownlint on docs, agent file structure,
-  config schema validation).
-- **`unit/`** -- Isolated tests for each script using mock binaries (`tests/test_helper/mock-bin/`).
-  External tools (claude, tmux, yq, jq, docker) are mocked via PATH prepending.
-- **`integration/`** -- Tests using real `yq` against test YAML files. Validates
-  config mode combinations, CLAUDE.md source resolution, init-stop lifecycle,
-  snapshot management, and agent file generation.
-
-### GitHub CI
-
-CI runs on every push and PR via `.github/workflows/ci.yml`:
-
-| Job | Runner | What |
-|-----|--------|------|
-| Lint Shell / YAML / Markdown | ubuntu | All linters |
-| Unit Tests | ubuntu + macos | BATS unit tests |
-| Integration Tests | ubuntu + macos | BATS integration tests |
-| Validation Tests | ubuntu | BATS validation tests |
-
----
-
-## Contributing
-
-See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for guidelines on adding agents,
-templates, and scripts, as well as bash conventions, testing, and PR process.
+Hooks run yamllint, markdownlint, and pytest unit tests before every commit.
 
 ---
 
 ## License
 
-MIT -- see [LICENSE](LICENSE) for details.
+MIT — see [LICENSE](LICENSE) for details.

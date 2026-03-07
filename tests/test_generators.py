@@ -689,3 +689,94 @@ class TestNewSkills:
 
         assert "Confluence" in content_on
         assert "Confluence" not in content_off
+
+
+class TestNonNegotiables:
+    """Tests for non-negotiables injection across all generated files."""
+
+    NN_RULES = ["All APIs must be authenticated", "100% test coverage on core modules"]
+
+    def _config_with_nn(self, **overrides):
+        return _make_config(non_negotiables=self.NN_RULES, **overrides)
+
+    def test_non_negotiables_in_team_leader(self, tmp_path):
+        config = self._config_with_nn()
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+        generate_agent_files(config, agents_dir)
+
+        content = (agents_dir / "team-leader.md").read_text()
+        assert "Non-Negotiable Requirements (ENFORCEMENT)" in content
+        assert "All APIs must be authenticated" in content
+        assert "Reject any work that violates" in content
+
+    def test_non_negotiables_in_critic(self, tmp_path):
+        config = self._config_with_nn()
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+        generate_agent_files(config, agents_dir)
+
+        content = (agents_dir / "critic.md").read_text()
+        assert "Non-Negotiable Requirements (EVALUATION)" in content
+        assert "PASS/FAIL" in content
+        assert "automatic BLOCKER" in content
+
+    def test_non_negotiables_in_other_agent(self, tmp_path):
+        config = self._config_with_nn()
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+        generate_agent_files(config, agents_dir)
+
+        content = (agents_dir / "backend-developer.md").read_text()
+        assert "Non-Negotiable Requirements (COMPLIANCE)" in content
+        assert "All APIs must be authenticated" in content
+        assert "Verify compliance before reporting" in content
+
+    def test_non_negotiables_absent_when_empty(self, tmp_path):
+        config = _make_config()  # no non_negotiables
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+        generate_agent_files(config, agents_dir)
+
+        for agent_file in agents_dir.iterdir():
+            content = agent_file.read_text()
+            assert "Non-Negotiable Requirements" not in content
+
+    def test_non_negotiables_in_claude_md(self, tmp_path):
+        config = self._config_with_nn()
+        config.project.directory = str(tmp_path)
+        generate_claude_md(config, tmp_path)
+
+        content = (tmp_path / "CLAUDE.md").read_text()
+        assert "Non-Negotiable Requirements" in content
+        assert "All APIs must be authenticated" in content
+        assert "ABSOLUTE" in content
+
+    def test_non_negotiables_absent_in_claude_md_when_empty(self, tmp_path):
+        config = _make_config()
+        config.project.directory = str(tmp_path)
+        generate_claude_md(config, tmp_path)
+
+        content = (tmp_path / "CLAUDE.md").read_text()
+        assert "Non-Negotiable Requirements" not in content
+
+    def test_non_negotiables_in_team_init_plan(self, tmp_path):
+        config = self._config_with_nn()
+        config.project.directory = str(tmp_path)
+        generate_team_init_plan(config, tmp_path)
+
+        content = (tmp_path / "team-init-plan.md").read_text()
+        assert "Non-Negotiable Requirements" in content
+        assert "All APIs must be authenticated" in content
+        assert "BLOCKER" in content
+        # Quick reference table row
+        assert "2 rules" in content
+
+    def test_non_negotiables_absent_in_team_init_plan_when_empty(self, tmp_path):
+        config = _make_config()
+        config.project.directory = str(tmp_path)
+        generate_team_init_plan(config, tmp_path)
+
+        content = (tmp_path / "team-init-plan.md").read_text()
+        assert "Non-Negotiable Requirements" not in content
+        assert "None" in content  # Quick reference row shows "None"

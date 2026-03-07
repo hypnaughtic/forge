@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from rich.console import Console
 
@@ -16,8 +17,20 @@ from forge_cli.generators.team_init_plan import generate_team_init_plan
 console = Console()
 
 
-def generate_all(config: ForgeConfig) -> None:
-    """Generate all files for the project workspace."""
+def generate_all(
+    config: ForgeConfig,
+    llm_provider: Any | None = None,
+) -> Any:
+    """Generate all files for the project workspace.
+
+    Args:
+        config: Forge configuration.
+        llm_provider: Optional LLM provider instance for refinement.
+            If None and refinement is enabled, creates one from config.
+
+    Returns:
+        RefinementReport if refinement ran, else None.
+    """
     project_dir = Path(config.project.directory).resolve()
     project_dir.mkdir(parents=True, exist_ok=True)
 
@@ -49,5 +62,22 @@ def generate_all(config: ForgeConfig) -> None:
     generate_team_init_plan(config, project_dir)
     console.print("[green]  ✓[/green] team-init-plan.md")
 
-    # 6. Save config alongside generated files
+    # 6. Optional LLM refinement
+    refinement_report = None
+    if config.refinement.enabled:
+        from forge_cli.generators.refinement import refine_all
+
+        refinement_report = refine_all(config, project_dir, llm_provider=llm_provider)
+        console.print(
+            f"[green]  ✓[/green] LLM refinement "
+            f"({refinement_report.files_improved} files improved, "
+            f"${refinement_report.total_cost_usd:.4f})"
+        )
+        if not refinement_report.all_passed:
+            console.print(
+                f"[yellow]  ⚠[/yellow] Some files below "
+                f"{config.refinement.score_threshold}% threshold"
+            )
+
     console.print()
+    return refinement_report

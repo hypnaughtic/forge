@@ -45,14 +45,11 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           tar czf "forge-${VERSION}.tar.gz" \
             --exclude='.git' \
-            --exclude='shared' \
             --exclude='tests' \
             --exclude='__pycache__' \
             --exclude='.env' \
-            --exclude='node_modules' \
-            forge setup.sh scripts/ agents/ templates/ skills/ \
-            .claude-plugin/ .claude/ config/ docs/ \
-            VERSION LICENSE README.md CHANGELOG.md Makefile
+            forge forge_cli/ \
+            pyproject.toml VERSION LICENSE README.md CHANGELOG.md Makefile
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

@@ -1,0 +1,50 @@
+project:
+  description: >-
+    CLI data pipeline tool for ETL with plugin architecture
+  requirements: >-
+    Build a CLI data pipeline tool. Features: declarative YAML
+    pipeline definitions, built-in extractors (CSV, JSON, API, DB),
+    transformers (filter, map, aggregate, join), loaders
+    (PostgreSQL, S3, BigQuery), plugin architecture for custom
+    extractors/transformers/loaders, parallel execution with
+    configurable concurrency, dry-run mode, progress reporting,
+    error handling with dead-letter queue, pipeline versioning and
+    migration support. Tech: Python with Click CLI, async I/O,
+    no frontend.
+  type: new
+mode: no-compromise
+strategy: auto-pilot
+cost:
+  max_development_cost: 50
+agents:
+  team_profile: custom
+  exclude: []
+  additional: []
+  include:
+    - team-leader
+    - architect
+    - backend-developer
+    - qa-engineer
+    - devops-specialist
+    - documentation-specialist
+    - critic
+  allow_sub_agent_spawning: true
+  custom_instructions: {}
+tech_stack:
+  languages:
+    - python
+  frameworks:
+    - click
+  databases:
+    - postgresql
+  infrastructure: []
+atlassian:
+  enabled: false
+agent_naming:
+  enabled: true
+  style: codename
+llm_gateway:
+  enabled: true
+  local_claude_model: claude-opus-4-6
+  enable_local_claude: true
+  cost_tracking: true

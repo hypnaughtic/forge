@@ -7,6 +7,7 @@ from forge_cli.config_schema import (
     ForgeConfig,
     ProjectConfig,
     ProjectMode,
+    RefinementConfig,
     TeamProfile,
 )
 
@@ -103,3 +104,45 @@ class TestForgeConfig:
             atlassian=AtlassianConfig(enabled=False),
         )
         assert len(full.get_active_agents()) > len(lean.get_active_agents())
+
+    def test_default_config_empty_non_negotiables(self):
+        config = ForgeConfig()
+        assert config.non_negotiables == []
+
+    def test_config_with_non_negotiables(self):
+        config = ForgeConfig(
+            non_negotiables=["All APIs must be authenticated", "No raw SQL queries"],
+        )
+        assert len(config.non_negotiables) == 2
+        assert "All APIs must be authenticated" in config.non_negotiables
+        assert "No raw SQL queries" in config.non_negotiables
+
+    def test_default_refinement_disabled(self):
+        config = ForgeConfig()
+        assert config.refinement.enabled is False
+        assert config.refinement.provider == "local_claude"
+        assert config.refinement.model == "claude-opus-4-6"
+        assert config.refinement.score_threshold == 90
+        assert config.refinement.max_iterations == 5
+
+    def test_refinement_config_values(self):
+        config = ForgeConfig(
+            refinement=RefinementConfig(
+                enabled=True,
+                provider="anthropic",
+                model="claude-sonnet-4-20250514",
+                max_tokens=4096,
+                score_threshold=85,
+                max_iterations=3,
+                timeout_seconds=120,
+                cost_limit_usd=5.0,
+            ),
+        )
+        assert config.refinement.enabled is True
+        assert config.refinement.provider == "anthropic"
+        assert config.refinement.model == "claude-sonnet-4-20250514"
+        assert config.refinement.max_tokens == 4096
+        assert config.refinement.score_threshold == 85
+        assert config.refinement.max_iterations == 3
+        assert config.refinement.timeout_seconds == 120
+        assert config.refinement.cost_limit_usd == 5.0

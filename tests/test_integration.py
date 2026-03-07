@@ -26,9 +26,11 @@ from forge_cli.config_schema import (
     LLMGatewayConfig,
     ProjectConfig,
     ProjectMode,
+    RefinementConfig,
     TeamProfile,
     TechStack,
 )
+from llm_gateway import FakeLLMProvider
 from forge_cli.config_loader import load_config, save_config
 from forge_cli.generators.agent_files import generate_agent_files
 from forge_cli.generators.claude_md import generate_claude_md
@@ -639,15 +641,18 @@ class TestCLIIntegration:
     def test_cli_version(self):
         """CLI --version works."""
         result = subprocess.run(
-            ["python", "-m", "forge_cli.main"],
+            ["python", "-c", """
+import sys
+sys.argv = ['forge', '--version']
+from forge_cli.main import cli
+cli(standalone_mode=False)
+"""],
             capture_output=True, text=True, timeout=10,
         )
-        # Invoking without args runs 'init' which needs interactive input, so it may fail
-        # But the module should at least be importable
-        assert result.returncode is not None  # Just verify it ran
+        assert result.returncode == 0
 
     def test_cli_validate_valid_config(self, tmp_path):
-        """CLI validate command accepts a valid config."""
+        """CLI --validate-only accepts a valid config."""
         config = _make_config()
         config_path = tmp_path / "forge-config.yaml"
         save_config(config, config_path)
@@ -655,7 +660,7 @@ class TestCLIIntegration:
         result = subprocess.run(
             ["python", "-c", f"""
 import sys
-sys.argv = ['forge', 'validate', '--config', '{config_path}']
+sys.argv = ['forge', '--config', '{config_path}', '--validate-only']
 from forge_cli.main import cli
 cli(standalone_mode=False)
 """],
@@ -664,7 +669,7 @@ cli(standalone_mode=False)
         assert result.returncode == 0
 
     def test_cli_generate_from_config(self, tmp_path):
-        """CLI generate command produces all files from a config."""
+        """CLI generates all files from a config."""
         config = _make_config()
         config_path = tmp_path / "forge-config.yaml"
         save_config(config, config_path)
@@ -674,7 +679,7 @@ cli(standalone_mode=False)
         result = subprocess.run(
             ["python", "-c", f"""
 import sys
-sys.argv = ['forge', 'generate', '--config', '{config_path}', '--project-dir', '{output_dir}']
+sys.argv = ['forge', '--config', '{config_path}', '--project-dir', '{output_dir}']
 from forge_cli.main import cli
 cli(standalone_mode=False)
 """],
@@ -685,35 +690,15 @@ cli(standalone_mode=False)
         assert (output_dir / "team-init-plan.md").exists()
         assert (output_dir / ".claude" / "agents").is_dir()
 
-    def test_cli_init_non_interactive(self, tmp_path):
-        """CLI init --non-interactive generates files from config."""
-        config = _make_config()
-        config_path = tmp_path / "forge-config.yaml"
-        save_config(config, config_path)
-        output_dir = tmp_path / "output"
-        output_dir.mkdir()
-
-        result = subprocess.run(
-            ["python", "-c", f"""
-import sys
-sys.argv = ['forge', 'init', '--config', '{config_path}', '--project-dir', '{output_dir}', '--non-interactive']
-from forge_cli.main import cli
-cli(standalone_mode=False)
-"""],
-            capture_output=True, text=True, timeout=10,
-        )
-        assert result.returncode == 0
-        assert (output_dir / "CLAUDE.md").exists()
-
     def test_cli_validate_invalid_config(self, tmp_path):
-        """CLI validate rejects malformed YAML."""
+        """CLI rejects malformed YAML."""
         bad_config = tmp_path / "bad.yaml"
         bad_config.write_text("mode: invalid-mode-value\n  broken yaml: [[[")
 
         result = subprocess.run(
             ["python", "-c", f"""
 import sys
-sys.argv = ['forge', 'validate', '--config', '{bad_config}']
+sys.argv = ['forge', '--config', '{bad_config}', '--validate-only']
 from forge_cli.main import cli
 try:
     cli(standalone_mode=False)
@@ -1902,3 +1887,266 @@ class TestEdgeCases:
         # Forge servers added
         assert "playwright" in result["mcpServers"]
         assert "atlassian" in result["mcpServers"]
+
+
+# =============================================================================
+# 10. Refinement Integration Tests
+# =============================================================================
+
+FORGE_DRY_RUN = os.environ.get("FORGE_TEST_DRY_RUN", "1") == "1"
+
+
+def _make_refinement_fake_provider(initial_score=80, refined_score=95):
+    """Create a FakeLLMProvider for refinement testing."""
+    from forge_cli.generators.refinement import FileScore, RefinedContent
+
+    call_counts = {"score": 0}
+
+    def factory(model_class, messages):
+        if model_class is FileScore:
+            call_counts["score"] += 1
+            if call_counts["score"] <= 1:
+                return FileScore(
+                    score=initial_score,
+                    reasoning="Needs improvement",
+                    suggestions=["Be more specific"],
+                )
+            return FileScore(
+                score=refined_score,
+                reasoning="Much better",
+                suggestions=[],
+            )
+        if model_class is RefinedContent:
+            user_msg = messages[-1]["content"] if messages else ""
+            marker = "CURRENT CONTENT:\n"
+            idx = user_msg.find(marker)
+            if idx >= 0:
+                start = idx + len(marker)
+                end = user_msg.find("\n\nPREVIOUS SCORE:", start)
+                original = user_msg[start:end] if end > 0 else user_msg[start:]
+            else:
+                original = "# Refined"
+            return RefinedContent(
+                content=f"<!-- refined -->\n{original}",
+                changes_made=["Improved specificity"],
+            )
+        raise ValueError(f"Unexpected: {model_class}")
+
+    return FakeLLMProvider(response_factory=factory)
+
+
+def _make_refinement_always_good_provider(score=95):
+    """Create a FakeLLMProvider that always scores above threshold."""
+    from forge_cli.generators.refinement import FileScore
+
+    def factory(model_class, messages):
+        if model_class is FileScore:
+            return FileScore(score=score, reasoning="Excellent", suggestions=[])
+        raise ValueError(f"Unexpected: {model_class}")
+
+    return FakeLLMProvider(response_factory=factory)
+
+
+def _get_refinement_provider(fake_factory, **kwargs):
+    """Return a fake provider in dry-run mode, None for live LLM mode."""
+    if FORGE_DRY_RUN:
+        return fake_factory(**kwargs)
+    return None
+
+
+def _apply_live_refinement_overrides(config):
+    """Override refinement config for live (non-dry-run) test runs."""
+    if not FORGE_DRY_RUN:
+        config.refinement.model = "claude-sonnet-4-20250514"
+        config.refinement.score_threshold = 90
+        config.refinement.max_iterations = 5
+
+
+@pytest.mark.skipif(
+    not FORGE_DRY_RUN and not _llm_gateway_available(),
+    reason="Live LLM not available (set FORGE_TEST_DRY_RUN=1 or install llm-gateway with provider)",
+)
+@pytest.mark.timeout(1200 if not FORGE_DRY_RUN else 30)
+class TestRefinementIntegration:
+    """Integration tests for LLM refinement pipeline.
+
+    In dry-run mode (default, FORGE_TEST_DRY_RUN=1): uses FakeLLMProvider.
+    In live mode (FORGE_TEST_DRY_RUN=0): uses real local_claude with sonnet.
+    """
+
+    def test_generate_with_refinement_enabled(self, tmp_path):
+        """Full pipeline with refinement should update files."""
+        config = _make_config()
+        config.refinement = RefinementConfig(enabled=True, score_threshold=90)
+        config.project.directory = str(tmp_path)
+        _apply_live_refinement_overrides(config)
+
+        provider = _get_refinement_provider(
+            _make_refinement_fake_provider, initial_score=80, refined_score=95,
+        )
+        report = generate_all(config, llm_provider=provider)
+
+        assert report is not None
+        assert report.files_improved > 0 or report.files_already_good > 0
+        assert len(report.files) > 0
+
+    def test_refinement_preserves_structure(self, tmp_path):
+        """Section headers and separators should survive refinement."""
+        config = _make_config()
+        config.refinement = RefinementConfig(enabled=True, score_threshold=90)
+        config.project.directory = str(tmp_path)
+        _apply_live_refinement_overrides(config)
+
+        provider = _get_refinement_provider(
+            _make_refinement_always_good_provider, score=95,
+        )
+        generate_all(config, llm_provider=provider)
+
+        # Verify CLAUDE.md still has key structural elements
+        claude_md = (tmp_path / "CLAUDE.md").read_text()
+        assert "#" in claude_md
+        assert len(claude_md) > 100  # non-trivial content
+
+    def test_refinement_cost_tracking(self, tmp_path):
+        """Report should have non-zero cost."""
+        config = _make_config()
+        config.refinement = RefinementConfig(enabled=True, score_threshold=90)
+        config.project.directory = str(tmp_path)
+        _apply_live_refinement_overrides(config)
+
+        provider = _get_refinement_provider(
+            _make_refinement_fake_provider, initial_score=80, refined_score=95,
+        )
+        report = generate_all(config, llm_provider=provider)
+
+        assert report is not None
+        assert report.total_cost_usd > 0
+        assert report.total_llm_calls > 0
+
+    def test_cli_refine_flag(self, tmp_path):
+        """--refine flag should override config."""
+        config_data = {
+            "project": {"description": "Test", "requirements": "Build stuff"},
+            "mode": "mvp",
+            "atlassian": {"enabled": False},
+            "refinement": {"enabled": False},
+        }
+        config_file = tmp_path / "config.yaml"
+        with open(config_file, "w") as f:
+            yaml.dump(config_data, f)
+
+        # --no-refine should work with validate-only
+        result = subprocess.run(
+            ["python", "-m", "forge_cli.main", "--config", str(config_file),
+             "--validate-only", "--no-refine"],
+            capture_output=True, text=True,
+        )
+        assert "Refinement: disabled" in result.stdout
+
+    def test_refinement_score_above_threshold(self, tmp_path):
+        """All files in report should show final_score >= threshold when provider scores high."""
+        config = _make_config()
+        config.refinement = RefinementConfig(enabled=True, score_threshold=90)
+        config.project.directory = str(tmp_path)
+        _apply_live_refinement_overrides(config)
+
+        provider = _get_refinement_provider(
+            _make_refinement_always_good_provider, score=92,
+        )
+        report = generate_all(config, llm_provider=provider)
+
+        assert report is not None
+        assert report.all_passed is True
+        for f in report.files:
+            if FORGE_DRY_RUN:
+                assert f.final_score >= 90
+            else:
+                # Live LLM scores are unpredictable, just check threshold was applied
+                assert f.final_score >= config.refinement.score_threshold or len(f.iterations) == config.refinement.max_iterations
+
+
+# =============================================================================
+# 11. Refinement Quality Cases
+# =============================================================================
+
+
+@pytest.mark.skipif(
+    not FORGE_DRY_RUN and not _llm_gateway_available(),
+    reason="Live LLM not available (set FORGE_TEST_DRY_RUN=1 or install llm-gateway with provider)",
+)
+@pytest.mark.timeout(1200 if not FORGE_DRY_RUN else 30)
+class TestRefinementQualityCases:
+    """Run refinement over quality_cases configs and save reports."""
+
+    QUALITY_CASES_DIR = Path(__file__).parent / "quality_cases"
+
+    @staticmethod
+    def _find_quality_cases():
+        """Discover quality case config files."""
+        cases_dir = Path(__file__).parent / "quality_cases"
+        if not cases_dir.is_dir():
+            return []
+        return sorted(cases_dir.glob("*/forge-config.yaml"))
+
+    @pytest.mark.parametrize(
+        "config_path",
+        _find_quality_cases.__func__(),
+        ids=lambda p: p.parent.name,
+    )
+    def test_quality_case_refinement(self, tmp_path, config_path):
+        """Generate + refine a quality case and save the report."""
+        import time
+
+        config = load_config(str(config_path))
+        config.refinement = RefinementConfig(
+            enabled=True,
+            score_threshold=90,
+            max_iterations=3,
+        )
+        config.project.directory = str(tmp_path)
+        _apply_live_refinement_overrides(config)
+
+        provider = _get_refinement_provider(
+            _make_refinement_fake_provider, initial_score=85, refined_score=95,
+        )
+
+        gen_start = time.monotonic()
+        # Generate without refinement first to measure generation time
+        config_no_refine = config.model_copy(deep=True)
+        config_no_refine.refinement.enabled = False
+        generate_all(config_no_refine)
+        gen_time = time.monotonic() - gen_start
+
+        # Now run refinement
+        refine_start = time.monotonic()
+        from forge_cli.generators.refinement import refine_all
+        report = refine_all(config, tmp_path, llm_provider=provider)
+        refine_time = time.monotonic() - refine_start
+
+        total_time = gen_time + refine_time
+
+        # Save report
+        import json as json_mod
+        from datetime import datetime, timezone
+
+        report_data = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "dry_run": FORGE_DRY_RUN,
+            "generation_time_seconds": round(gen_time, 3),
+            "refinement_time_seconds": round(refine_time, 3),
+            "total_time_seconds": round(total_time, 3),
+            "refinement_config": {
+                "provider": config.refinement.provider,
+                "model": config.refinement.model,
+                "score_threshold": config.refinement.score_threshold,
+                "max_iterations": config.refinement.max_iterations,
+            },
+            "report": report.to_dict(),
+        }
+
+        report_path = config_path.parent / "refinement-report.json"
+        report_path.write_text(json_mod.dumps(report_data, indent=2) + "\n")
+
+        # Basic assertions
+        assert len(report.files) > 0
+        assert report.total_cost_usd >= 0

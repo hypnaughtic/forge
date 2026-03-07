@@ -8,6 +8,23 @@ from textwrap import dedent
 from forge_cli.config_schema import ForgeConfig
 
 
+def _non_negotiables_init_section(config: ForgeConfig) -> str:
+    """Generate non-negotiables section for team-init-plan.md."""
+    if not config.non_negotiables:
+        return ""
+
+    rules = "\n    ".join(f"- {rule}" for rule in config.non_negotiables)
+    return dedent(f"""\
+
+    ## Non-Negotiable Requirements
+
+    Communicate these to every agent during spawning. The Critic evaluates every
+    deliverable against these. Any violation is an automatic BLOCKER.
+
+    {rules}
+    """)
+
+
 def generate_team_init_plan(config: ForgeConfig, project_dir: Path) -> None:
     """Generate team-init-plan.md in the project root."""
     agents = config.get_active_agents()
@@ -155,7 +172,7 @@ def generate_team_init_plan(config: ForgeConfig, project_dir: Path) -> None:
     ## Project Requirements
 
     {config.project.requirements or config.project.description}
-
+    {_non_negotiables_init_section(config)}
     ## Initialization Sequence
 
     ### Phase 1: Read and Internalize
@@ -246,6 +263,7 @@ def generate_team_init_plan(config: ForgeConfig, project_dir: Path) -> None:
     | Atlassian | {'Enabled' if config.atlassian.enabled else 'Disabled'} |
     | Agent Naming | {config.agent_naming.style if config.agent_naming.enabled else 'Disabled'} |
     | LLM Gateway | {'Enabled (local_claude: ' + ('on' if config.llm_gateway.enable_local_claude else 'off') + ')' if config.llm_gateway.enabled else 'Disabled'} |
+    | Non-Negotiables | {f'{len(config.non_negotiables)} rules' if config.non_negotiables else 'None'} |
 
     ---
 

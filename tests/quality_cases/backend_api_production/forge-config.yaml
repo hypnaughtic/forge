@@ -1,0 +1,51 @@
+project:
+  description: >-
+    Financial transaction processing API with audit
+    logging and compliance
+  requirements: >-
+    Build a production-grade financial transaction processing API.
+    Features: transaction ingestion (debit/credit), double-entry
+    bookkeeping, balance calculations, audit trail with immutable
+    logs, role-based access control, rate limiting, webhook
+    notifications for transaction events, PCI-DSS-aware data
+    handling (no raw card numbers in logs). Tech: Python, FastAPI,
+    PostgreSQL, Redis for rate limiting. No frontend — API only
+    with OpenAPI docs.
+  type: new
+mode: production-ready
+strategy: co-pilot
+cost:
+  max_development_cost: 50
+agents:
+  team_profile: custom
+  exclude: []
+  additional: []
+  include:
+    - team-leader
+    - architect
+    - backend-developer
+    - qa-engineer
+    - devops-specialist
+    - security-tester
+    - critic
+  allow_sub_agent_spawning: true
+  custom_instructions: {}
+tech_stack:
+  languages:
+    - python
+  frameworks:
+    - fastapi
+  databases:
+    - postgresql
+    - redis
+  infrastructure: []
+atlassian:
+  enabled: false
+agent_naming:
+  enabled: true
+  style: codename
+llm_gateway:
+  enabled: true
+  local_claude_model: claude-opus-4-6
+  enable_local_claude: true
+  cost_tracking: true
