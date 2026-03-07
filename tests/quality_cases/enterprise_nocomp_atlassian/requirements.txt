@@ -1,0 +1,3 @@
+Project: Enterprise HR management platform with payroll, leave tracking, and org chart
+
+Build an enterprise HR management platform. Features: employee profiles with org hierarchy, payroll processing with tax calculations, leave management (PTO, sick, parental) with approval workflows, performance reviews, org chart visualization, document management (offer letters, contracts), SSO integration (SAML/OIDC), audit logging for all HR actions, reporting dashboard with charts. Tech: Next.js frontend, Go microservices backend, PostgreSQL, Elasticsearch for search, Redis for caching. Full Atlassian integration for project management.

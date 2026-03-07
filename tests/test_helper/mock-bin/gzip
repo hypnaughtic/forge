@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-# Mock gzip — exits 0
-echo "gzip $*" >> "${MOCK_LOG_DIR:-/tmp}/gzip.log" 2>/dev/null || true
-exit 0

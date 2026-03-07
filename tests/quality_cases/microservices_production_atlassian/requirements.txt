@@ -1,0 +1,3 @@
+Project: E-commerce marketplace with multi-vendor support and payment processing
+
+Build an e-commerce marketplace platform. Features: vendor onboarding and storefront, product catalog with search and filters, shopping cart and checkout, Stripe payment processing, order management with status tracking, vendor dashboard with sales analytics, customer reviews and ratings, inventory management, email notifications (order confirmation, shipping updates), admin panel for marketplace management. Tech: React + Next.js frontend, Python Django backend with DRF, PostgreSQL, Redis for caching/sessions, Celery for async tasks, S3 for media storage. Atlassian integration for team coordination.

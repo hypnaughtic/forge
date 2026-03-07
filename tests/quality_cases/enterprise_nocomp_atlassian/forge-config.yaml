@@ -1,0 +1,56 @@
+project:
+  description: >-
+    Enterprise HR management platform with payroll,
+    leave tracking, and org chart
+  requirements: >-
+    Build an enterprise HR management platform. Features: employee
+    profiles with org hierarchy, payroll processing with tax
+    calculations, leave management (PTO, sick, parental) with
+    approval workflows, performance reviews, org chart
+    visualization, document management (offer letters, contracts),
+    SSO integration (SAML/OIDC), audit logging for all HR actions,
+    reporting dashboard with charts. Tech: Next.js frontend, Go
+    microservices backend, PostgreSQL, Elasticsearch for search,
+    Redis for caching. Full Atlassian integration for project
+    management.
+  type: new
+mode: no-compromise
+strategy: co-pilot
+cost:
+  max_development_cost: 50
+agents:
+  team_profile: full
+  exclude: []
+  additional: []
+  include: []
+  allow_sub_agent_spawning: true
+  custom_instructions: {}
+tech_stack:
+  languages:
+    - typescript
+    - go
+  frameworks:
+    - next.js
+    - tailwind
+  databases:
+    - postgresql
+    - redis
+    - elasticsearch
+  infrastructure: []
+atlassian:
+  enabled: true
+  jira_project_key: PROJ
+  jira_base_url: https://forge-test.atlassian.net
+  confluence_space_key: FORGETEST
+  confluence_base_url: https://forge-test.atlassian.net/wiki
+  create_sprint_board: true
+  create_confluence_space: true
+  scrum_ceremonies: true
+agent_naming:
+  enabled: true
+  style: creative
+llm_gateway:
+  enabled: true
+  local_claude_model: claude-opus-4-6
+  enable_local_claude: true
+  cost_tracking: true

@@ -8,8 +8,5 @@ config:
   MD060: false    # Table column style (compact tables are intentional)
 
 globs:
-  - "docs/**/*.md"
   - "README.md"
   - "CHANGELOG.md"
-  - ".claude/commands/*.md"
-  - "skills/**/*.md"

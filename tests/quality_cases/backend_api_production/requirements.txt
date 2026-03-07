@@ -1,0 +1,3 @@
+Project: Financial transaction processing API with audit logging and compliance
+
+Build a production-grade financial transaction processing API. Features: transaction ingestion (debit/credit), double-entry bookkeeping, balance calculations, audit trail with immutable logs, role-based access control, rate limiting, webhook notifications for transaction events, PCI-DSS-aware data handling (no raw card numbers in logs). Tech: Python, FastAPI, PostgreSQL, Redis for rate limiting. No frontend — API only with OpenAPI docs.

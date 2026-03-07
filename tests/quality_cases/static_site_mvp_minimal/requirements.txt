@@ -1,0 +1,3 @@
+Project: Developer portfolio website with blog and project showcase
+
+Build a developer portfolio website. Features: landing page with hero section, about page, project showcase with screenshots, blog with markdown support, contact form, dark mode toggle, responsive design. Tech: Astro with React islands, Tailwind CSS, MDX for blog posts. No backend — static site with optional serverless functions for contact form. Deploy to Vercel.
