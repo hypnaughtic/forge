@@ -18,6 +18,7 @@ from forge_cli.config_schema import (
 from forge_cli.generators.agent_files import generate_agent_files
 from forge_cli.generators.claude_md import generate_claude_md
 from forge_cli.generators.mcp_config import generate_mcp_config
+from forge_cli.generators.settings_config import generate_settings_config
 from forge_cli.generators.skills import generate_skills
 from forge_cli.generators.team_init_plan import generate_team_init_plan
 
@@ -95,6 +96,42 @@ class TestAgentFileGeneration:
 
         content = (agents_dir / "backend-developer.md").read_text()
         assert "Sub-Agent Spawning Protocol" not in content
+
+    def test_co_pilot_strategy_behavior_in_agent_files(self, tmp_path):
+        config = _make_config(strategy=ExecutionStrategy.CO_PILOT)
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+
+        generate_agent_files(config, agents_dir)
+
+        content = (agents_dir / "backend-developer.md").read_text()
+        assert "Execution Strategy: Co-Pilot" in content
+        assert "DO ask the human" in content
+        assert "DO NOT ask the human" in content
+        assert "full autonomy for all implementation work" in content.lower()
+
+    def test_auto_pilot_strategy_behavior_in_agent_files(self, tmp_path):
+        config = _make_config(strategy=ExecutionStrategy.AUTO_PILOT)
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+
+        generate_agent_files(config, agents_dir)
+
+        content = (agents_dir / "backend-developer.md").read_text()
+        assert "Execution Strategy: Auto-Pilot" in content
+        assert "full autonomy" in content.lower()
+        assert "never stop to ask permission" in content.lower()
+
+    def test_micro_manage_strategy_behavior_in_agent_files(self, tmp_path):
+        config = _make_config(strategy=ExecutionStrategy.MICRO_MANAGE)
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+
+        generate_agent_files(config, agents_dir)
+
+        content = (agents_dir / "backend-developer.md").read_text()
+        assert "Execution Strategy: Micro-Manage" in content
+        assert "present every significant decision" in content.lower()
 
     def test_agent_files_contain_naming_protocol(self, tmp_path):
         config = _make_config()
@@ -780,3 +817,184 @@ class TestNonNegotiables:
         content = (tmp_path / "team-init-plan.md").read_text()
         assert "Non-Negotiable Requirements" not in content
         assert "None" in content  # Quick reference row shows "None"
+
+
+class TestSettingsConfigGeneration:
+    """Tests for strategy-enforced .claude/settings.json generation."""
+
+    def test_auto_pilot_generates_settings_with_all_tools(self, tmp_path):
+        config = _make_config(strategy=ExecutionStrategy.AUTO_PILOT)
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+
+        generate_settings_config(config, claude_dir)
+
+        settings_path = claude_dir / "settings.json"
+        assert settings_path.exists()
+        data = json.loads(settings_path.read_text())
+        allow = data["permissions"]["allow"]
+        expected = [
+            "Bash(*)", "Read(*)", "Edit(*)", "Write(*)",
+            "WebFetch(*)", "WebSearch(*)", "Agent(*)",
+            "Glob(*)", "Grep(*)", "mcp__*",
+        ]
+        for tool in expected:
+            assert tool in allow, f"Missing {tool} in auto-pilot allow list"
+
+    def test_co_pilot_generates_settings_with_all_tools(self, tmp_path):
+        """Co-pilot gets full tool access — same as auto-pilot.
+        The difference is behavioral (instructions), not permission-based."""
+        config = _make_config(strategy=ExecutionStrategy.CO_PILOT)
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+
+        generate_settings_config(config, claude_dir)
+
+        settings_path = claude_dir / "settings.json"
+        assert settings_path.exists()
+        data = json.loads(settings_path.read_text())
+        allow = data["permissions"]["allow"]
+        expected = [
+            "Bash(*)", "Read(*)", "Edit(*)", "Write(*)",
+            "WebFetch(*)", "WebSearch(*)", "Agent(*)",
+            "Glob(*)", "Grep(*)", "mcp__*",
+        ]
+        for tool in expected:
+            assert tool in allow, f"Missing {tool} in co-pilot allow list"
+
+    def test_micro_manage_does_not_generate_settings(self, tmp_path):
+        config = _make_config(strategy=ExecutionStrategy.MICRO_MANAGE)
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+
+        generate_settings_config(config, claude_dir)
+
+        assert not (claude_dir / "settings.json").exists()
+
+    def test_merges_with_existing_settings(self, tmp_path):
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        settings_path = claude_dir / "settings.json"
+        existing = {
+            "permissions": {
+                "allow": ["CustomTool(*)"],
+                "deny": ["DangerousTool(*)"],
+            }
+        }
+        settings_path.write_text(json.dumps(existing))
+
+        config = _make_config(strategy=ExecutionStrategy.AUTO_PILOT)
+        generate_settings_config(config, claude_dir)
+
+        data = json.loads(settings_path.read_text())
+        assert "CustomTool(*)" in data["permissions"]["allow"]
+        assert "Bash(*)" in data["permissions"]["allow"]
+
+    def test_deduplicates_allow_rules(self, tmp_path):
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        settings_path = claude_dir / "settings.json"
+        existing = {
+            "permissions": {
+                "allow": ["Read(*)", "Bash(*)"],
+                "deny": [],
+            }
+        }
+        settings_path.write_text(json.dumps(existing))
+
+        config = _make_config(strategy=ExecutionStrategy.AUTO_PILOT)
+        generate_settings_config(config, claude_dir)
+
+        data = json.loads(settings_path.read_text())
+        allow = data["permissions"]["allow"]
+        assert allow.count("Read(*)") == 1
+        assert allow.count("Bash(*)") == 1
+
+    def test_preserves_existing_deny_rules(self, tmp_path):
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        settings_path = claude_dir / "settings.json"
+        existing = {
+            "permissions": {
+                "allow": [],
+                "deny": ["DangerousTool(*)"],
+            }
+        }
+        settings_path.write_text(json.dumps(existing))
+
+        config = _make_config(strategy=ExecutionStrategy.CO_PILOT)
+        generate_settings_config(config, claude_dir)
+
+        data = json.loads(settings_path.read_text())
+        assert "DangerousTool(*)" in data["permissions"]["deny"]
+
+    def test_preserves_other_settings_keys(self, tmp_path):
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        settings_path = claude_dir / "settings.json"
+        existing = {
+            "customKey": "customValue",
+            "permissions": {"allow": [], "deny": []},
+        }
+        settings_path.write_text(json.dumps(existing))
+
+        config = _make_config(strategy=ExecutionStrategy.AUTO_PILOT)
+        generate_settings_config(config, claude_dir)
+
+        data = json.loads(settings_path.read_text())
+        assert data["customKey"] == "customValue"
+
+    def test_handles_malformed_existing_settings(self, tmp_path):
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        settings_path = claude_dir / "settings.json"
+        settings_path.write_text("{ not valid json !!!")
+
+        config = _make_config(strategy=ExecutionStrategy.AUTO_PILOT)
+        generate_settings_config(config, claude_dir)
+
+        data = json.loads(settings_path.read_text())
+        assert "permissions" in data
+        assert len(data["permissions"]["allow"]) == 10
+
+    def test_auto_pilot_deny_list_empty(self, tmp_path):
+        config = _make_config(strategy=ExecutionStrategy.AUTO_PILOT)
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+
+        generate_settings_config(config, claude_dir)
+
+        data = json.loads((claude_dir / "settings.json").read_text())
+        assert data["permissions"]["deny"] == []
+
+    def test_co_pilot_includes_bash_edit_write(self, tmp_path):
+        """Co-pilot has full tool access — behavioral difference only."""
+        config = _make_config(strategy=ExecutionStrategy.CO_PILOT)
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+
+        generate_settings_config(config, claude_dir)
+
+        data = json.loads((claude_dir / "settings.json").read_text())
+        allow = data["permissions"]["allow"]
+        assert "Bash(*)" in allow
+        assert "Edit(*)" in allow
+        assert "Write(*)" in allow
+
+    def test_co_pilot_and_auto_pilot_same_permissions(self, tmp_path):
+        """Co-pilot and auto-pilot produce identical settings.json permissions."""
+        claude_ap = tmp_path / "ap" / ".claude"
+        claude_ap.mkdir(parents=True)
+        generate_settings_config(
+            _make_config(strategy=ExecutionStrategy.AUTO_PILOT), claude_ap,
+        )
+
+        claude_cp = tmp_path / "cp" / ".claude"
+        claude_cp.mkdir(parents=True)
+        generate_settings_config(
+            _make_config(strategy=ExecutionStrategy.CO_PILOT), claude_cp,
+        )
+
+        ap_data = json.loads((claude_ap / "settings.json").read_text())
+        cp_data = json.loads((claude_cp / "settings.json").read_text())
+        assert ap_data == cp_data

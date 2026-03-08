@@ -36,6 +36,7 @@ from forge_cli.generators.agent_files import generate_agent_files
 from forge_cli.generators.claude_md import generate_claude_md
 from forge_cli.generators.mcp_config import generate_mcp_config
 from forge_cli.generators.orchestrator import generate_all
+from forge_cli.generators.settings_config import generate_settings_config
 from forge_cli.generators.skills import generate_skills
 from forge_cli.generators.team_init_plan import generate_team_init_plan
 
@@ -150,6 +151,20 @@ class TestConfigCombinations:
         assert len(agent_files) == len(active)
         for agent in active:
             assert (output_dir / ".claude" / "agents" / f"{agent}.md").exists()
+
+        # settings.json matches strategy
+        settings_path = output_dir / ".claude" / "settings.json"
+        if strategy == ExecutionStrategy.MICRO_MANAGE:
+            assert not settings_path.exists(), "micro-manage should not generate settings.json"
+        else:
+            assert settings_path.exists(), f"{strategy.value} should generate settings.json"
+            data = json.loads(settings_path.read_text())
+            allow = data["permissions"]["allow"]
+            # Both auto-pilot and co-pilot get full tool access
+            assert "Bash(*)" in allow
+            assert "Edit(*)" in allow
+            assert "Write(*)" in allow
+            assert "Read(*)" in allow
 
     @pytest.mark.parametrize("mode", ALL_MODES, ids=lambda m: m.value)
     def test_auto_profile_resolves_correctly(self, mode):
@@ -904,9 +919,284 @@ class TestAgentBehavioralVerification:
             assert strategy.value in tl
 
             if strategy == ExecutionStrategy.AUTO_PILOT:
-                assert "autonomously" in tl.lower()
+                assert "full autonomy" in tl.lower()
             elif strategy == ExecutionStrategy.MICRO_MANAGE:
                 assert "human" in tl.lower()
+
+
+# =============================================================================
+# 5b. Settings Strategy Enforcement Tests
+# =============================================================================
+
+
+class TestSettingsStrategyEnforcement:
+    """Verify strategy-enforced settings.json through the full pipeline."""
+
+    def test_auto_pilot_settings_allow_all(self, tmp_path):
+        """Full pipeline: auto-pilot generates settings.json with all tools."""
+        config = _make_config(strategy=ExecutionStrategy.AUTO_PILOT)
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        settings = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        allow = settings["permissions"]["allow"]
+        assert "Bash(*)" in allow
+        assert "Edit(*)" in allow
+        assert "Write(*)" in allow
+        assert "Read(*)" in allow
+        assert "Agent(*)" in allow
+
+    def test_co_pilot_settings_full_tool_access(self, tmp_path):
+        """Full pipeline: co-pilot generates settings.json with ALL tools allowed.
+        The difference from auto-pilot is behavioral (instructions), not permissions."""
+        config = _make_config(strategy=ExecutionStrategy.CO_PILOT)
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        settings = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        allow = settings["permissions"]["allow"]
+        assert "Bash(*)" in allow
+        assert "Edit(*)" in allow
+        assert "Write(*)" in allow
+        assert "Read(*)" in allow
+        assert "Glob(*)" in allow
+        assert "Agent(*)" in allow
+
+    def test_micro_manage_no_settings(self, tmp_path):
+        """Full pipeline: micro-manage does not generate settings.json."""
+        config = _make_config(strategy=ExecutionStrategy.MICRO_MANAGE)
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        assert not (tmp_path / ".claude" / "settings.json").exists()
+
+    def test_auto_pilot_sub_agents_inherit_permissions(self, tmp_path):
+        """Agent(*) in auto-pilot allow list enables sub-agent spawning without prompts."""
+        config = _make_config(strategy=ExecutionStrategy.AUTO_PILOT, spawning=True)
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        settings = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        assert "Agent(*)" in settings["permissions"]["allow"]
+
+    def test_settings_idempotent(self, tmp_path):
+        """Generating twice produces identical output."""
+        config = _make_config(strategy=ExecutionStrategy.AUTO_PILOT)
+        config.project.directory = str(tmp_path)
+
+        generate_all(config)
+        first = (tmp_path / ".claude" / "settings.json").read_text()
+
+        generate_all(config)
+        second = (tmp_path / ".claude" / "settings.json").read_text()
+
+        assert first == second
+
+    def test_settings_merges_with_user_config(self, tmp_path):
+        """Pre-populated settings.json is merged, not overwritten."""
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir(parents=True)
+        existing = {
+            "customSetting": True,
+            "permissions": {
+                "allow": ["MyCustomTool(*)"],
+                "deny": ["ForbiddenTool(*)"],
+            },
+        }
+        (claude_dir / "settings.json").write_text(json.dumps(existing))
+
+        config = _make_config(strategy=ExecutionStrategy.CO_PILOT)
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        data = json.loads((claude_dir / "settings.json").read_text())
+        assert data["customSetting"] is True
+        assert "MyCustomTool(*)" in data["permissions"]["allow"]
+        assert "Read(*)" in data["permissions"]["allow"]
+        assert "ForbiddenTool(*)" in data["permissions"]["deny"]
+
+    def test_co_pilot_behavioral_instructions_in_agents(self, tmp_path):
+        """Co-pilot agents get behavioral guidance to ask human only for arch/scope decisions."""
+        config = _make_config(strategy=ExecutionStrategy.CO_PILOT)
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        # Check a non-leader agent has the co-pilot behavioral section
+        backend = (tmp_path / ".claude" / "agents" / "backend-developer.md").read_text()
+        assert "Execution Strategy: Co-Pilot" in backend
+        assert "full autonomy for all implementation work" in backend.lower()
+        assert "DO ask the human" in backend
+        assert "DO NOT ask the human" in backend
+
+    def test_auto_pilot_behavioral_instructions_in_agents(self, tmp_path):
+        """Auto-pilot agents are told to never pause for approval."""
+        config = _make_config(strategy=ExecutionStrategy.AUTO_PILOT)
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        backend = (tmp_path / ".claude" / "agents" / "backend-developer.md").read_text()
+        assert "Execution Strategy: Auto-Pilot" in backend
+        assert "full autonomy" in backend.lower()
+
+    def test_micro_manage_behavioral_instructions_in_agents(self, tmp_path):
+        """Micro-manage agents are told to present every decision."""
+        config = _make_config(strategy=ExecutionStrategy.MICRO_MANAGE)
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        backend = (tmp_path / ".claude" / "agents" / "backend-developer.md").read_text()
+        assert "Execution Strategy: Micro-Manage" in backend
+        assert "present every significant decision" in backend.lower()
+
+
+# =============================================================================
+# 5c. Live Strategy Enforcement Tests (requires Claude CLI)
+# =============================================================================
+
+
+def _claude_cli_available() -> bool:
+    """Check if Claude CLI is available for live tests."""
+    try:
+        env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+        result = subprocess.run(
+            ["claude", "--version"],
+            capture_output=True, text=True, timeout=10, env=env,
+        )
+        return result.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+@pytest.mark.skipif(
+    not _claude_cli_available(),
+    reason="Claude CLI not available (install claude for live strategy tests)",
+)
+@pytest.mark.timeout(300)
+class TestLiveStrategyEnforcement:
+    """Live tests that forge a small project with each strategy and verify
+    agent behavior via Claude CLI.
+
+    These tests run WITHOUT dry-run — they use real Claude CLI to verify
+    that generated settings.json and agent instructions produce the correct
+    behavior (full autonomy, guided co-piloting, or full prompting).
+    """
+
+    SMALL_PROJECT_DESC = "Simple Python CLI calculator"
+    SMALL_PROJECT_REQS = "Build a CLI calculator that supports add, subtract, multiply, divide"
+
+    def _forge_project(self, tmp_path, strategy):
+        """Generate a minimal forge project with the given strategy."""
+        config = _make_config(
+            strategy=strategy,
+            mode=ProjectMode.MVP,
+            profile=TeamProfile.LEAN,
+            atlassian=False,
+            description=self.SMALL_PROJECT_DESC,
+            requirements=self.SMALL_PROJECT_REQS,
+            tech_stack=TechStack(languages=["python"]),
+        )
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+        return config
+
+    def _ask_claude_in_project(self, project_dir, prompt, timeout=60):
+        """Run Claude CLI with a prompt in the given project directory."""
+        # Unset CLAUDECODE to allow running inside another Claude Code session
+        env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+        result = subprocess.run(
+            ["claude", "-p", prompt, "--output-format", "text"],
+            capture_output=True, text=True, timeout=timeout,
+            cwd=str(project_dir), env=env,
+        )
+        return result.stdout.strip(), result.returncode
+
+    def test_auto_pilot_settings_allows_all_tools(self, tmp_path):
+        """Auto-pilot: settings.json grants all tools, agent told full autonomy."""
+        self._forge_project(tmp_path, ExecutionStrategy.AUTO_PILOT)
+
+        settings = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        allow = settings["permissions"]["allow"]
+        assert "Bash(*)" in allow
+        assert "Edit(*)" in allow
+        assert "Write(*)" in allow
+
+        # Agent file says full autonomy
+        tl = (tmp_path / ".claude" / "agents" / "team-leader.md").read_text()
+        assert "Auto-Pilot" in tl
+        assert "full autonomy" in tl.lower()
+
+    def test_co_pilot_settings_allows_all_tools(self, tmp_path):
+        """Co-pilot: settings.json grants all tools (same as auto-pilot)."""
+        self._forge_project(tmp_path, ExecutionStrategy.CO_PILOT)
+
+        settings = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        allow = settings["permissions"]["allow"]
+        assert "Bash(*)" in allow
+        assert "Edit(*)" in allow
+        assert "Write(*)" in allow
+
+    def test_co_pilot_behavioral_guidance(self, tmp_path):
+        """Co-pilot: agent instructions distinguish DO ask vs DO NOT ask."""
+        self._forge_project(tmp_path, ExecutionStrategy.CO_PILOT)
+
+        backend = (tmp_path / ".claude" / "agents" / "backend-developer.md").read_text()
+        # Should have clear guidance on WHAT to ask about
+        assert "DO ask the human" in backend
+        assert "architecture" in backend.lower() or "architectural" in backend.lower()
+        assert "scope" in backend.lower()
+
+        # Should have clear guidance on what NOT to ask about
+        assert "DO NOT ask the human" in backend
+        assert "file edits" in backend.lower() or "File edits" in backend
+        assert "commands to run" in backend.lower() or "Which commands" in backend
+
+    def test_micro_manage_no_settings(self, tmp_path):
+        """Micro-manage: no settings.json, every tool prompts by default."""
+        self._forge_project(tmp_path, ExecutionStrategy.MICRO_MANAGE)
+
+        assert not (tmp_path / ".claude" / "settings.json").exists()
+
+    def test_co_pilot_claude_reads_instructions_without_tool_prompts(self, tmp_path):
+        """Co-pilot: Claude CLI can read the team-leader instructions (proving
+        Read tool is auto-approved via settings.json) and correctly identifies
+        the co-pilot strategy from the file content."""
+        self._forge_project(tmp_path, ExecutionStrategy.CO_PILOT)
+
+        response, rc = self._ask_claude_in_project(
+            tmp_path,
+            "Read .claude/agents/team-leader.md and tell me: what execution "
+            "strategy is configured? Answer with ONLY the strategy name.",
+        )
+        # Claude should be able to read the file without prompts and find the strategy
+        assert rc == 0, f"Claude CLI failed: {response}"
+        assert "co-pilot" in response.lower(), (
+            f"Claude didn't identify co-pilot strategy: {response[:200]}"
+        )
+
+    def test_auto_pilot_claude_can_create_file(self, tmp_path):
+        """Auto-pilot: Claude CLI can create a file autonomously (proving
+        Write tool is auto-approved via settings.json)."""
+        self._forge_project(tmp_path, ExecutionStrategy.AUTO_PILOT)
+
+        response, rc = self._ask_claude_in_project(
+            tmp_path,
+            "Create a file called hello.txt containing 'Hello from auto-pilot'. "
+            "Then confirm the file exists by reading it back.",
+        )
+        assert rc == 0, f"Claude CLI failed: {response}"
+        hello_path = tmp_path / "hello.txt"
+        assert hello_path.exists(), "Auto-pilot should create file without prompts"
+
+    def test_strategy_instructions_consistent_across_agents(self, tmp_path):
+        """All agents in the same project get the same strategy behavioral section."""
+        self._forge_project(tmp_path, ExecutionStrategy.CO_PILOT)
+
+        agents_dir = tmp_path / ".claude" / "agents"
+        for agent_file in agents_dir.glob("*.md"):
+            content = agent_file.read_text()
+            assert "Execution Strategy: Co-Pilot" in content, (
+                f"{agent_file.name} missing co-pilot strategy section"
+            )
 
 
 # =============================================================================
@@ -1021,6 +1311,18 @@ class TestCrossFileConsistency:
                     found_tech = True
                     break
             assert found_tech, f"{agent_file.name} doesn't reference any tech stack items"
+
+    def test_settings_matches_strategy(self, project):
+        """settings.json must match the configured strategy."""
+        project_dir, config = project
+        settings_path = project_dir / ".claude" / "settings.json"
+        if config.strategy == ExecutionStrategy.MICRO_MANAGE:
+            assert not settings_path.exists()
+        else:
+            assert settings_path.exists()
+            data = json.loads(settings_path.read_text())
+            assert "permissions" in data
+            assert isinstance(data["permissions"]["allow"], list)
 
 
 # =============================================================================

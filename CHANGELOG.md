@@ -38,6 +38,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   generating files
 - **Sub-agent spawning** — Optional `spawn-agent.md` skill when
   `allow_sub_agent_spawning` is enabled
+- **Strategy-enforced permissions** — `auto-pilot` and `co-pilot` generate
+  `.claude/settings.json` allowing all tools (Bash, Edit, Write, Read, WebFetch,
+  WebSearch, Agent, MCP). Both grant full tool autonomy — the difference is
+  behavioral: `co-pilot` agents ask human only for architecture/scope/domain
+  decisions. `micro-manage` skips settings generation, relying on Claude Code
+  defaults that prompt for every tool.
 - **MCP configuration** — Generated `.claude/mcp.json` with Playwright and optional
   Atlassian MCP servers
 - **Custom agent instructions** — Per-agent instruction overrides via

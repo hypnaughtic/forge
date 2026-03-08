@@ -42,9 +42,9 @@ def generate_team_init_plan(config: ForgeConfig, project_dir: Path) -> None:
     }.get(config.mode.value, config.mode.value)
 
     strategy_desc = {
-        "auto-pilot": "Auto-Pilot — Make all decisions autonomously, respect cost caps",
-        "co-pilot": "Co-Pilot — Technical decisions autonomous, design decisions need human approval",
-        "micro-manage": "Micro-Manage — Present every significant decision to human",
+        "auto-pilot": "Auto-Pilot — Full autonomy for all decisions, no permission prompts",
+        "co-pilot": "Co-Pilot — Full autonomy for implementation, human input on architecture/scope/domain decisions only",
+        "micro-manage": "Micro-Manage — Every significant decision presented to human for approval",
     }.get(config.strategy.value, config.strategy.value)
 
     atlassian_init = ""

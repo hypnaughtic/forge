@@ -187,11 +187,15 @@ When the list is empty (default), no non-negotiables section appears in generate
 
 ### Strategy
 
-| Strategy | Behavior |
-|----------|----------|
-| `auto-pilot` | Fully autonomous |
-| `co-pilot` | Routine autonomous, architecture needs approval |
-| `micro-manage` | Every significant decision needs approval |
+| Strategy | Tool Access | Agent Behavior | `.claude/settings.json` |
+|----------|------------|----------------|------------------------|
+| `auto-pilot` | All tools allowed | Full autonomy — all decisions made by agents | Generated (all tools) |
+| `co-pilot` | All tools allowed | Full implementation autonomy — agents only ask human for architecture/scope/domain decisions not covered by requirements | Generated (all tools) |
+| `micro-manage` | Default prompting | Every significant decision presented to human | **Not generated** |
+
+**Co-pilot** is ideal when you want agents to build freely but consult you on project-level
+questions like "monolith vs microservices?", "which payment provider?", or "should we support
+multi-tenancy?". Agents will never ask permission to edit files, run tests, or execute commands.
 
 ### Team Profiles
 
@@ -227,6 +231,7 @@ my-project/
       jira-update.md                 # When Atlassian enabled
       sprint-report.md               # When Atlassian enabled
     mcp.json                         # MCP server configuration
+    settings.json                    # Strategy-enforced permissions (auto-pilot/co-pilot)
   .env.example                       # Required environment variables
 ```
 

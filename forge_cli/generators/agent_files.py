@@ -211,7 +211,78 @@ def _base_protocol_section(config: ForgeConfig) -> str:
     - **BLOCKER**: must fix, re-review
     - **WARNING**: should fix, Team Leader decides
     - **NOTE**: optional suggestion
-    Max 2 review rounds — unresolved after 2 rounds, Team Leader decides.""")
+    Max 2 review rounds — unresolved after 2 rounds, Team Leader decides.
+
+    """) + _strategy_behavior_section(config)
+
+
+def _strategy_behavior_section(config: ForgeConfig) -> str:
+    """Generate execution strategy behavior section for the base protocol.
+
+    This tells every agent how to behave based on the configured strategy.
+    All strategies grant full tool access — the difference is when agents
+    pause to ask the human for input.
+    """
+    if config.strategy.value == "auto-pilot":
+        return dedent("""\
+        ### Execution Strategy: Auto-Pilot
+
+        You have **full autonomy**. Make all decisions — technical, architectural,
+        and design — without pausing for human approval. Respect cost caps and
+        quality thresholds, but never stop to ask permission.
+
+        - Choose technologies, libraries, and patterns on your own
+        - Resolve ambiguities using your best judgment
+        - Only escalate if you hit an unrecoverable blocker that prevents all progress
+        - Execute all tools freely: edit files, run commands, run tests, fetch URLs,
+          create branches, open PRs — no permission needed""")
+
+    if config.strategy.value == "co-pilot":
+        return dedent("""\
+        ### Execution Strategy: Co-Pilot
+
+        You have **full autonomy for all implementation work**. Never ask for
+        permission to use tools — edit files, run commands, execute tests, fetch
+        URLs, search code, create branches, open PRs, run end-to-end suites,
+        deploy to staging. Do all of this without pausing.
+
+        **DO ask the human** only for project-level and domain-level decisions
+        that are not already answered by the project requirements or plan:
+
+        - Architectural direction when multiple valid approaches exist
+          (e.g., "monolith vs microservices?", "REST vs GraphQL?")
+        - Scope clarifications when requirements are genuinely ambiguous
+          (e.g., "should the admin panel support multi-tenancy?")
+        - Business/domain trade-offs that affect user experience
+          (e.g., "which payment providers to integrate?")
+        - External integration choices not specified in requirements
+          (e.g., "which email service?", "which distribution channels?")
+
+        **DO NOT ask the human** about:
+
+        - File edits, code changes, or refactoring decisions
+        - Which commands to run, which tests to execute, which URLs to fetch
+        - Implementation details (data structures, algorithms, error handling)
+        - Standard technical choices with clear best practices
+        - Anything already covered by the project requirements or plan
+
+        When in doubt: if the answer is findable in the codebase, docs, or
+        requirements — find it yourself. Only ask when the question is truly
+        about what the human *wants*, not about what you should *do*.""")
+
+    # micro-manage
+    return dedent("""\
+    ### Execution Strategy: Micro-Manage
+
+    **Present every significant decision to the human before proceeding.**
+    This includes technical choices, design decisions, and implementation
+    approaches. The human wants visibility into and control over all decisions.
+
+    - Before starting a new feature: present your plan and wait for approval
+    - Before choosing between alternatives: present options with trade-offs
+    - Before running destructive operations: confirm with the human
+    - Routine, low-risk operations (reading files, running existing tests,
+      searching code) can proceed without asking""")
 
 
 def _workflow_enforcement_section(agent_type: str, config: ForgeConfig) -> str:
@@ -802,9 +873,11 @@ def _team_leader_template(config: ForgeConfig) -> str:
     {'- Prioritize speed. Ship working features, not perfect ones.' if config.mode.value == 'mvp' else '- Balance quality and delivery. Features must be robust and maintainable.' if config.mode.value == 'production-ready' else '- Maximum quality. Every detail matters. Production-grade from day one.'}
     - Quality threshold: {threshold}
 
-    ## Execution Strategy: {config.strategy.value}
+    ## Team Leader Strategy Notes ({config.strategy.value})
 
-    {'- Make all decisions autonomously. Do not pause for human approval.' if config.strategy.value == 'auto-pilot' else '- Make routine technical decisions autonomously. Present design decisions for human approval.' if config.strategy.value == 'co-pilot' else '- Present every significant decision to the human before proceeding.'}
+    The Base Agent Protocol above defines the full strategy rules. As Team Leader,
+    additionally:
+    {'- Delegate freely to all agents. Trust their output. Only review at iteration boundaries.' if config.strategy.value == 'auto-pilot' else '- Delegate all implementation freely. When YOU face an architectural or scope question that the requirements do not answer, ask the human. Never ask about tool usage, file changes, or execution steps.' if config.strategy.value == 'co-pilot' else '- Present your iteration plan, major task assignments, and architectural choices to the human before executing. Routine sub-agent coordination does not require approval.'}
 
     ## Parallel Work Streams
 

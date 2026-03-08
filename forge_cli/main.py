@@ -33,6 +33,7 @@ HELP_TEXT = f"""\n
     .claude/agents/*.md        Agent instruction files (one per team member)
     .claude/skills/*.md        Reusable skill procedures
     .claude/mcp.json           MCP server configuration
+    .claude/settings.json      Strategy permissions (auto-pilot/co-pilot only)
     CLAUDE.md                  Team Leader context (project root)
     team-init-plan.md          Bootstrap plan for first Claude session
 
@@ -57,9 +58,13 @@ HELP_TEXT = f"""\n
       no-compromise    100% quality, exhaustive tests, full team (12 agents)
 
     strategy: auto-pilot|co-pilot|micro-manage    (default: co-pilot)
-      auto-pilot       Agents decide everything autonomously
-      co-pilot         Routine autonomous, architecture needs approval
-      micro-manage     Every significant decision needs human approval
+      auto-pilot       Full autonomy, all decisions made by agents, no prompts.
+                       Generates .claude/settings.json allowing all tools.
+      co-pilot         Full tool access (edit, bash, write, etc.), agents only
+                       ask human for architecture/scope/domain decisions.
+                       Generates .claude/settings.json allowing all tools.
+      micro-manage     Every significant decision needs approval. No settings.json
+                       generated — Claude Code defaults prompt for all tools.
 
     cost:
       max_development_cost: int    Max dev cost in USD (default: 50)
