@@ -38,7 +38,7 @@ HELP_TEXT = f"""\n
     team-init-plan.md          Bootstrap plan for first Claude session
 
   Workflow:
-    1. Create forge-config.yaml with your project details
+    1. Copy examples/forge-config.yaml and customize it
     2. Run: forge --config forge-config.yaml --project-dir ./my-project
     3. cd into your project and run: claude
     4. Tell Claude: "Read team-init-plan.md and initialize the team"

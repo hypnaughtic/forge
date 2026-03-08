@@ -60,6 +60,9 @@ forge --config forge-config.yaml --validate-only
 
 All configuration lives in a single `forge-config.yaml` file.
 
+See [`examples/forge-config.yaml`](examples/forge-config.yaml) for a comprehensive
+annotated example covering every option.
+
 ### Minimal example
 
 ```yaml

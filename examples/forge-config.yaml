@@ -1,0 +1,203 @@
+# =============================================================================
+# Forge Configuration — Comprehensive Example
+# =============================================================================
+#
+# This file documents every option available in forge-config.yaml.
+# Copy it, remove what you don't need, and customize the rest.
+#
+# Minimal config (3 lines):
+#   project:
+#     description: "My project"
+#   mode: mvp
+#
+# Generate files:
+#   forge --config forge-config.yaml --project-dir ./my-project
+#
+# Validate without generating:
+#   forge --config forge-config.yaml --validate-only
+#
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Project — What you're building
+# -----------------------------------------------------------------------------
+project:
+  # Short description shown in every generated file's project context.
+  description: >-
+    E-commerce platform with storefront, admin dashboard,
+    and payment processing
+
+  # Detailed requirements — the more specific, the better the generated
+  # instructions. Include features, constraints, and acceptance criteria.
+  requirements: >-
+    Build a full-stack e-commerce platform. Features: user authentication
+    (OAuth2 + email/password), product catalog with search and filtering,
+    shopping cart with persistent state, checkout with Stripe integration,
+    order management dashboard for admins, email notifications (order
+    confirmation, shipping updates), inventory tracking. API-first design
+    with REST endpoints. Mobile-responsive storefront.
+
+  # "new" = greenfield project (default)
+  # "existing" = agents analyze existing code before planning
+  type: new
+
+  # Path to existing codebase (only used when type: existing)
+  # existing_project_path: /path/to/existing/project
+
+  # Where to generate files. Overridden by --project-dir CLI flag.
+  # directory: .
+
+# -----------------------------------------------------------------------------
+# Mode — Quality level
+# -----------------------------------------------------------------------------
+# mvp              Fast shipping, 70% quality threshold, happy-path tests
+# production-ready Robust and maintainable, 90% threshold, >90% coverage
+# no-compromise    Launch-ready perfection, 100% threshold, exhaustive tests
+mode: production-ready
+
+# -----------------------------------------------------------------------------
+# Strategy — Agent autonomy level
+# -----------------------------------------------------------------------------
+# auto-pilot    Full autonomy. Agents make ALL decisions without asking.
+#               Generates .claude/settings.json allowing all tools.
+#
+# co-pilot      Full tool access (edit, bash, write, test, deploy — all
+#               auto-approved). Agents only ask you for architecture, scope,
+#               and domain decisions not covered by requirements.
+#               Best for: "build freely, consult me on big-picture questions"
+#               Generates .claude/settings.json allowing all tools.
+#
+# micro-manage  Every significant decision presented to you for approval.
+#               No settings.json generated — Claude Code prompts for all tools.
+strategy: co-pilot
+
+# -----------------------------------------------------------------------------
+# Cost — Budget cap
+# -----------------------------------------------------------------------------
+cost:
+  # Maximum development cost in USD. Agents respect this cap when making
+  # build-vs-buy decisions and choosing between approaches.
+  max_development_cost: 50
+
+# -----------------------------------------------------------------------------
+# Agents — Team composition
+# -----------------------------------------------------------------------------
+agents:
+  # auto  = lean for mvp, full for production-ready/no-compromise (default)
+  # lean  = 8 agents: team-leader, research-strategist, architect,
+  #         backend-developer, frontend-engineer, qa-engineer,
+  #         devops-specialist, critic
+  # full  = 12 agents: lean + frontend-designer, frontend-developer,
+  #         security-tester, performance-engineer, documentation-specialist
+  # custom = explicit list via 'include' below
+  team_profile: auto
+
+  # Custom agent list (only used when team_profile: custom)
+  # include:
+  #   - team-leader
+  #   - backend-developer
+  #   - devops-specialist
+  #   - critic
+
+  # Remove agents from the resolved profile
+  exclude: []
+
+  # Add agents beyond the resolved profile
+  additional: []
+
+  # When true, agents can spawn sub-agents for parallel work.
+  # Generates spawn-agent.md skill with leadership protocol.
+  allow_sub_agent_spawning: true
+
+  # Per-agent custom instructions. Appended to the agent's instruction file.
+  custom_instructions:
+    backend-developer: "Use PostgreSQL for all storage. No SQLite."
+    # frontend-engineer: "Use Tailwind CSS exclusively. No custom CSS."
+
+# -----------------------------------------------------------------------------
+# Tech Stack — Languages, frameworks, databases, infrastructure
+# -----------------------------------------------------------------------------
+tech_stack:
+  languages:
+    - typescript
+    - python
+  frameworks:
+    - react
+    - fastapi
+    - tailwind
+  databases:
+    - postgresql
+    - redis
+  infrastructure:
+    - docker
+    # - kubernetes
+    # - terraform
+
+# -----------------------------------------------------------------------------
+# Atlassian — Jira & Confluence integration (optional)
+# -----------------------------------------------------------------------------
+# When enabled, adds a scrum-master agent, Jira/Confluence MCP servers,
+# sprint board management, and ceremony automation.
+atlassian:
+  enabled: false
+  # jira_project_key: ECOM
+  # jira_base_url: "https://your-domain.atlassian.net"
+  # confluence_space_key: ECOM
+  # confluence_base_url: "https://your-domain.atlassian.net/wiki"
+  # create_sprint_board: true
+  # create_confluence_space: true
+  # scrum_ceremonies: true
+
+# -----------------------------------------------------------------------------
+# Agent Naming — Personality for your agents (optional)
+# -----------------------------------------------------------------------------
+# Gives agents creative names instead of role-based names.
+# Styles: creative (Nova, Cipher), functional (BackendBot-1), codename (Falcon)
+agent_naming:
+  enabled: true
+  style: creative
+
+# -----------------------------------------------------------------------------
+# LLM Gateway — Vendor-agnostic LLM access in generated code (optional)
+# -----------------------------------------------------------------------------
+# When enabled, generated agent instructions mandate using llm-gateway
+# for all LLM calls, enabling cost tracking and provider switching.
+llm_gateway:
+  enabled: true
+  local_claude_model: "claude-sonnet-4-20250514"
+  enable_local_claude: true
+  cost_tracking: true
+
+# -----------------------------------------------------------------------------
+# Refinement — LLM-powered post-generation quality improvement (optional)
+# -----------------------------------------------------------------------------
+# After generating files, Forge can score each .md file against quality
+# criteria and iteratively improve them until they meet the threshold.
+# Requires: pip install -e ".[refinement]"
+# Override: forge --config ... --refine / --no-refine
+refinement:
+  enabled: false
+  # provider: local_claude     # local_claude | anthropic
+  # model: claude-opus-4-6
+  # score_threshold: 90        # 0-100, files must score >= this
+  # max_iterations: 5          # max refine loops per file
+  # max_concurrency: 0         # 0 = all files in parallel
+  # timeout_seconds: 180       # per-LLM-call timeout
+  # cost_limit_usd: 10.0       # stop if cumulative cost exceeds this
+
+# -----------------------------------------------------------------------------
+# Non-Negotiables — Absolute requirements injected into every file
+# -----------------------------------------------------------------------------
+# Each rule is injected with role-appropriate framing:
+#   Team Leader: enforcement (rejects violating work)
+#   Critic: evaluation (scores each rule PASS/FAIL)
+#   All others: compliance (verify before reporting done)
+#
+# Leave empty ([]) to skip this section in generated files.
+non_negotiables:
+  - "All APIs must require authentication"
+  - "100% test coverage on core business logic"
+  - "No raw SQL — use ORM exclusively"
+  # - "All data at rest must be encrypted"
+  # - "WCAG 2.1 AA accessibility compliance"
+  # - "Sub-200ms p95 API response time"

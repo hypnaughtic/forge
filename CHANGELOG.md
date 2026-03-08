@@ -48,3 +48,5 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Atlassian MCP servers
 - **Custom agent instructions** — Per-agent instruction overrides via
   `agents.custom_instructions`
+- **Example configuration** — Comprehensive annotated `examples/forge-config.yaml`
+  documenting every option with inline comments
