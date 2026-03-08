@@ -21,7 +21,8 @@ HELP_TEXT = f"""\n
   Forge — Project Initialization Tool for Claude Code Agent Teams v{__version__}
 
   Reads a forge-config.yaml and generates customized agent instruction
-  files, CLAUDE.md, skills, and team-init-plan.md in the target project.
+  files, CLAUDE.md, skills, strategy-enforced permissions, and
+  team-init-plan.md in the target project.
 
   Usage:
     forge --config forge-config.yaml
@@ -32,12 +33,14 @@ HELP_TEXT = f"""\n
   Generated output:
     .claude/agents/*.md        Agent instruction files (one per team member)
     .claude/skills/*.md        Reusable skill procedures
-    .claude/mcp.json           MCP server configuration
-    .claude/settings.json      Strategy permissions (auto-pilot/co-pilot only)
+    .claude/mcp.json           MCP server configuration (Playwright + Atlassian)
+    .claude/settings.json      Strategy-enforced tool permissions
+                               (auto-pilot & co-pilot: all tools allowed;
+                                micro-manage: not generated, all tools prompt)
     CLAUDE.md                  Team Leader context (project root)
     team-init-plan.md          Bootstrap plan for first Claude session
 
-  Workflow:
+  Getting started:
     1. Copy examples/forge-config.yaml and customize it
     2. Run: forge --config forge-config.yaml --project-dir ./my-project
     3. cd into your project and run: claude

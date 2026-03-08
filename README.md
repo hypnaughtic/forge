@@ -3,8 +3,9 @@
 > Config-driven project initializer for Claude Code CLI agent teams.
 
 Forge reads a `forge-config.yaml` and generates customized agent instruction files,
-CLAUDE.md, skills, and team-init-plan.md for your project workspace. Configure once,
-then let Claude Code agents build your project with precision.
+CLAUDE.md, skills, team-init-plan.md, and strategy-enforced permissions for your
+project workspace. Configure once, then let Claude Code agents build your project
+with precision.
 
 ---
 
@@ -37,7 +38,9 @@ pip install -e ".[test]"
 ## Quick Start
 
 ```bash
-# 1. Create forge-config.yaml (see Configuration below)
+# 1. Start from the example config
+cp examples/forge-config.yaml forge-config.yaml
+# Edit forge-config.yaml with your project details
 
 # 2. Generate files
 forge --config forge-config.yaml --project-dir ./my-project
@@ -48,10 +51,14 @@ claude
 # Tell Claude: "Read team-init-plan.md and initialize the team"
 ```
 
-### Validate without generating
+### Other commands
 
 ```bash
+# Validate config without generating files
 forge --config forge-config.yaml --validate-only
+
+# Generate with LLM-powered refinement
+forge --config forge-config.yaml --project-dir ./my-project --refine
 ```
 
 ---
@@ -265,11 +272,11 @@ make ci-local
 
 | File | Scope | Count | LLM? |
 |------|-------|-------|------|
-| `test_generators.py` | Generator unit tests | ~59 | No |
+| `test_generators.py` | Generator unit tests (agents, CLAUDE.md, skills, settings, etc.) | ~73 | No |
 | `test_config_schema.py` | Config schema validation | ~15 | No |
 | `test_config_loader.py` | YAML loading/round-trip | ~9 | No |
-| `test_refinement.py` | Refinement unit tests (FakeLLMProvider) | ~12 | No |
-| `test_integration.py` | Full pipeline, CLI, edge cases, refinement | ~178 | Dry-run default |
+| `test_refinement.py` | Refinement unit tests (FakeLLMProvider) | ~20 | No |
+| `test_integration.py` | Full pipeline, CLI, strategy enforcement, live Claude CLI tests | ~195 | Dry-run default |
 
 The `FORGE_TEST_DRY_RUN` environment variable controls whether integration tests
 use a `FakeLLMProvider` (instant, default) or real `local_claude` (requires
