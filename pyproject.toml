@@ -1,6 +1,6 @@
 [project]
 name = "forge-init"
-version = "3.1.0"
+version = "1.0.0"
 description = "Project initialization tool that generates agent instruction files for Claude Code CLI teams"
 readme = "README.md"
 license = {text = "MIT"}

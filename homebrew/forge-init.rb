@@ -3,7 +3,7 @@ class ForgeInit < Formula
 
   desc "Project initialization tool for Claude Code CLI agent teams"
   homepage "https://github.com/Rushabh1798/forge"
-  url "https://github.com/Rushabh1798/forge/archive/refs/tags/v3.1.0.tar.gz"
+  url "https://github.com/Rushabh1798/forge/archive/refs/tags/v1.0.0.tar.gz"
   sha256 "PLACEHOLDER_SHA256"
   license "MIT"
 
