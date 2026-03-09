@@ -10,6 +10,7 @@ from forge_cli.config_schema import (
     AtlassianConfig,
     ExecutionStrategy,
     ForgeConfig,
+    GitConfig,
     ProjectConfig,
     ProjectMode,
     TeamProfile,
@@ -17,7 +18,7 @@ from forge_cli.config_schema import (
 )
 from forge_cli.generators.agent_files import generate_agent_files
 from forge_cli.generators.claude_md import generate_claude_md
-from forge_cli.generators.mcp_config import generate_mcp_config
+from forge_cli.generators.mcp_config import generate_env_example, generate_mcp_config
 from forge_cli.generators.settings_config import generate_settings_config
 from forge_cli.generators.skills import generate_skills
 from forge_cli.generators.team_init_plan import generate_team_init_plan
@@ -264,10 +265,8 @@ class TestMcpConfigGeneration:
         config = _make_config(
             atlassian=AtlassianConfig(enabled=True, jira_base_url="https://test.atlassian.net")
         )
-        claude_dir = tmp_path / ".claude"
-        claude_dir.mkdir()
 
-        generate_mcp_config(config, claude_dir)
+        generate_env_example(config, tmp_path)
 
         env_example = tmp_path / ".env.example"
         assert env_example.exists()
@@ -998,3 +997,154 @@ class TestSettingsConfigGeneration:
         ap_data = json.loads((claude_ap / "settings.json").read_text())
         cp_data = json.loads((claude_cp / "settings.json").read_text())
         assert ap_data == cp_data
+
+
+class TestGitAuthGeneration:
+    """Tests for git SSH authentication feature across all generators."""
+
+    def _ssh_config(self, **overrides):
+        defaults = dict(git=GitConfig(ssh_key_path="~/.ssh/id_ed25519"))
+        defaults.update(overrides)
+        return _make_config(**defaults)
+
+    # --- Agent files ---
+
+    def test_git_auth_in_agent_files_when_ssh_configured(self, tmp_path):
+        config = self._ssh_config()
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+        generate_agent_files(config, agents_dir)
+
+        content = (agents_dir / "backend-developer.md").read_text()
+        assert "Git Authentication (SSH)" in content
+
+    def test_git_auth_absent_when_no_ssh(self, tmp_path):
+        config = _make_config()
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+        generate_agent_files(config, agents_dir)
+
+        content = (agents_dir / "backend-developer.md").read_text()
+        assert "Git Authentication (SSH)" not in content
+
+    def test_git_auth_contains_ssh_key_path(self, tmp_path):
+        config = self._ssh_config()
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+        generate_agent_files(config, agents_dir)
+
+        content = (agents_dir / "backend-developer.md").read_text()
+        assert "~/.ssh/id_ed25519" in content
+
+    def test_git_auth_mentions_gh_token(self, tmp_path):
+        config = self._ssh_config()
+        agents_dir = tmp_path / ".claude" / "agents"
+        agents_dir.mkdir(parents=True)
+        generate_agent_files(config, agents_dir)
+
+        content = (agents_dir / "backend-developer.md").read_text()
+        assert "GH_TOKEN" in content
+
+    # --- CLAUDE.md ---
+
+    def test_git_auth_in_claude_md_when_configured(self, tmp_path):
+        config = self._ssh_config()
+        generate_claude_md(config, tmp_path)
+
+        content = (tmp_path / "CLAUDE.md").read_text()
+        assert "## Git Authentication" in content
+        assert "~/.ssh/id_ed25519" in content
+
+    def test_git_auth_absent_in_claude_md_when_default(self, tmp_path):
+        config = _make_config()
+        generate_claude_md(config, tmp_path)
+
+        content = (tmp_path / "CLAUDE.md").read_text()
+        assert "## Git Authentication" not in content
+
+    # --- team-init-plan.md ---
+
+    def test_git_auth_phase_0_in_team_init_plan(self, tmp_path):
+        config = self._ssh_config()
+        generate_team_init_plan(config, tmp_path)
+
+        content = (tmp_path / "team-init-plan.md").read_text()
+        assert "Phase 0: Git Authentication Setup" in content
+        assert "~/.ssh/id_ed25519" in content
+        assert "core.sshCommand" in content
+
+    def test_git_auth_phase_0_absent_when_default(self, tmp_path):
+        config = _make_config()
+        generate_team_init_plan(config, tmp_path)
+
+        content = (tmp_path / "team-init-plan.md").read_text()
+        assert "Phase 0" not in content
+
+    def test_git_auth_in_quick_reference_table(self, tmp_path):
+        config = self._ssh_config()
+        generate_team_init_plan(config, tmp_path)
+
+        content = (tmp_path / "team-init-plan.md").read_text()
+        assert "SSH (~/.ssh/id_ed25519)" in content
+
+    # --- Skills ---
+
+    def test_pr_skill_mentions_gh_token_when_ssh(self, tmp_path):
+        config = self._ssh_config()
+        skills_dir = tmp_path / ".claude" / "skills"
+        skills_dir.mkdir(parents=True)
+        generate_skills(config, skills_dir)
+
+        content = (skills_dir / "create-pr.md").read_text()
+        assert "GH_TOKEN" in content
+
+    def test_release_skill_mentions_gh_token_when_ssh(self, tmp_path):
+        config = self._ssh_config()
+        skills_dir = tmp_path / ".claude" / "skills"
+        skills_dir.mkdir(parents=True)
+        generate_skills(config, skills_dir)
+
+        content = (skills_dir / "release.md").read_text()
+        assert "GH_TOKEN" in content
+
+    # --- .env.example ---
+
+    def test_env_example_with_gh_token(self, tmp_path):
+        config = self._ssh_config()
+        generate_env_example(config, tmp_path)
+
+        content = (tmp_path / ".env.example").read_text()
+        assert "GH_TOKEN" in content
+
+    def test_env_example_with_atlassian_only(self, tmp_path):
+        config = _make_config(atlassian=AtlassianConfig(enabled=True))
+        generate_env_example(config, tmp_path)
+
+        content = (tmp_path / ".env.example").read_text()
+        assert "ATLASSIAN_URL" in content
+        assert "GH_TOKEN" not in content
+
+    def test_env_example_with_both(self, tmp_path):
+        config = _make_config(
+            atlassian=AtlassianConfig(enabled=True),
+            git=GitConfig(ssh_key_path="~/.ssh/id_ed25519"),
+        )
+        generate_env_example(config, tmp_path)
+
+        content = (tmp_path / ".env.example").read_text()
+        assert "GH_TOKEN" in content
+        assert "ATLASSIAN_URL" in content
+
+    def test_env_example_not_generated_when_nothing_needed(self, tmp_path):
+        config = _make_config()
+        generate_env_example(config, tmp_path)
+
+        assert not (tmp_path / ".env.example").exists()
+
+    def test_env_example_idempotent(self, tmp_path):
+        config = self._ssh_config()
+        generate_env_example(config, tmp_path)
+        generate_env_example(config, tmp_path)
+
+        content = (tmp_path / ".env.example").read_text()
+        assert content.count("GH_TOKEN") == 1

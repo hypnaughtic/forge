@@ -57,21 +57,43 @@ def generate_mcp_config(config: ForgeConfig, claude_dir: Path) -> None:
         json.dump(mcp_data, f, indent=2)
         f.write("\n")
 
-    # Generate .env.example with required environment variables (Atlassian only)
-    if config.atlassian.enabled:
-        env_example_path = claude_dir.parent / ".env.example"
-        env_lines = []
-        if env_example_path.exists():
-            env_lines = env_example_path.read_text().splitlines()
 
-        atlassian_vars = [
+
+def generate_env_example(config: ForgeConfig, project_dir: Path) -> None:
+    """Generate .env.example with required environment variables.
+
+    Aggregates env vars from all features that need them:
+    - GH_TOKEN when SSH git auth is configured
+    - Atlassian vars when Atlassian integration is enabled
+
+    Idempotent: checks for existing vars before appending.
+    """
+    needs_gh_token = config.has_ssh_auth()
+    needs_atlassian = config.atlassian.enabled
+
+    if not needs_gh_token and not needs_atlassian:
+        return
+
+    env_example_path = project_dir / ".env.example"
+    env_lines: list[str] = []
+    if env_example_path.exists():
+        env_lines = env_example_path.read_text().splitlines()
+
+    if needs_gh_token and not any("GH_TOKEN" in line for line in env_lines):
+        env_lines.extend([
+            "",
+            "# GitHub CLI Authentication (required for PR creation, releases, workflow monitoring)",
+            "# Generate at: https://github.com/settings/tokens",
+            "GH_TOKEN=ghp_your-personal-access-token-here",
+        ])
+
+    if needs_atlassian and not any("ATLASSIAN_URL" in line for line in env_lines):
+        env_lines.extend([
             "",
             "# Atlassian MCP Configuration (required for Jira/Confluence integration)",
             f"ATLASSIAN_URL={config.atlassian.jira_base_url or 'https://yourteam.atlassian.net'}",
             "ATLASSIAN_USERNAME=your-email@company.com",
             "ATLASSIAN_API_TOKEN=your-api-token-here",
-        ]
+        ])
 
-        if not any("ATLASSIAN_URL" in line for line in env_lines):
-            env_lines.extend(atlassian_vars)
-            env_example_path.write_text("\n".join(env_lines) + "\n")
+    env_example_path.write_text("\n".join(env_lines) + "\n")

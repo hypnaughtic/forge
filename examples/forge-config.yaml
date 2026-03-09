@@ -169,6 +169,13 @@ llm_gateway:
   cost_tracking: true
 
 # -----------------------------------------------------------------------------
+# Git Authentication — SSH-based auth to avoid macOS Keychain prompts
+# -----------------------------------------------------------------------------
+# When configured, agents use SSH for all git operations and GH_TOKEN for GitHub CLI.
+git:
+  ssh_key_path: "~/.ssh/id_ed25519"   # path to private SSH key (empty = disabled)
+
+# -----------------------------------------------------------------------------
 # Refinement — LLM-powered post-generation quality improvement (optional)
 # -----------------------------------------------------------------------------
 # After generating files, Forge can score each .md file against quality

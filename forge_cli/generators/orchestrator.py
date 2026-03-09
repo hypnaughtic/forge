@@ -10,7 +10,7 @@ from rich.console import Console
 from forge_cli.config_schema import ExecutionStrategy, ForgeConfig
 from forge_cli.generators.agent_files import generate_agent_files
 from forge_cli.generators.claude_md import generate_claude_md
-from forge_cli.generators.mcp_config import generate_mcp_config
+from forge_cli.generators.mcp_config import generate_env_example, generate_mcp_config
 from forge_cli.generators.settings_config import generate_settings_config
 from forge_cli.generators.skills import generate_skills
 from forge_cli.generators.team_init_plan import generate_team_init_plan
@@ -52,6 +52,11 @@ def generate_all(
     # 3. MCP configuration → .claude/mcp.json (Playwright always, Atlassian if enabled)
     generate_mcp_config(config, project_dir / ".claude")
     console.print("[green]  ✓[/green] MCP configuration")
+
+    # 3.1. .env.example → project root (GH_TOKEN, Atlassian vars)
+    generate_env_example(config, project_dir)
+    if (project_dir / ".env.example").exists():
+        console.print("[green]  ✓[/green] .env.example")
 
     # 3.5. Claude Code settings → .claude/settings.json (strategy-based permissions)
     generate_settings_config(config, project_dir / ".claude")

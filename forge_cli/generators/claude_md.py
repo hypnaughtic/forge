@@ -107,6 +107,18 @@ def generate_claude_md(config: ForgeConfig, project_dir: Path) -> None:
         - **Testing**: use `FakeLLMProvider` for deterministic unit tests
         """)
 
+    git_auth_section = ""
+    if config.has_ssh_auth():
+        git_auth_section = dedent(f"""\
+
+        ## Git Authentication
+
+        SSH key: `{config.git.ssh_key_path}` (configured in `.git/config` via `core.sshCommand`)
+        - Git push/fetch/clone use SSH — no Keychain prompts
+        - GitHub CLI (`gh`) uses `GH_TOKEN` env var
+        - If remotes show HTTPS URLs, convert: `git remote set-url origin git@github.com:OWNER/REPO.git`
+        """)
+
     non_negotiables_section = ""
     if config.non_negotiables:
         rules = "\n    ".join(f"- {rule}" for rule in config.non_negotiables)
@@ -166,7 +178,7 @@ def generate_claude_md(config: ForgeConfig, project_dir: Path) -> None:
 
     Example: To spawn the backend developer, use the Agent tool and include the
     contents of `.claude/agents/backend-developer.md` in the system prompt.
-    {atlassian_section}{spawning_section}{workflow_section}{naming_section}{llm_gateway_section}
+    {atlassian_section}{spawning_section}{workflow_section}{naming_section}{llm_gateway_section}{git_auth_section}
     ## Visual Verification
 
     Playwright MCP is configured in `.claude/mcp.json` for browser automation and screenshots.

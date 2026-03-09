@@ -8,6 +8,7 @@ from forge_cli.config_loader import load_config, save_config
 from forge_cli.config_schema import (
     AtlassianConfig,
     ForgeConfig,
+    GitConfig,
     ProjectConfig,
     ProjectMode,
     RefinementConfig,
@@ -141,3 +142,28 @@ class TestConfigLoader:
         assert reloaded.refinement.score_threshold == 92
         assert reloaded.refinement.max_iterations == 4
         assert reloaded.refinement.cost_limit_usd == 7.5
+
+    def test_load_config_with_git_ssh(self, tmp_path):
+        config_data = {
+            "mode": "mvp",
+            "git": {"ssh_key_path": "~/.ssh/id_ed25519"},
+        }
+        config_file = tmp_path / "forge-config.yaml"
+        with open(config_file, "w") as f:
+            yaml.dump(config_data, f)
+
+        config = load_config(config_file)
+        assert config.git.ssh_key_path == "~/.ssh/id_ed25519"
+        assert config.has_ssh_auth() is True
+
+    def test_round_trip_git_config(self, tmp_path):
+        config = ForgeConfig(
+            project=ProjectConfig(description="Roundtrip Git"),
+            git=GitConfig(ssh_key_path="~/.ssh/id_rsa"),
+        )
+
+        config_file = tmp_path / "forge-config.yaml"
+        save_config(config, config_file)
+
+        reloaded = load_config(config_file)
+        assert reloaded.git.ssh_key_path == "~/.ssh/id_rsa"

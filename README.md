@@ -165,6 +165,9 @@ llm_gateway:
   enable_local_claude: true
   cost_tracking: true
 
+git:
+  ssh_key_path: "~/.ssh/id_ed25519"  # SSH auth for git (empty = disabled)
+
 non_negotiables:
   - "All APIs must require authentication"
   - "100% test coverage on core business logic"

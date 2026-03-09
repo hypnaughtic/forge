@@ -213,7 +213,27 @@ def _base_protocol_section(config: ForgeConfig) -> str:
     - **NOTE**: optional suggestion
     Max 2 review rounds — unresolved after 2 rounds, Team Leader decides.
 
-    """) + _strategy_behavior_section(config)
+    """) + _git_auth_section(config) + _strategy_behavior_section(config)
+
+
+def _git_auth_section(config: ForgeConfig) -> str:
+    """Generate git authentication section when SSH is configured."""
+    if not config.has_ssh_auth():
+        return ""
+
+    return dedent(f"""\
+
+    ### Git Authentication (SSH)
+
+    This project uses SSH-based git authentication to avoid credential prompts.
+    The SSH key at `{config.git.ssh_key_path}` is configured via `core.sshCommand`
+    in `.git/config`. Setup is done in Phase 0 of team-init-plan.md.
+
+    - **Do NOT switch remotes to HTTPS URLs** — they trigger macOS Keychain prompts
+    - **GitHub CLI** (`gh`): authenticated via `GH_TOKEN` env var
+      If `gh auth status` fails, run: `export GH_TOKEN=<token from .env>`
+
+    """)
 
 
 def _strategy_behavior_section(config: ForgeConfig) -> str:

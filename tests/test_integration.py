@@ -23,6 +23,7 @@ from forge_cli.config_schema import (
     CostConfig,
     ExecutionStrategy,
     ForgeConfig,
+    GitConfig,
     LLMGatewayConfig,
     ProjectConfig,
     ProjectMode,
@@ -2452,3 +2453,62 @@ class TestRefinementQualityCases:
         # Basic assertions
         assert len(report.files) > 0
         assert report.total_cost_usd >= 0
+
+
+# =============================================================================
+# Git Auth Cross-File Consistency Tests
+# =============================================================================
+
+
+class TestGitAuthCrossFileConsistency:
+    """Verify git SSH auth is consistently present or absent across all generated files."""
+
+    def test_ssh_configured_all_files_have_git_auth(self, tmp_path):
+        """When SSH configured: all files mention git auth."""
+        config = _make_config()
+        config.git = GitConfig(ssh_key_path="~/.ssh/id_ed25519")
+        config.project.directory = str(tmp_path)
+
+        generate_all(config)
+
+        # Agent files mention Git Authentication
+        agents_dir = tmp_path / ".claude" / "agents"
+        for agent_file in agents_dir.glob("*.md"):
+            content = agent_file.read_text()
+            assert "Git Authentication (SSH)" in content, f"{agent_file.name} missing git auth"
+
+        # team-init-plan has Phase 0
+        tip = (tmp_path / "team-init-plan.md").read_text()
+        assert "Phase 0: Git Authentication Setup" in tip
+
+        # CLAUDE.md has git auth section
+        claude_md = (tmp_path / "CLAUDE.md").read_text()
+        assert "## Git Authentication" in claude_md
+
+        # .env.example has GH_TOKEN
+        env_example = (tmp_path / ".env.example").read_text()
+        assert "GH_TOKEN" in env_example
+
+    def test_no_ssh_no_git_auth_anywhere(self, tmp_path):
+        """When not configured: none of the git auth content appears."""
+        config = _make_config()
+        config.project.directory = str(tmp_path)
+
+        generate_all(config)
+
+        # Agent files should not mention Git Authentication (SSH)
+        agents_dir = tmp_path / ".claude" / "agents"
+        for agent_file in agents_dir.glob("*.md"):
+            content = agent_file.read_text()
+            assert "Git Authentication (SSH)" not in content, f"{agent_file.name} has unexpected git auth"
+
+        # team-init-plan should not have Phase 0
+        tip = (tmp_path / "team-init-plan.md").read_text()
+        assert "Phase 0" not in tip
+
+        # CLAUDE.md should not have git auth section
+        claude_md = (tmp_path / "CLAUDE.md").read_text()
+        assert "## Git Authentication" not in claude_md
+
+        # .env.example should not exist (no atlassian either in this config)
+        assert not (tmp_path / ".env.example").exists()

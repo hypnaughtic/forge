@@ -85,6 +85,40 @@ def generate_team_init_plan(config: ForgeConfig, project_dir: Path) -> None:
         - Sub-agents should derive names from their parent (e.g., parent 'Nova' → sub-agent 'Nova-Spark')
         """)
 
+    git_auth_init = ""
+    if config.has_ssh_auth():
+        git_auth_init = dedent(f"""\
+
+        ### Phase 0: Git Authentication Setup
+
+        **Before spawning any agents**, configure git to use SSH authentication.
+        This prevents macOS Keychain prompts that would block agent execution.
+
+        1. Verify SSH key exists:
+           ```bash
+           test -f {config.git.ssh_key_path} && echo "SSH key found" || echo "ERROR: SSH key missing"
+           ```
+        2. Configure git to use the SSH key (persists in `.git/config`):
+           ```bash
+           git config core.sshCommand "ssh -i {config.git.ssh_key_path} -o IdentitiesOnly=yes"
+           ```
+        3. Convert remote URL to SSH (if currently HTTPS):
+           ```bash
+           git remote -v
+           # If HTTPS → git remote set-url origin git@github.com:OWNER/REPO.git
+           ```
+        4. Verify SSH access:
+           ```bash
+           ssh -T git@github.com -i {config.git.ssh_key_path} -o IdentitiesOnly=yes
+           ```
+        5. Verify GitHub CLI auth:
+           ```bash
+           gh auth status
+           ```
+
+        **This must succeed before proceeding to Phase 1.**
+        """)
+
     spawning_init = ""
     if config.agents.allow_sub_agent_spawning:
         spawning_init = dedent("""\
@@ -174,7 +208,7 @@ def generate_team_init_plan(config: ForgeConfig, project_dir: Path) -> None:
     {config.project.requirements or config.project.description}
     {_non_negotiables_init_section(config)}
     ## Initialization Sequence
-
+    {git_auth_init}
     ### Phase 1: Read and Internalize
 
     1. Read this file completely (you're doing that now)
@@ -263,6 +297,7 @@ def generate_team_init_plan(config: ForgeConfig, project_dir: Path) -> None:
     | Atlassian | {'Enabled' if config.atlassian.enabled else 'Disabled'} |
     | Agent Naming | {config.agent_naming.style if config.agent_naming.enabled else 'Disabled'} |
     | LLM Gateway | {'Enabled (local_claude: ' + ('on' if config.llm_gateway.enable_local_claude else 'off') + ')' if config.llm_gateway.enabled else 'Disabled'} |
+    | Git Auth | {'SSH (' + config.git.ssh_key_path + ')' if config.has_ssh_auth() else 'Default (system)'} |
     | Non-Negotiables | {f'{len(config.non_negotiables)} rules' if config.non_negotiables else 'None'} |
 
     ---

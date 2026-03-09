@@ -80,6 +80,12 @@ class LLMGatewayConfig(BaseModel):
     cost_tracking: bool = True
 
 
+class GitConfig(BaseModel):
+    """Git authentication configuration for generated projects."""
+
+    ssh_key_path: str = ""  # e.g. ~/.ssh/id_ed25519
+
+
 class RefinementConfig(BaseModel):
     """Configuration for LLM-powered post-generation refinement."""
 
@@ -106,8 +112,13 @@ class ForgeConfig(BaseModel):
     atlassian: AtlassianConfig = Field(default_factory=AtlassianConfig)
     agent_naming: AgentNamingConfig = Field(default_factory=AgentNamingConfig)
     llm_gateway: LLMGatewayConfig = Field(default_factory=LLMGatewayConfig)
+    git: GitConfig = Field(default_factory=GitConfig)
     refinement: RefinementConfig = Field(default_factory=RefinementConfig)
     non_negotiables: list[str] = Field(default_factory=list)
+
+    def has_ssh_auth(self) -> bool:
+        """Check if SSH-based git authentication is configured."""
+        return bool(self.git.ssh_key_path)
 
     def resolve_team_profile(self) -> str:
         """Resolve 'auto' team profile based on mode."""

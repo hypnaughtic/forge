@@ -522,6 +522,17 @@ def _pr_workflow_skill(config: ForgeConfig) -> str:
     domain_test_text = "\n".join(f"   {l}" for l in domain_test_lines)
     domain_section = f"\n    3. **Test domain-specific flows** relevant to your changes:\n{domain_test_text}" if domain_test_lines else ""
 
+    gh_auth_note = ""
+    if config.has_ssh_auth():
+        gh_auth_note = dedent("""\
+
+        ## Authentication Note
+
+        Git push uses SSH (`core.sshCommand` in `.git/config`). Ensure `GH_TOKEN` is
+        exported before running `gh pr create`.
+
+        """)
+
     return dedent(f"""\
     ---
     name: create-pr
@@ -535,7 +546,7 @@ def _pr_workflow_skill(config: ForgeConfig) -> str:
     > Stack: {stack}
 
     Create a PR following the team's workflow conventions.
-
+    {gh_auth_note}
     ## Pre-PR Checklist
 
     Run before creating the PR:
@@ -593,6 +604,16 @@ def _release_management_skill(config: ForgeConfig) -> str:
     domain_checks_text = "\n".join(f"    {c}" for c in domain_checks) if domain_checks else ""
     domain_section = f"\n{domain_checks_text}" if domain_checks_text else ""
 
+    release_auth_note = ""
+    if config.has_ssh_auth():
+        release_auth_note = dedent("""\
+
+        ## Authentication
+
+        Ensure `GH_TOKEN` is set before `gh release create`. Git push uses SSH.
+
+        """)
+
     return dedent(f"""\
     ---
     name: release
@@ -606,6 +627,7 @@ def _release_management_skill(config: ForgeConfig) -> str:
     > Stack: {stack}
 
     Create a GitHub release after a major milestone.
+    {release_auth_note}
 
     ## Pre-Release Verification
 

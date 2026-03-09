@@ -4,6 +4,15 @@ All notable changes to the Forge project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Features
+
+- **Git credentials management** — Optional `git.ssh_key_path` config enables
+  SSH-based git authentication, avoiding macOS Keychain prompts. Generated files
+  include Phase 0 setup (core.sshCommand), agent auth guidance, and GH_TOKEN
+  in .env.example for GitHub CLI operations.
+
 ## [1.0.0] — 2026-03-08
 
 ### Features

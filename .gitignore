@@ -28,6 +28,9 @@ build/
 .vscode/
 *.code-workspace
 
+# Claude Code local config
+.claude/
+
 # Quality test generated outputs (configs are tracked, outputs are not)
 tests/quality_cases/*/project/
 tests/quality_cases/*/outputs/

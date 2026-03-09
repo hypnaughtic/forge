@@ -5,6 +5,7 @@ from forge_cli.config_schema import (
     AtlassianConfig,
     ExecutionStrategy,
     ForgeConfig,
+    GitConfig,
     ProjectConfig,
     ProjectMode,
     RefinementConfig,
@@ -146,3 +147,19 @@ class TestForgeConfig:
         assert config.refinement.max_iterations == 3
         assert config.refinement.timeout_seconds == 120
         assert config.refinement.cost_limit_usd == 5.0
+
+    def test_default_git_config(self):
+        config = ForgeConfig()
+        assert config.git.ssh_key_path == ""
+
+    def test_git_config_with_ssh_key(self):
+        config = ForgeConfig(git=GitConfig(ssh_key_path="~/.ssh/id_ed25519"))
+        assert config.git.ssh_key_path == "~/.ssh/id_ed25519"
+
+    def test_has_ssh_auth_false_by_default(self):
+        config = ForgeConfig()
+        assert config.has_ssh_auth() is False
+
+    def test_has_ssh_auth_true_with_key(self):
+        config = ForgeConfig(git=GitConfig(ssh_key_path="~/.ssh/id_ed25519"))
+        assert config.has_ssh_auth() is True
