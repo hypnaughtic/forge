@@ -825,6 +825,35 @@ def _team_leader_template(config: ForgeConfig) -> str:
     }
     threshold = mode_thresholds.get(config.mode.value, "70%")
 
+    # Build domain-specific smoke test items from project requirements
+    req = config.project.requirements.lower()
+    desc = config.project.description.lower()
+    combined = f"{req} {desc}"
+    smoke_checks: list[str] = []
+    if "auth" in combined:
+        smoke_checks.append("- Auth: register a user, login, access a protected resource, logout")
+    if "kanban" in combined or "board" in combined or "task" in combined:
+        smoke_checks.append("- Board: create a board, add a task, drag task between columns")
+    if "cart" in combined or "shopping" in combined:
+        smoke_checks.append("- Cart: add item to cart, update quantity, remove item")
+    if "checkout" in combined or "payment" in combined:
+        smoke_checks.append("- Checkout: complete a purchase flow end-to-end")
+    if "product" in combined or "catalog" in combined:
+        smoke_checks.append("- Catalog: browse products, search, filter by category")
+    if "chat" in combined or "message" in combined:
+        smoke_checks.append("- Chat: send a message, verify real-time delivery")
+    if "real-time" in combined or "websocket" in combined:
+        smoke_checks.append("- Real-time: verify WebSocket connects and delivers live updates")
+    if "notification" in combined or "email" in combined:
+        smoke_checks.append("- Notifications: trigger a notification, verify delivery")
+    if "upload" in combined or "file" in combined or "attachment" in combined:
+        smoke_checks.append("- Files: upload a file, verify retrieval and preview")
+    if "dashboard" in combined or "admin" in combined:
+        smoke_checks.append("- Dashboard: verify data loads, charts render, filters work")
+    if "search" in combined:
+        smoke_checks.append("- Search: run a query, verify relevant results returned")
+    domain_smoke_text = "\n    ".join(smoke_checks) if smoke_checks else "- Exercise core features from requirements end-to-end"
+
     return dedent(f"""\
     # Team Leader / Orchestrator
 
@@ -915,11 +944,13 @@ def _team_leader_template(config: ForgeConfig) -> str:
     1. Start the application — verify it starts without errors
     2. Test backend endpoints — real HTTP requests, correct status codes, correct response bodies
     3. Test frontend UI — page loads, assets served, at least one end-to-end flow works
-    4. **Capture screenshots** of all key pages using Playwright — save to `docs/screenshots/smoke-test/`
-    5. **View screenshots** with the Read tool — verify the UI looks correct, not just that it loads
-    6. Test integrations — database connects, services communicate
-    7. Document results in iteration summary — **include screenshots as visual evidence**
-    8. Any failure is a BLOCKER — fix before proceeding
+    4. **Test domain-specific flows**:
+    {domain_smoke_text}
+    5. **Capture screenshots** of all key pages using Playwright — save to `docs/screenshots/smoke-test/`
+    6. **View screenshots** with the Read tool — verify the UI looks correct, not just that it loads
+    7. Test integrations — database connects, services communicate
+    8. Document results in iteration summary — **include screenshots as visual evidence**
+    9. Any failure is a BLOCKER — fix before proceeding
 
     Visual evidence of a working application is part of the iteration deliverable.
     Include screenshots in the iteration summary for human review.
@@ -1028,6 +1059,97 @@ def _scrum_master_template(config: ForgeConfig) -> str:
 
 
 def _research_strategist_template(config: ForgeConfig) -> str:
+    # Build domain-specific research areas from requirements
+    req = config.project.requirements.lower()
+    desc = config.project.description.lower()
+    combined = f"{req} {desc}"
+    dbs = [d.lower() for d in config.tech_stack.databases]
+
+    domain_research: list[str] = []
+    is_static = (
+        not config.has_web_backend()
+        and not config.is_cli_project()
+        and config.has_frontend_involvement()
+        and not dbs
+    )
+    if is_static:
+        ssg = next((f for f in config.tech_stack.frameworks if f.lower() in ("astro", "gatsby", "hugo", "eleventy")), None)
+        if ssg:
+            domain_research.append(f"- {ssg} patterns: island architecture, content collections, build optimization, integration patterns")
+        domain_research.append("- Static site optimization: image formats (WebP/AVIF), lazy loading, responsive images, Core Web Vitals")
+        if "blog" in combined or "mdx" in combined or "markdown" in combined:
+            domain_research.append("- Content management: MDX processing, frontmatter schemas, RSS feed generation, syntax highlighting")
+        if "portfolio" in combined or "showcase" in combined:
+            domain_research.append("- Portfolio best practices: project showcase patterns, image gallery optimization, SEO for developer portfolios")
+        domain_research.append("- Deployment: Vercel/Netlify comparison, preview deployments, edge functions for dynamic features")
+    if "real-time" in combined or "websocket" in combined or "chat" in combined:
+        domain_research.append("- Real-time communication patterns: WebSocket vs SSE vs long-polling, conflict resolution (OT/CRDT), presence detection")
+    if "auth" in combined or "oauth" in combined:
+        domain_research.append("- Authentication architecture: OAuth2 providers, JWT vs session-based, token refresh strategies, SSO integration patterns")
+    if "cart" in combined or "e-commerce" in combined or "ecommerce" in combined or "checkout" in combined:
+        domain_research.append("- E-commerce patterns: cart persistence strategies, inventory locking, payment gateway integration (Stripe/PayPal), order state machines")
+    if "search" in combined:
+        domain_research.append("- Search implementation: full-text search engines (Elasticsearch/Meilisearch), search ranking, faceted filtering, autocomplete")
+    if "notification" in combined or "email" in combined:
+        domain_research.append("- Notification delivery: email service providers (SendGrid/SES), push notifications, in-app notification patterns, delivery guarantees")
+    if "upload" in combined or "file" in combined or "attachment" in combined or "image" in combined and not is_static:
+        domain_research.append("- File handling: storage backends (S3/MinIO), CDN strategies, upload validation, image processing pipelines")
+    if "dashboard" in combined or "analytics" in combined or "admin" in combined:
+        domain_research.append("- Dashboard architecture: data aggregation patterns, real-time metrics, charting libraries, admin panel frameworks")
+    if "kanban" in combined or "task" in combined or "project management" in combined:
+        domain_research.append("- Task management patterns: drag-and-drop libraries, board state management, collaborative editing, activity feeds")
+
+    domain_research_text = "\n    ".join(domain_research) if domain_research else "- Research domain-specific libraries and patterns relevant to the project requirements"
+
+    # Build tech-stack-specific research
+    tech_research: list[str] = []
+    langs = [l.lower() for l in config.tech_stack.languages]
+    frameworks = [f.lower() for f in config.tech_stack.frameworks]
+
+    if "astro" in frameworks:
+        tech_research.append("- Astro ecosystem: island architecture, content collections, integrations, view transitions, image optimization")
+    if "fastapi" in frameworks:
+        tech_research.append("- FastAPI ecosystem: async patterns, dependency injection, Pydantic v2, background tasks, WebSocket support")
+    if "react" in frameworks:
+        if is_static:
+            tech_research.append("- React islands: hydration strategies, when to use interactive islands vs static HTML, state management in island context")
+        else:
+            tech_research.append("- React ecosystem: state management (Zustand/Redux/Context), routing (React Router/Next.js), component libraries, testing (RTL/Vitest)")
+    if "next" in frameworks or "nextjs" in frameworks or "next.js" in frameworks:
+        tech_research.append("- Next.js patterns: App Router vs Pages, server components, API routes, ISR/SSR strategies")
+    if "django" in frameworks:
+        tech_research.append("- Django ecosystem: DRF vs Ninja, async views, Channels for WebSocket, ORM optimization")
+    if "tailwind" in frameworks:
+        tech_research.append("- Tailwind CSS: custom theme configuration, dark mode implementation, responsive design patterns, component extraction")
+    if "postgresql" in dbs:
+        tech_research.append("- PostgreSQL patterns: connection pooling, migration tools (Alembic/Prisma), JSON columns, full-text search, row-level security")
+    if "redis" in dbs:
+        tech_research.append("- Redis patterns: pub/sub for real-time events, caching strategies, session storage, rate limiting, Streams for event sourcing")
+    if "mongodb" in dbs:
+        tech_research.append("- MongoDB patterns: schema design, indexing strategies, aggregation pipelines, change streams")
+
+    tech_research_text = "\n    ".join(tech_research) if tech_research else "- Research best practices for the project's tech stack"
+
+    # Build domain-specific risk areas
+    risk_areas: list[str] = []
+    if is_static:
+        risk_areas.append("- Build performance: slow builds as content grows, image optimization bottlenecks")
+        risk_areas.append("- Browser compatibility: CSS/JS features across target browsers, progressive enhancement")
+        if "contact" in combined or "form" in combined:
+            risk_areas.append("- Serverless function cold starts: form submission latency, function timeout handling")
+    if "real-time" in combined or "websocket" in combined:
+        risk_areas.append("- Real-time sync conflicts when multiple users edit simultaneously")
+    if "auth" in combined:
+        risk_areas.append("- Authentication security: token leakage, session fixation, OAuth callback vulnerabilities")
+    if "payment" in combined or "checkout" in combined:
+        risk_areas.append("- Payment processing: idempotency for duplicate charges, PCI compliance, webhook reliability")
+    if dbs:
+        risk_areas.append("- Database scaling: connection limits, query performance under load, migration rollback safety")
+    if not is_static:
+        risk_areas.append("- Third-party API reliability: rate limits, downtime handling, fallback strategies")
+
+    risk_text = "\n    ".join(risk_areas) if risk_areas else "- Assess technical risks specific to the project domain"
+
     return dedent(f"""\
     # Research Strategist
 
@@ -1045,51 +1167,123 @@ def _research_strategist_template(config: ForgeConfig) -> str:
     - Create an iteration plan: break the project into 3-7 iterations with clear milestones and deliverables per iteration
     - Produce a risk assessment: technical risks, dependency risks, complexity risks, each with mitigation strategies
 
+    ### Domain-Specific Research
+    {domain_research_text}
+
+    ### Tech Stack Research
+    {tech_research_text}
+
     ### Ongoing Research
     - When the team encounters technical unknowns, research solutions and present options with trade-offs
     - Monitor for scope changes and adjust the iteration plan accordingly
     - Provide domain expertise to the Architect and developers when needed
     - Research third-party services, libraries, and tools before the team commits to them
 
+    ### Risk Assessment Focus Areas
+    {risk_text}
+
     ### Deliverables
-    - Technical strategy document
-    - Iteration plan with milestones
-    - Risk assessment with mitigations
+    - Technical strategy document with domain-specific architecture recommendations
+    - Iteration plan with concrete milestones (not generic phases)
+    - Risk assessment with domain-specific mitigations
     - Research reports on specific technical questions (on demand)""")
 
 
 def _architect_template(config: ForgeConfig) -> str:
-    return dedent(f"""\
-    # Architect
+    # Build domain-specific architecture guidance
+    req = config.project.requirements.lower()
+    desc = config.project.description.lower()
+    combined = f"{req} {desc}"
+    dbs = [d.lower() for d in config.tech_stack.databases]
+    frameworks = [f.lower() for f in config.tech_stack.frameworks]
 
-    ## Identity & Role
+    is_static = (
+        not config.has_web_backend()
+        and not config.is_cli_project()
+        and config.has_frontend_involvement()
+        and not dbs
+    )
 
-    - **Role**: Architect
-    - **Domain**: System design, API contracts, architecture decisions, cross-cutting concerns
-    - **Mission**: Define and maintain the technical architecture. Produce API contracts, system topology, and design patterns that all agents follow. Be the technical authority.
+    domain_arch: list[str] = []
+    if is_static:
+        ssg = next((f for f in config.tech_stack.frameworks if f.lower() in ("astro", "gatsby", "hugo", "eleventy")), None)
+        if ssg:
+            domain_arch.append(f"- **{ssg} architecture**: Island pattern decisions (when interactive vs static), content collection schemas, build-time data flow")
+        domain_arch.append("- **Component architecture**: Shared component library, page layouts, slot/composition patterns, style isolation")
+        if "blog" in combined or "mdx" in combined:
+            domain_arch.append("- **Content architecture**: MDX processing pipeline, frontmatter schema validation, content collections, RSS/sitemap generation")
+        if "portfolio" in combined or "showcase" in combined:
+            domain_arch.append("- **Portfolio architecture**: Project data schema, image gallery component, responsive showcase layout")
+        if "contact" in combined or "form" in combined:
+            domain_arch.append("- **Serverless functions**: Contact form handler, input validation, email delivery or storage, rate limiting")
+    if "real-time" in combined or "websocket" in combined or "chat" in combined:
+        domain_arch.append("- **Real-time architecture**: WebSocket message routing, connection lifecycle, event broadcasting patterns, presence detection")
+    if "kanban" in combined or "board" in combined or "drag" in combined:
+        domain_arch.append("- **Board/state management**: Optimistic UI updates for drag-and-drop, conflict resolution for concurrent edits, state synchronization")
+    if "auth" in combined or "oauth" in combined:
+        domain_arch.append("- **Authentication architecture**: OAuth2 flow design, JWT token lifecycle, session management across WebSocket connections")
+    if "cart" in combined or "e-commerce" in combined or "ecommerce" in combined:
+        domain_arch.append("- **E-commerce patterns**: Cart persistence, inventory locking strategy, order state machine, payment idempotency")
+    if "transaction" in combined or "ledger" in combined or "financial" in combined:
+        domain_arch.append("- **Financial architecture**: Double-entry bookkeeping schema, immutable audit trails, transaction atomicity guarantees")
+    if "notification" in combined or "webhook" in combined:
+        domain_arch.append("- **Event/notification system**: Event bus design, webhook delivery with retry, notification preferences and routing")
+    if "upload" in combined or "file" in combined or "attachment" in combined and not is_static:
+        domain_arch.append("- **File handling**: Storage backend abstraction (S3/local), upload validation, CDN serving, metadata management")
+    if "search" in combined:
+        domain_arch.append("- **Search architecture**: Full-text search integration, indexing strategy, faceted filtering, relevance tuning")
 
-    ## Core Responsibilities
+    domain_arch_text = "\n    ".join(domain_arch) if domain_arch else "- Design domain-specific patterns based on project requirements"
 
+    # DB-specific guidance
+    db_guidance: list[str] = []
+    if "postgresql" in dbs:
+        db_guidance.append("- **PostgreSQL**: Connection pooling, migration strategy (Alembic/Prisma), JSON columns for flexible data, row-level security")
+    if "redis" in dbs:
+        db_guidance.append("- **Redis**: Caching strategy, pub/sub for real-time events, session storage, rate limiting patterns")
+    if "mongodb" in dbs:
+        db_guidance.append("- **MongoDB**: Document schema design, indexing strategy, aggregation pipelines, change streams for real-time")
+    db_text = "\n    ".join(db_guidance) if db_guidance else ""
+    db_section = f"\n\n    ### Database Architecture\n    {db_text}" if db_text else ""
+
+    # Core responsibilities vary for static sites
+    if is_static:
+        core_resp = dedent("""\
+    ### Architecture Design
+    - Design the component architecture and page layout system
+    - Produce: site structure diagram, component hierarchy, content data flow
+    - Define component interfaces and prop contracts
+    - Establish coding patterns, project structure conventions, and naming standards
+    - Design content schemas (frontmatter, collections, data files)""")
+        cross_cutting = dedent("""\
+    ### Cross-Cutting Concerns
+    - Styling architecture: theme system, dark mode, responsive breakpoints
+    - SEO strategy: meta tags, structured data, sitemap, robots.txt
+    - Performance: image optimization pipeline, lazy loading, bundle splitting
+    - Accessibility: ARIA patterns, keyboard navigation, screen reader support
+    - Configuration management (env vars, build-time vs runtime config)""")
+        vendor_section = dedent("""\
+    ### Design Principles
+    - Component isolation: each component is self-contained with clear props interface
+    - Progressive enhancement: core content works without JavaScript
+    - Performance budget: enforce bundle size and Core Web Vitals targets
+    - Content-first: content structure drives component design, not the reverse""")
+    else:
+        core_resp = dedent("""\
     ### Architecture Design
     - Design the system architecture based on the Research Strategist's strategy
     - Produce: system topology diagram (as text/mermaid), component responsibilities, data flow patterns
     - Define API contracts (OpenAPI/GraphQL schemas) that frontend and backend agree on
     - Establish coding patterns, project structure conventions, and naming standards
-    - Design the database schema and data model
-
+    - Design the database schema and data model""")
+        cross_cutting = dedent(f"""\
     ### Cross-Cutting Concerns
     - Authentication and authorization patterns
     - Error handling strategy (error codes, response formats)
     - Logging and observability patterns
     - Configuration management (env vars, config files)
-    - Dependency injection / service layer patterns
-
-    ### Architecture Enforcement
-    - Review all significant PRs for architecture compliance
-    - Resolve technical disputes between agents
-    - Log all architecture decisions in ADRs (Architecture Decision Records)
-    - Update architecture docs when the design evolves
-
+    - Dependency injection / service layer patterns{db_section}""")
+        vendor_section = dedent("""\
     ### Vendor-Agnostic Design (MANDATORY)
     All external dependencies MUST be behind abstract interfaces:
     - Database: repository pattern with interface
@@ -1097,9 +1291,198 @@ def _architect_template(config: ForgeConfig) -> str:
     - External APIs: service interface with real/mock implementations
     - LLM providers: MUST use llm-gateway — direct vendor SDK calls are forbidden""")
 
+    return dedent(f"""\
+    # Architect
+
+    ## Identity & Role
+
+    - **Role**: Architect
+    - **Domain**: {"Component design, page architecture, content schemas, cross-cutting concerns" if is_static else "System design, API contracts, architecture decisions, cross-cutting concerns"}
+    - **Mission**: {"Define and maintain the site architecture. Produce component hierarchy, content schemas, and design patterns that all agents follow." if is_static else "Define and maintain the technical architecture. Produce API contracts, system topology, and design patterns that all agents follow. Be the technical authority."}
+
+    ## Core Responsibilities
+
+    {core_resp}
+
+    ### Domain-Specific Architecture
+    {domain_arch_text}
+
+    {cross_cutting}
+
+    ### Architecture Enforcement
+    - Review all significant PRs for architecture compliance
+    - Resolve technical disputes between agents
+    - Log all architecture decisions in ADRs (Architecture Decision Records)
+    - Update architecture docs when the design evolves
+
+    {vendor_section}""")
+
 
 def _backend_developer_template(config: ForgeConfig) -> str:
-    return dedent("""\
+    frameworks = [f.lower() for f in config.tech_stack.frameworks]
+    dbs = [d.lower() for d in config.tech_stack.databases]
+    req = config.project.requirements.lower()
+    desc = config.project.description.lower()
+    combined = f"{req} {desc}"
+    is_cli = config.is_cli_project()
+    has_web = config.has_web_backend()
+    has_frontend = config.has_frontend_involvement()
+    is_static_site = has_frontend and not has_web and not is_cli
+
+    # --- CLI tool variant ---
+    if is_cli:
+        cli_fw = "Click" if "click" in frameworks else "Typer" if "typer" in frameworks else "CLI framework"
+        domain_impl: list[str] = []
+        if "pipeline" in combined or "etl" in combined:
+            domain_impl.append("- **Pipeline engine**: Parse YAML definitions, orchestrate extract → transform → load stages, handle errors with dead-letter queue")
+        if "plugin" in combined:
+            domain_impl.append("- **Plugin architecture**: Dynamic loading, registration, validation of custom extractors/transformers/loaders")
+        if "concurrent" in combined or "parallel" in combined:
+            domain_impl.append("- **Parallel execution**: asyncio-based concurrency with configurable limits, progress reporting across parallel tasks")
+
+        domain_text = "\n    ".join(domain_impl) if domain_impl else ""
+        domain_section = f"\n\n    ### Domain-Specific Implementation\n    {domain_text}" if domain_text else ""
+
+        return dedent(f"""\
+        # Backend Developer
+
+        ## Identity & Role
+
+        - **Role**: Backend Developer (CLI Focus)
+        - **Domain**: CLI command implementation, data processing, business logic
+        - **Mission**: Implement the CLI commands, data processing pipeline, and business logic. Write production-quality code with tests.
+
+        ## Core Responsibilities
+
+        ### Implementation
+        - Implement CLI commands using {cli_fw}, matching the Architect's design
+        - Implement data processing logic, validation, error handling
+        - Write input parsers (YAML, JSON, CSV as applicable)
+        - Implement service integrations (following vendor-agnostic interfaces)
+        - Follow the project's coding patterns and conventions{domain_section}
+
+        ### Testing
+        - Write unit tests for all business logic (target: mode-appropriate coverage)
+        - Write integration tests for CLI commands (invoke commands, check output)
+        - Test error paths: invalid input, missing files, connection failures
+        - Verify your code actually runs — execute commands with sample data
+
+        ### Quality Standards
+        - Type-safe code with complete type annotations
+        - Input validation at system boundaries (CLI arguments, file input)
+        - Meaningful error messages with exit codes (0=success, 1=error, 2=usage error)
+        - Idempotent operations where applicable
+        - Graceful handling of interrupts (Ctrl+C)""")
+
+    # --- Static site variant ---
+    if is_static_site:
+        static_frameworks: list[str] = []
+        if "astro" in frameworks:
+            static_frameworks.append("- **Astro**: API routes for serverless functions, content collections for MDX/markdown, build-time data processing")
+        if "vercel" in combined:
+            static_frameworks.append("- **Vercel**: Serverless/edge functions for dynamic endpoints (contact form, API), environment configuration")
+
+        static_text = "\n    ".join(static_frameworks) if static_frameworks else ""
+        static_section = f"\n\n    ### Framework-Specific Patterns\n    {static_text}" if static_text else ""
+
+        domain_impl_static: list[str] = []
+        if "contact" in combined and "form" in combined:
+            domain_impl_static.append("- **Contact form**: Serverless function to handle form submissions, input validation, email delivery or storage")
+        if "blog" in combined or "mdx" in combined or "markdown" in combined:
+            domain_impl_static.append("- **Blog/content**: MDX processing pipeline, frontmatter validation, content collection schemas, RSS feed generation")
+        domain_text_s = "\n    ".join(domain_impl_static) if domain_impl_static else ""
+        domain_section_s = f"\n\n    ### Domain-Specific Implementation\n    {domain_text_s}" if domain_text_s else ""
+
+        return dedent(f"""\
+        # Backend Developer
+
+        ## Identity & Role
+
+        - **Role**: Backend Developer (Static Site Support)
+        - **Domain**: Serverless functions, build-time data processing, content pipeline, API routes
+        - **Mission**: Implement any server-side logic needed for this static site project — serverless functions, build-time processing, content management, and API routes. This project has no traditional backend server.
+
+        ## Core Responsibilities
+
+        ### Implementation
+        - Implement serverless/edge functions for dynamic features (contact forms, etc.)
+        - Set up content processing pipeline (MDX compilation, frontmatter validation)
+        - Implement build-time data sourcing and transformation
+        - Configure deployment-specific settings (environment variables, function routes)
+        - Follow the project's coding patterns and conventions{static_section}{domain_section_s}
+
+        ### Testing
+        - Write unit tests for serverless functions and data processing logic
+        - Test form validation and submission flows
+        - Verify build process completes successfully with all content
+        - Test content rendering (MDX/markdown produces correct HTML output)
+
+        ### Quality Standards
+        - Type-safe code with complete type annotations
+        - Input validation on all form submissions and API routes
+        - Graceful error handling in serverless functions (return structured JSON errors)
+        - Build-time validation of content (missing frontmatter, broken links)""")
+
+    # --- Standard web backend variant ---
+    framework_guidance: list[str] = []
+    if "fastapi" in frameworks:
+        framework_guidance.append("- **FastAPI patterns**: async route handlers, Pydantic v2 models for request/response validation, dependency injection for services, background tasks with `BackgroundTasks`")
+        framework_guidance.append("- **Testing**: Use `pytest-asyncio` + `httpx.AsyncClient` for async endpoint tests, factory fixtures for test data")
+    if "django" in frameworks or "drf" in frameworks:
+        framework_guidance.append("- **Django patterns**: class-based views or DRF ViewSets, serializer validation, queryset optimization, signals for side effects")
+        framework_guidance.append("- **Testing**: Use `pytest-django`, `APIClient` for endpoint tests, `factory_boy` for test data")
+    if "flask" in frameworks:
+        framework_guidance.append("- **Flask patterns**: Blueprints for route organization, request validation with Marshmallow/Pydantic, error handlers")
+    if "go" in [l.lower() for l in config.tech_stack.languages]:
+        framework_guidance.append("- **Go patterns**: Handler functions, middleware chains, structured error types, context propagation")
+        framework_guidance.append("- **Testing**: Use `testing` package, `httptest` for endpoint tests, table-driven tests")
+
+    framework_text = "\n    ".join(framework_guidance) if framework_guidance else ""
+    framework_section = f"\n\n    ### Framework-Specific Patterns\n    {framework_text}" if framework_text else ""
+
+    # DB-specific guidance
+    db_guidance: list[str] = []
+    if "postgresql" in " ".join(dbs):
+        db_guidance.append("- **PostgreSQL + SQLAlchemy/Alembic**: Use async sessions, write reversible migrations, leverage database constraints (UNIQUE, CHECK, FK)")
+    if "redis" in dbs:
+        db_guidance.append("- **Redis**: Use for caching, session storage, pub/sub for real-time events, rate limiting with TTL keys")
+    if "mongodb" in " ".join(dbs):
+        db_guidance.append("- **MongoDB**: Design documents for query patterns, use indexes for frequent queries, aggregation pipelines for analytics")
+    if "elasticsearch" in " ".join(dbs):
+        db_guidance.append("- **Elasticsearch**: Index design for search patterns, query DSL for complex searches, bulk operations for data ingestion")
+
+    db_text = "\n    ".join(db_guidance) if db_guidance else ""
+    db_section = f"\n\n    ### Database Patterns\n    {db_text}" if db_text else ""
+
+    # Domain-specific implementation guidance
+    domain_impl_web: list[str] = []
+    if "real-time" in combined or "websocket" in combined or "chat" in combined:
+        domain_impl_web.append("- **WebSocket endpoints**: Connection lifecycle management, message serialization, room/channel routing, heartbeat/ping-pong")
+    if "auth" in combined or "oauth" in combined:
+        domain_impl_web.append("- **Authentication**: OAuth2 callback handling, JWT creation/validation, password hashing (bcrypt/argon2), session management")
+    if "cart" in combined or "checkout" in combined or "payment" in combined:
+        domain_impl_web.append("- **Payment integration**: Idempotency keys for charges, webhook signature verification, order state transitions")
+    if "notification" in combined or "webhook" in combined or "email" in combined:
+        domain_impl_web.append("- **Notifications**: Background task queuing, email templates, webhook delivery with retry logic")
+    if "upload" in combined or "file" in combined or "attachment" in combined:
+        domain_impl_web.append("- **File handling**: Multipart upload, file type validation, storage service abstraction, presigned URLs")
+    if "transaction" in combined or "ledger" in combined:
+        domain_impl_web.append("- **Transaction processing**: Atomic operations, double-entry bookkeeping, audit logging, idempotency")
+    if "payroll" in combined:
+        domain_impl_web.append("- **Payroll processing**: Tax calculation engine, deduction handling, pay period management, compliance validation")
+    if "sso" in combined or "saml" in combined or "oidc" in combined:
+        domain_impl_web.append("- **SSO integration**: SAML/OIDC protocol handlers, token validation, session bridging, multi-tenant auth")
+    if "audit" in combined:
+        domain_impl_web.append("- **Audit logging**: Immutable records, before/after snapshots, user attribution, structured log format")
+    if "vendor" in combined and ("onboard" in combined or "marketplace" in combined):
+        domain_impl_web.append("- **Multi-vendor**: Vendor isolation, storefront management, commission calculations, payout processing")
+    if "inventory" in combined:
+        domain_impl_web.append("- **Inventory management**: Stock tracking, reservation system, low-stock alerts, race condition prevention")
+
+    domain_text_w = "\n    ".join(domain_impl_web) if domain_impl_web else ""
+    domain_section_w = f"\n\n    ### Domain-Specific Implementation\n    {domain_text_w}" if domain_text_w else ""
+
+    return dedent(f"""\
     # Backend Developer
 
     ## Identity & Role
@@ -1115,7 +1498,7 @@ def _backend_developer_template(config: ForgeConfig) -> str:
     - Implement business logic, validation, error handling
     - Write database queries, migrations, seed data
     - Implement service integrations (following vendor-agnostic interfaces)
-    - Follow the project's coding patterns and conventions
+    - Follow the project's coding patterns and conventions{framework_section}{db_section}{domain_section_w}
 
     ### Testing
     - Write unit tests for all business logic (target: mode-appropriate coverage)
@@ -1208,7 +1591,89 @@ def _frontend_designer_template(config: ForgeConfig) -> str:
 
 
 def _qa_engineer_template(config: ForgeConfig) -> str:
-    return dedent("""\
+    is_cli = config.is_cli_project()
+    has_frontend = config.has_frontend_involvement()
+    has_web = config.has_web_backend()
+    req = config.project.requirements.lower()
+    desc = config.project.description.lower()
+    combined = f"{req} {desc}"
+
+    # Test implementation varies by project type
+    if is_cli:
+        test_impl = dedent("""\
+
+        ### Test Implementation
+        - Write unit tests for CLI command handlers and argument parsing
+        - Write integration tests for end-to-end pipeline execution
+        - Test all CLI subcommands with valid and invalid inputs
+        - Verify exit codes: 0 for success, non-zero for errors
+        - Test stdout/stderr output formatting and content
+        - Write performance test baselines for data processing throughput
+        - Verify test coverage meets mode thresholds""")
+    elif has_web and not has_frontend:
+        test_impl = dedent("""\
+
+        ### Test Implementation
+        - Write API integration tests for all endpoints
+        - Write contract tests for request/response schemas
+        - Test authentication and authorization flows
+        - Write performance test baselines for critical API endpoints
+        - Test error responses: correct status codes, structured error bodies
+        - Verify test coverage meets mode thresholds""")
+    else:
+        test_impl = dedent("""\
+
+        ### Test Implementation
+        - Write E2E tests for critical user flows
+        - Write API integration tests
+        - Write performance test baselines
+        - Verify test coverage meets mode thresholds""")
+
+    # Visual/UI testing only for frontend projects
+    visual_section = ""
+    if has_frontend:
+        visual_section = dedent("""\
+
+        ### Visual Testing
+        - Capture baseline screenshots for all key pages at iteration start
+        - After changes, re-capture and compare for visual regressions
+        - Include screenshots in bug reports — expected vs actual side by side
+        - Visual regression is a **BLOCKER** for iteration completion""")
+    elif is_cli:
+        visual_section = dedent("""\
+
+        ### CLI Output Verification
+        - Capture and verify CLI output formatting for all commands
+        - Test help text completeness and accuracy
+        - Verify progress indicators and status messages
+        - Test error message clarity: each error should explain what went wrong and suggest a fix""")
+
+    # Domain-specific testing
+    domain_section = ""
+    domain_items: list[str] = []
+    if "pipeline" in combined or "etl" in combined:
+        domain_items.extend([
+            "- Test data pipeline with valid and malformed input data",
+            "- Verify data transformations produce correct output",
+            "- Test error handling: dead-letter queue captures failed records",
+            "- Validate pipeline definition parsing with schema edge cases",
+        ])
+    if "payment" in combined or "checkout" in combined or "transaction" in combined:
+        domain_items.extend([
+            "- Test payment flows: successful charge, declined card, network timeout",
+            "- Verify transaction integrity: debits and credits balance correctly",
+            "- Test idempotency: duplicate requests don't create duplicate transactions",
+        ])
+    if "plugin" in combined:
+        domain_items.extend([
+            "- Test plugin loading: valid plugins load, invalid plugins rejected gracefully",
+            "- Verify plugin interface compliance for custom extensions",
+        ])
+    if domain_items:
+        domain_text = "\n    ".join(domain_items)
+        domain_section = f"\n\n    ### Domain-Specific Testing\n    {domain_text}"
+
+    return dedent(f"""\
     # QA Engineer
 
     ## Identity & Role
@@ -1223,34 +1688,146 @@ def _qa_engineer_template(config: ForgeConfig) -> str:
     - Define test pyramid: unit → integration → E2E ratio
     - Define quality gates per iteration
     - Identify critical paths that need maximum test coverage
-    - Define test data strategies
-
-    ### Test Implementation
-    - Write E2E tests for critical user flows
-    - Write API integration tests
-    - Write performance test baselines
-    - Verify test coverage meets mode thresholds
+    - Define test data strategies{test_impl}{visual_section}{domain_section}
 
     ### Quality Gates
     - All tests must pass before iteration completion
     - Code coverage must meet threshold
     - No critical/high bugs open
-    - Application must start and respond to real requests
-
-    ### Visual Testing
-    - Capture baseline screenshots for all key pages at iteration start
-    - After changes, re-capture and compare for visual regressions
-    - Include screenshots in bug reports — expected vs actual side by side
-    - Visual regression is a **BLOCKER** for iteration completion
+    - {"All CLI commands execute and return correct exit codes" if is_cli else "Application must start and respond to real requests"}
 
     ### Bug Management
-    - File bug tickets with: reproduction steps, expected vs actual, severity, screenshots/logs
+    - File bug tickets with: reproduction steps, expected vs actual, severity, {"logs/output" if is_cli else "screenshots/logs"}
     - Triage bugs: critical (blocks release), high (must fix this iteration), medium (next iteration), low (backlog)
     - Verify bug fixes and close tickets""")
 
 
 def _devops_specialist_template(config: ForgeConfig) -> str:
-    return dedent("""\
+    langs = [l.lower() for l in config.tech_stack.languages]
+    frameworks = [f.lower() for f in config.tech_stack.frameworks]
+    dbs = [d.lower() for d in config.tech_stack.databases]
+    infra = [i.lower() for i in config.tech_stack.infrastructure]
+    req = config.project.requirements.lower()
+    desc = config.project.description.lower()
+    combined = f"{req} {desc}"
+    is_static_site = (
+        not config.has_web_backend()
+        and not config.is_cli_project()
+        and config.has_frontend_involvement()
+        and not dbs
+    )
+
+    # Static site variant (Astro/Vercel/Netlify)
+    if is_static_site:
+        deploy_target = "Vercel" if "vercel" in combined else "Netlify" if "netlify" in combined else "hosting platform"
+        ssg_framework = next((f for f in config.tech_stack.frameworks if f.lower() in ("astro", "gatsby", "hugo", "eleventy", "next.js")), "SSG framework")
+
+        ci_stages: list[str] = []
+        if "typescript" in langs or "javascript" in langs:
+            ci_stages.append("- **TypeScript/JS**: `eslint` → `tsc --noEmit` → `vitest/jest` → `npm run build`")
+        ci_stages.append(f"- **Build**: `npm run build` → verify static output → deploy to {deploy_target}")
+        ci_stages.append("- **Lighthouse**: Run Lighthouse CI for performance, accessibility, SEO scoring")
+        ci_stages_text = "\n    ".join(ci_stages)
+
+        return dedent(f"""\
+    # DevOps Specialist
+
+    ## Identity & Role
+
+    - **Role**: DevOps Specialist
+    - **Domain**: CI/CD, static site deployment, build optimization, {deploy_target} configuration
+    - **Mission**: Build and maintain the development and deployment infrastructure for this static site. Ensure fast builds, reliable deployments, and optimal site performance.
+
+    ## Core Responsibilities
+
+    ### Local Development Setup
+    - Configure local dev server: `npm run dev` with hot-reload
+    - Provide clear setup instructions (README, Makefile/package.json scripts)
+    - Set up environment variables for {deploy_target} integration
+    - Configure preview deployments for pull requests
+
+    ### CI/CD Pipeline
+    Set up CI pipeline tailored to the static site stack:
+    {ci_stages_text}
+
+    **Pipeline stages**: lint → type-check → test → build → deploy
+    - Build verification: ensure `npm run build` produces valid static output
+    - Fail fast: first failure stops the pipeline
+
+    ### {deploy_target} Deployment
+    - Configure build settings: output directory, build command, Node.js version
+    - Set up preview deployments for each pull request
+    - Configure production deployment from main branch
+    - Manage environment variables and build-time configuration
+    - Set up custom domain and SSL if applicable
+
+    ### Build Optimization
+    - Optimize {ssg_framework} build for fast build times and small output
+    - Configure image optimization pipeline (responsive images, WebP/AVIF)
+    - Set up asset caching headers for optimal CDN performance
+    - Monitor build times and bundle sizes in CI
+
+    ### Performance Monitoring
+    - Core Web Vitals: LCP, FID, CLS targets
+    - Lighthouse CI: automated scoring on every PR
+    - Bundle size tracking: alert on significant increases
+    - CDN cache hit ratio and edge response times""")
+
+    # Standard backend/fullstack variant
+    compose_services: list[str] = []
+    for db in dbs:
+        if "postgres" in db:
+            compose_services.append("| PostgreSQL | `postgres:16-alpine` — port 5432, persistent volume, health check |")
+        elif "redis" in db:
+            compose_services.append("| Redis | `redis:7-alpine` — port 6379, AOF persistence |")
+        elif "mongo" in db:
+            compose_services.append("| MongoDB | `mongo:7` — port 27017, replica set for change streams |")
+        elif "mysql" in db or "mariadb" in db:
+            compose_services.append("| MySQL | `mysql:8` — port 3306, persistent volume |")
+        elif "elastic" in db:
+            compose_services.append("| Elasticsearch | `elasticsearch:8` — port 9200, single-node mode |")
+
+    if "fastapi" in frameworks or "django" in frameworks or "flask" in frameworks:
+        compose_services.append("| Backend API | Dockerfile with hot-reload, depends on DB services |")
+    if "react" in frameworks or "next" in " ".join(frameworks) or "vue" in frameworks:
+        compose_services.append("| Frontend | Node container or host with hot-reload dev server |")
+    if "upload" in combined or "file" in combined or "attachment" in combined or "image" in combined:
+        compose_services.append("| Object Storage | `minio/minio` — S3-compatible local storage |")
+    if "email" in combined or "notification" in combined:
+        compose_services.append("| Email | `mailhog/mailhog` — local SMTP trap for dev email testing |")
+    if "rabbit" in combined or "queue" in combined or "celery" in combined:
+        compose_services.append("| Message Queue | `rabbitmq:3-management` — port 5672/15672 |")
+
+    compose_table = "\n    ".join(compose_services) if compose_services else "| App services | Docker Compose with health checks and persistent volumes |"
+
+    ci_stages = []
+    if "python" in langs:
+        ci_stages.append("- **Python**: `ruff check` → `mypy --strict` → `pytest` → `coverage report`")
+    if "typescript" in langs or "javascript" in langs:
+        ci_stages.append("- **TypeScript/JS**: `eslint` → `tsc --noEmit` → `vitest/jest` → `npm run build`")
+    if "go" in langs:
+        ci_stages.append("- **Go**: `golangci-lint` → `go vet` → `go test ./...` → `go build`")
+    if dbs:
+        ci_stages.append("- **Database**: Run migrations against test DB, verify up + down")
+    if "docker" in infra:
+        ci_stages.append("- **Docker**: Build images, run health checks, push to registry")
+    ci_stages_text = "\n    ".join(ci_stages) if ci_stages else "- Lint → Type-check → Test → Build → Deploy"
+
+    monitoring: list[str] = []
+    if "real-time" in combined or "websocket" in combined or "chat" in combined:
+        monitoring.append("- WebSocket connection count, message latency, connection error rate")
+    if "redis" in " ".join(dbs):
+        monitoring.append("- Redis: memory usage, connected clients, hit/miss ratio")
+    if "postgres" in " ".join(dbs):
+        monitoring.append("- PostgreSQL: active connections, query latency p95, replication lag, dead tuples")
+    if "elastic" in " ".join(dbs):
+        monitoring.append("- Elasticsearch: cluster health, query latency, indexing rate")
+    if "auth" in combined:
+        monitoring.append("- Auth: login success/failure rate, token refresh frequency, session count")
+    monitoring.append("- Application: request latency p50/p95/p99, error rate, CPU/memory usage")
+    monitoring_text = "\n    ".join(monitoring)
+
+    return dedent(f"""\
     # DevOps Specialist
 
     ## Identity & Role
@@ -1262,36 +1839,138 @@ def _devops_specialist_template(config: ForgeConfig) -> str:
     ## Core Responsibilities
 
     ### Local Development Infrastructure
-    - Create Docker Compose for all services (databases, caches, queues, etc.)
-    - Ensure the project runs locally with zero external dependencies
-    - Provide clear setup instructions (README, Makefile, scripts)
+    - Create Docker Compose with all project services (see table below)
+    - Ensure the project runs locally with `docker compose up` — zero external dependencies
+    - Provide clear setup instructions (README, Makefile with `make dev`, `make test`, `make build`)
+    - Configure health checks for all services so `docker compose up --wait` works reliably
+
+    ### Docker Compose Services
+    | Service | Configuration |
+    |---|---|
+    {compose_table}
 
     ### CI/CD Pipeline
-    - Set up CI pipeline: lint → test → build → deploy
-    - Configure test automation in CI
-    - Set up code quality checks (linting, formatting, type checking)
-    - Configure artifact building (Docker images, packages)
+    Set up CI pipeline tailored to the project stack:
+    {ci_stages_text}
+
+    **Pipeline stages**: lint → type-check → unit-test → integration-test → build → deploy
+    - Integration tests run against real Docker services (not mocks)
+    - Fail fast: first failure stops the pipeline
 
     ### Infrastructure as Code
-    - Define infrastructure requirements
-    - Create deployment configurations
-    - Set up environment management (dev, staging, production)
-    - Configure monitoring and alerting basics
+    - Define infrastructure requirements for dev, staging, production
+    - Create deployment configurations (Docker Compose for dev, Kubernetes/ECS for prod if needed)
+    - Set up environment management with `.env.example` documenting all required vars
+    - Database migration automation: run on deploy, verify rollback scripts
+
+    ### Monitoring & Observability
+    {monitoring_text}
 
     ### Local-First Mandate
     All services MUST run locally during development:
-    | Dependency | Local Provision |
-    |---|---|
-    | Databases | Docker Compose (PostgreSQL, MySQL, MongoDB, etc.) |
-    | Caches | Local Redis via Docker Compose |
-    | Message queues | Local RabbitMQ/Redis via Docker Compose |
-    | External APIs | Mock/stub implementations |
-    | Object storage | Local MinIO or filesystem fallback |
-    | Search engines | Local Elasticsearch/Meilisearch or in-memory fallback |""")
+    - Databases: Docker Compose with persistent volumes and health checks
+    - Caches/message brokers: Local containers via Docker Compose
+    - External APIs: Mock/stub implementations for development
+    - Object storage: Local MinIO or filesystem fallback
+    - Email: Local mailhog/mailpit for development email testing""")
 
 
 def _security_tester_template(config: ForgeConfig) -> str:
-    return dedent("""\
+    req = config.project.requirements.lower()
+    desc = config.project.description.lower()
+    combined = f"{req} {desc}"
+    is_cli = config.is_cli_project()
+
+    # Domain-specific security focus
+    domain_sections: list[str] = []
+
+    if "pci" in combined or "payment" in combined or "transaction" in combined or "financial" in combined:
+        domain_sections.append(dedent("""\
+
+        ### PCI-DSS & Financial Security
+
+        - Verify no raw card numbers, CVVs, or sensitive financial data in logs, error messages, or API responses
+        - Audit transaction flows for double-entry bookkeeping integrity (debits must equal credits)
+        - Verify audit trail immutability — logs must be append-only, tamper-evident
+        - Test rate limiting on financial endpoints (prevent bulk transaction abuse)
+        - Validate webhook authentication (HMAC signatures on outbound notifications)
+        - Check that financial amounts use decimal/integer (no floating point) to prevent rounding errors
+        - Test role-based access control: transaction approval workflows, separation of duties
+        - Verify encryption at rest for PII and financial data (database-level encryption)"""))
+
+    if "hr" in combined or "payroll" in combined or "employee" in combined:
+        domain_sections.append(dedent("""\
+
+        ### HR Data & Employee Privacy
+
+        - Verify PII protection: salary data, SSN/tax IDs, personal addresses encrypted at rest
+        - Audit payroll calculation access: only authorized roles can view/modify compensation data
+        - Test leave approval workflows: managers cannot approve their own requests
+        - Verify org chart access controls: sensitive hierarchy data scoped by role
+        - Check document management: offer letters, contracts stored securely with access logging
+        - Validate data retention policies: employee records follow regulatory requirements"""))
+
+    if "sso" in combined or "saml" in combined or "oidc" in combined:
+        domain_sections.append(dedent("""\
+
+        ### SSO & Identity Security
+
+        - Validate SAML assertion signatures and audience restrictions
+        - Test OIDC token validation: issuer, audience, expiration, nonce
+        - Verify session management: secure session cookies, proper timeout handling
+        - Test IdP-initiated and SP-initiated login flows for security
+        - Validate redirect URI validation (prevent open redirect attacks)"""))
+
+    if "e-commerce" in combined or "marketplace" in combined or "vendor" in combined:
+        domain_sections.append(dedent("""\
+
+        ### E-Commerce & Marketplace Security
+
+        - Verify payment integration security: Stripe webhook signature validation
+        - Test vendor isolation: vendors cannot access other vendors' data, orders, or analytics
+        - Validate checkout flow CSRF protection and price tampering prevention
+        - Test multi-tenant data isolation: customer data scoped by vendor/store
+        - Verify inventory manipulation prevention (negative quantity attacks)
+        - Check file upload security: product images validated for type, size, and content"""))
+
+    if "audit" in combined:
+        domain_sections.append(dedent("""\
+
+        ### Audit & Compliance
+
+        - Verify audit logs are immutable (append-only, no UPDATE/DELETE on audit tables)
+        - Test that all state-changing operations create audit entries
+        - Validate audit log completeness: who, what, when, where, outcome
+        - Check that audit data cannot be accessed by non-compliance roles"""))
+
+    if is_cli:
+        domain_sections.append(dedent("""\
+
+        ### CLI-Specific Security
+
+        - Verify file path traversal prevention on all user-provided paths
+        - Test that credentials and tokens are never logged in verbose/debug output
+        - Validate YAML/JSON input parsing against injection attacks
+        - Check temporary file handling: secure creation, proper cleanup
+        - Verify plugin loading only from trusted/configured directories"""))
+
+    domain_text = "".join(domain_sections) if domain_sections else ""
+
+    # Framework-specific patterns
+    fw_checks: list[str] = []
+    frameworks = [f.lower() for f in config.tech_stack.frameworks]
+    if any(fw in frameworks for fw in ["fastapi", "django", "flask", "drf", "django rest framework"]):
+        fw_checks.append("- API: test authentication bypass, broken object-level authorization (BOLA)")
+    if any(fw in frameworks for fw in ["react", "next.js", "vue", "angular"]):
+        fw_checks.append("- Frontend: test XSS prevention, CSP headers, sensitive data in client bundle")
+    if config.tech_stack.databases:
+        dbs = ", ".join(config.tech_stack.databases)
+        fw_checks.append(f"- Database ({dbs}): parameterized queries only, no string interpolation in SQL")
+    fw_text = ""
+    if fw_checks:
+        fw_text = "\n\n    ### Framework Security Patterns\n\n" + "\n".join(f"    {c}" for c in fw_checks)
+
+    return dedent(f"""\
     # Security Tester
 
     ## Identity & Role
@@ -1308,11 +1987,75 @@ def _security_tester_template(config: ForgeConfig) -> str:
     - Review secret management practices
     - Assess data protection (encryption at rest/transit)
     - Review dependency vulnerabilities (CVEs)
-    - Produce security audit report with findings and remediation steps""")
+    - Produce security audit report with findings and remediation steps{domain_text}{fw_text}""")
 
 
 def _performance_engineer_template(config: ForgeConfig) -> str:
-    return dedent("""\
+    req = config.project.requirements.lower()
+    desc = config.project.description.lower()
+    combined = f"{req} {desc}"
+    is_cli = config.is_cli_project()
+    has_web = config.has_web_backend()
+
+    # Domain-specific performance targets
+    domain_sections: list[str] = []
+
+    if is_cli:
+        domain_sections.append(dedent("""\
+
+        ### CLI Performance Targets
+
+        - Startup time: CLI should respond to `--help` in < 500ms
+        - Pipeline throughput: measure records/second for each stage (extract, transform, load)
+        - Memory profiling: ensure large datasets don't cause OOM (streaming over bulk loading)
+        - Parallel execution: verify concurrency settings scale linearly up to configured limits
+        - Plugin loading: measure overhead of dynamic plugin discovery and initialization"""))
+    elif has_web:
+        domain_sections.append(dedent("""\
+
+        ### API Performance Targets
+
+        - Response time: P50 < 200ms, P95 < 500ms, P99 < 1s for core endpoints
+        - Throughput: handle expected concurrent users under load test
+        - Database query performance: no N+1 queries, all critical paths use indexed lookups"""))
+
+    if "transaction" in combined or "financial" in combined or "payment" in combined:
+        domain_sections.append(dedent("""\
+
+        ### Transaction Performance
+
+        - Transaction processing: measure end-to-end latency (ingestion → bookkeeping → confirmation)
+        - Concurrent transactions: verify no deadlocks or race conditions under parallel writes
+        - Audit log writes: ensure logging doesn't bottleneck transaction throughput
+        - Rate limiting: verify Redis-based rate limiter handles burst traffic correctly"""))
+
+    if "e-commerce" in combined or "marketplace" in combined:
+        domain_sections.append(dedent("""\
+
+        ### E-Commerce Performance
+
+        - Product search/catalog: sub-second response with full-text search and filters
+        - Checkout flow: end-to-end checkout latency under concurrent users
+        - Inventory updates: test concurrent stock decrements for race conditions
+        - Vendor dashboard: analytics queries perform within acceptable limits
+        - Image/media: CDN cache hit ratios and load times for product images"""))
+
+    if "microservice" in combined:
+        domain_sections.append(dedent("""\
+
+        ### Microservice Performance
+
+        - Inter-service latency: measure RPC/HTTP call overhead between services
+        - Service discovery: verify no bottleneck in service registry lookups
+        - Circuit breaker: verify degraded mode performance when upstream services are slow"""))
+
+    if config.tech_stack.databases:
+        dbs = ", ".join(config.tech_stack.databases)
+        domain_sections.append(f"\n\n    ### Database ({dbs})\n\n    - Connection pool sizing: verify pool is right-sized for expected load\n    - Query performance: EXPLAIN ANALYZE on critical queries, ensure index usage\n    - Cache hit ratio: verify caching layer reduces database load")
+
+    domain_text = "".join(domain_sections) if domain_sections else ""
+
+    return dedent(f"""\
     # Performance Engineer
 
     ## Identity & Role
@@ -1328,26 +2071,68 @@ def _performance_engineer_template(config: ForgeConfig) -> str:
     - Identify and optimize bottlenecks
     - Run load tests and stress tests
     - Monitor resource usage (CPU, memory, network)
-    - Produce performance report with findings and recommendations""")
+    - Produce performance report with findings and recommendations{domain_text}""")
 
 
 def _documentation_specialist_template(config: ForgeConfig) -> str:
-    return dedent("""\
+    is_cli = config.is_cli_project()
+    has_web = config.has_web_backend()
+    has_frontend = config.has_frontend_involvement()
+    req = config.project.requirements.lower()
+    desc = config.project.description.lower()
+    combined = f"{req} {desc}"
+
+    # Project-type-specific documentation responsibilities
+    domain_items: list[str] = []
+    if is_cli:
+        domain_items.extend([
+            "- Write CLI command reference: all subcommands, options, and usage examples",
+            "- Document configuration file format and schema (e.g., YAML pipeline definitions)",
+            "- Create getting-started guide with common use cases and example commands",
+            "- Write troubleshooting guide: common errors, exit codes, and resolution steps",
+        ])
+        if "plugin" in combined:
+            domain_items.extend([
+                "- Document plugin API: interface specification, extension points, example plugins",
+                "- Write plugin development guide: how to create custom extractors/transformers/loaders",
+            ])
+    elif has_web and not has_frontend:
+        domain_items.extend([
+            "- Write and maintain API documentation (OpenAPI/Swagger auto-generated where possible)",
+            "- Document API authentication, rate limits, and error response formats",
+            "- Create integration guide for external consumers of the API",
+        ])
+    elif has_frontend:
+        domain_items.extend([
+            "- Write and maintain API documentation (auto-generated where possible)",
+            "- Document component library and UI patterns",
+            "- Write user-facing documentation and help content",
+        ])
+    else:
+        domain_items.append("- Write and maintain API documentation (auto-generated where possible)")
+
+    if "microservice" in combined:
+        domain_items.append("- Document service boundaries, inter-service communication, and API contracts")
+    if config.tech_stack.databases:
+        domain_items.append("- Document database schema, migrations, and data model relationships")
+
+    domain_text = "\n    ".join(domain_items) if domain_items else "- Write and maintain project documentation"
+
+    return dedent(f"""\
     # Documentation Specialist
 
     ## Identity & Role
 
     - **Role**: Documentation Specialist
-    - **Domain**: API documentation, architecture docs, user guides, ADRs
+    - **Domain**: {"CLI reference, configuration docs" if is_cli else "API documentation"}, architecture docs, user guides, ADRs
     - **Mission**: Maintain comprehensive, accurate project documentation. Documentation must always reflect the current state of the system.
 
     ## Core Responsibilities
 
-    - Write and maintain API documentation (auto-generated where possible)
+    {domain_text}
     - Write architecture documentation with diagrams
     - Create ADRs for significant decisions
     - Write developer onboarding guide
-    - Write user-facing documentation if applicable
     - Keep all docs in sync with code changes""")
 
 

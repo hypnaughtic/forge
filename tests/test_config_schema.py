@@ -163,3 +163,104 @@ class TestForgeConfig:
     def test_has_ssh_auth_true_with_key(self):
         config = ForgeConfig(git=GitConfig(ssh_key_path="~/.ssh/id_ed25519"))
         assert config.has_ssh_auth() is True
+
+
+class TestProjectTypeDetection:
+    """Tests for has_frontend_involvement, has_web_backend, is_cli_project."""
+
+    def _make_config(self, agents_include=None, **kwargs):
+        from forge_cli.config_schema import ProjectConfig, TechStack
+        project_kw = {}
+        tech_kw = {}
+        for k, v in kwargs.items():
+            if k in ("description", "requirements"):
+                project_kw[k] = v
+            elif k in ("languages", "frameworks", "databases", "infrastructure"):
+                tech_kw[k] = v
+        agents_cfg = AgentsConfig(
+            team_profile=TeamProfile.CUSTOM,
+            include=agents_include or ["team-leader", "backend-developer"],
+        )
+        return ForgeConfig(
+            project=ProjectConfig(**project_kw) if project_kw else ProjectConfig(),
+            tech_stack=TechStack(**tech_kw) if tech_kw else TechStack(),
+            agents=agents_cfg,
+        )
+
+    # --- has_web_backend ---
+    def test_has_web_backend_fastapi(self):
+        config = self._make_config(frameworks=["FastAPI"])
+        assert config.has_web_backend() is True
+
+    def test_has_web_backend_django(self):
+        config = self._make_config(frameworks=["Django"])
+        assert config.has_web_backend() is True
+
+    def test_has_web_backend_from_description(self):
+        config = self._make_config(description="REST API for orders")
+        assert config.has_web_backend() is True
+
+    def test_has_web_backend_false_for_cli(self):
+        config = self._make_config(
+            frameworks=["Click"],
+            description="CLI data pipeline tool, no frontend",
+        )
+        assert config.has_web_backend() is False
+
+    def test_has_web_backend_false_for_static_site(self):
+        config = self._make_config(
+            frameworks=["Astro", "React"],
+            description="Static portfolio website",
+        )
+        assert config.has_web_backend() is False
+
+    # --- is_cli_project ---
+    def test_is_cli_project_click(self):
+        config = self._make_config(
+            frameworks=["Click"],
+            description="CLI data pipeline tool, no frontend",
+        )
+        assert config.is_cli_project() is True
+
+    def test_is_cli_project_typer(self):
+        config = self._make_config(frameworks=["Typer"])
+        assert config.is_cli_project() is True
+
+    def test_is_cli_project_from_description(self):
+        config = self._make_config(description="command-line utility")
+        assert config.is_cli_project() is True
+
+    def test_is_cli_project_false_for_web_app(self):
+        config = self._make_config(
+            frameworks=["FastAPI", "React"],
+            description="Full-stack web application",
+        )
+        assert config.is_cli_project() is False
+
+    def test_is_cli_project_false_for_static_site(self):
+        config = self._make_config(
+            frameworks=["Astro"],
+            description="Portfolio website",
+        )
+        assert config.is_cli_project() is False
+
+    # --- has_frontend_involvement negation ---
+    def test_has_frontend_negation_no_frontend(self):
+        config = self._make_config(
+            description="CLI tool, no frontend",
+        )
+        assert config.has_frontend_involvement() is False
+
+    def test_has_frontend_negation_without_frontend(self):
+        config = self._make_config(
+            requirements="Build API without frontend",
+        )
+        assert config.has_frontend_involvement() is False
+
+    def test_has_frontend_true_for_react(self):
+        config = self._make_config(frameworks=["React"])
+        assert config.has_frontend_involvement() is True
+
+    def test_has_frontend_true_for_dashboard_desc(self):
+        config = self._make_config(description="Admin dashboard")
+        assert config.has_frontend_involvement() is True

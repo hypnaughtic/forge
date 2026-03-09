@@ -221,6 +221,15 @@ class ForgeConfig(BaseModel):
         # Check project description/requirements for frontend keywords
         import re
         text = f"{self.project.description} {self.project.requirements}".lower()
+
+        # First check for explicit negation patterns — "no frontend", "no ui", etc.
+        negation_patterns = [
+            r"\bno\s+frontend\b", r"\bno\s+front-end\b", r"\bno\s+ui\b",
+            r"\bwithout\s+frontend\b", r"\bno\s+web\s+ui\b",
+        ]
+        if any(re.search(p, text) for p in negation_patterns):
+            return False
+
         # Use word boundaries for short keywords that could match inside other words
         frontend_patterns = [
             r"\bfrontend\b", r"\bfront-end\b", r"\bui\b", r"\buser interface\b",
@@ -228,3 +237,60 @@ class ForgeConfig(BaseModel):
             r"\bresponsive\b", r"\bmobile app\b", r"\bspa\b", r"\bsingle page\b",
         ]
         return any(re.search(p, text) for p in frontend_patterns)
+
+    def has_web_backend(self) -> bool:
+        """Detect if the project has a web backend (API server, web framework).
+
+        Returns True for projects that run an HTTP server (FastAPI, Django,
+        Express, etc.).  Returns False for CLI tools, static sites, and
+        library projects.
+        """
+        web_frameworks = {
+            "fastapi", "django", "flask", "express", "nestjs", "koa",
+            "hapi", "gin", "echo", "fiber", "spring", "spring boot",
+            "rails", "laravel", "phoenix", "actix", "axum", "rocket",
+            "drf", "django rest framework", "aspnet", "asp.net",
+        }
+        for fw in self.tech_stack.frameworks:
+            if fw.lower().strip() in web_frameworks:
+                return True
+
+        import re
+        text = f"{self.project.description} {self.project.requirements}".lower()
+        backend_patterns = [
+            r"\bapi\b", r"\brest\b", r"\brestful\b", r"\bendpoint",
+            r"\bserver\b", r"\bmicroservice", r"\bbackend\b",
+            r"\bhttp server\b", r"\bweb server\b",
+        ]
+        # Exclude patterns that would false-positive for CLI/static projects
+        cli_negatives = [r"\bcli\b", r"\bcommand.line\b", r"\bstatic site\b"]
+        has_backend_keywords = any(re.search(p, text) for p in backend_patterns)
+        has_cli_keywords = any(re.search(p, text) for p in cli_negatives)
+        # If description says both "API" and "CLI", trust the explicit web framework
+        if has_backend_keywords and not has_cli_keywords:
+            return True
+        return False
+
+    def is_cli_project(self) -> bool:
+        """Detect if the project is a CLI tool (no web server, no frontend).
+
+        Returns True for command-line tools, data pipelines, and similar
+        projects that run in a terminal rather than serving web requests.
+        """
+        cli_frameworks = {
+            "click", "typer", "argparse", "commander", "yargs",
+            "clap", "cobra", "oclif", "inquirer",
+        }
+        for fw in self.tech_stack.frameworks:
+            if fw.lower().strip() in cli_frameworks:
+                return True
+
+        import re
+        text = f"{self.project.description} {self.project.requirements}".lower()
+        cli_patterns = [
+            r"\bcli\b", r"\bcommand.line\b", r"\bterminal\b",
+            r"\bpipeline tool\b", r"\bdata pipeline\b",
+        ]
+        if any(re.search(p, text) for p in cli_patterns):
+            return not self.has_frontend_involvement() and not self.has_web_backend()
+        return False
