@@ -8,15 +8,6 @@ from forge_cli import __version__
 console = Console()
 
 
-class ForgeCommand(click.Command):
-    """Custom command that prints pre-formatted help text."""
-
-    def format_help(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
-        formatter.write("Usage: forge [OPTIONS]\n")
-        formatter.write(HELP_TEXT)
-        self.format_options(ctx, formatter)
-
-
 HELP_TEXT = f"""\n
   Forge — Project Initialization Tool for Claude Code Agent Teams v{__version__}
 
@@ -26,7 +17,8 @@ HELP_TEXT = f"""\n
 
   Usage:
     forge init                                          Build config interactively
-    forge --config forge-config.yaml                    Generate from config
+    forge generate --config forge-config.yaml           Generate from config
+    forge --config forge-config.yaml                    Generate from config (shorthand)
     forge --config forge-config.yaml --project-dir ./my-project
     forge --config forge-config.yaml --validate-only
     forge --config forge-config.yaml --refine
@@ -124,6 +116,9 @@ HELP_TEXT = f"""\n
       enable_local_claude: bool                    (default: true)
       cost_tracking: bool                          (default: true)
 
+    git:
+      ssh_key_path: str              SSH key for git auth (default: "")
+
     refinement:
       enabled: bool                                (default: false)
       provider: str                (default: local_claude)
@@ -164,14 +159,40 @@ HELP_TEXT = f"""\n
 """
 
 
-@click.command(cls=ForgeCommand)
+class ForgeGroup(click.Group):
+    """Custom group that routes bare `forge --config` to the generate subcommand.
+
+    This preserves backward compatibility: `forge --config foo.yaml` works
+    without requiring `forge generate --config foo.yaml`.
+    """
+
+    def format_help(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+        formatter.write("Usage: forge [COMMAND] [OPTIONS]\n")
+        formatter.write(HELP_TEXT)
+
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        # If first arg starts with -- (not a subcommand name), route to generate
+        if args and args[0].startswith("--") and args[0] != "--help" and args[0] != "--version":
+            args = ["generate"] + args
+        return super().parse_args(ctx, args)
+
+
+@click.group(cls=ForgeGroup, invoke_without_command=True)
 @click.version_option(__version__, prog_name="forge")
+@click.pass_context
+def cli(ctx: click.Context) -> None:
+    """Forge — Generate agent instruction files for Claude Code CLI agent teams."""
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+
+
+@cli.command()
 @click.option("--config", "config_path", type=click.Path(exists=True), required=True, help="Path to forge-config.yaml")
 @click.option("--project-dir", type=click.Path(), default=".", help="Target project workspace directory")
 @click.option("--validate-only", is_flag=True, help="Validate config and print summary without generating files")
 @click.option("--refine/--no-refine", default=None, help="Override config refinement.enabled")
-def cli(config_path: str, project_dir: str, validate_only: bool, refine: bool | None) -> None:
-    """Forge — Generate agent instruction files for Claude Code CLI agent teams."""
+def generate(config_path: str, project_dir: str, validate_only: bool, refine: bool | None) -> None:
+    """Generate agent files from an existing forge-config.yaml."""
     from forge_cli.config_loader import load_config
 
     try:
@@ -213,6 +234,15 @@ def cli(config_path: str, project_dir: str, validate_only: bool, refine: bool | 
     console.print("  2. Review CLAUDE.md and team-init-plan.md")
     console.print("  3. Run [cyan]claude[/cyan] in your project directory")
     console.print("  4. Tell Claude: [dim]\"Read team-init-plan.md and initialize the team\"[/dim]")
+
+
+@cli.command()
+@click.option("--output", default="forge-config.yaml", help="Output config file path")
+def init(output: str) -> None:
+    """Interactively build a forge-config.yaml."""
+    from forge_cli.init_wizard import run_wizard
+
+    run_wizard(output)
 
 
 def main() -> None:
