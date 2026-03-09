@@ -1,5 +1,7 @@
 """Forge CLI — Main entry point."""
 
+from pathlib import Path
+
 import click
 from rich.console import Console
 
@@ -11,17 +13,24 @@ console = Console()
 HELP_TEXT = f"""\n
   Forge — Project Initialization Tool for Claude Code Agent Teams v{__version__}
 
-  Reads a forge-config.yaml and generates customized agent instruction
+  Reads a forge.yaml and generates customized agent instruction
   files, CLAUDE.md, skills, strategy-enforced permissions, and
   team-init-plan.md in the target project.
 
   Usage:
     forge init                                          Build config interactively
-    forge generate --config forge-config.yaml           Generate from config
-    forge --config forge-config.yaml                    Generate from config (shorthand)
-    forge --config forge-config.yaml --project-dir ./my-project
-    forge --config forge-config.yaml --validate-only
-    forge --config forge-config.yaml --refine
+    forge generate                                      Generate (auto-detect config)
+    forge generate --config .forge/forge.yaml           Generate from explicit config
+    forge --config .forge/forge.yaml --project-dir ./my-project
+    forge --config .forge/forge.yaml --validate-only
+    forge --config .forge/forge.yaml --refine
+    forge start                                         Start Claude session with team
+
+  Config auto-detection (in order):
+    1. .forge/forge.yaml         (canonical location)
+    2. forge.yaml                (project root)
+    3. .forge/forge-config.yaml  (legacy)
+    4. forge-config.yaml         (legacy)
 
   Generated output:
     .claude/agents/*.md        Agent instruction files (one per team member)
@@ -36,30 +45,24 @@ HELP_TEXT = f"""\n
   Getting started:
     Option A — Interactive (recommended for new users):
       1. Run: forge init
-      2. Follow the 8-step wizard to configure your project
+      2. Follow the wizard to configure your project
       3. Confirm and generate — or save the config for later
 
     Option B — Config file:
-      1. Copy examples/forge-config.yaml and customize it
-      2. Run: forge --config forge-config.yaml --project-dir ./my-project
+      1. Copy examples/forge.yaml and customize it
+      2. Run: forge generate --project-dir ./my-project
 
     Then:
-      1. cd into your project and run: claude
-      2. Tell Claude: "Read team-init-plan.md and initialize the team"
+      1. Run: forge start
+         OR cd into your project and run: claude
+         then tell Claude: "Read team-init-plan.md and initialize the team"
 
-  forge init:
-  ──────────
-    Interactive configuration builder. Walks you through every option
-    step by step: project details, mode, strategy, tech stack, team
-    configuration, Atlassian integration, LLM gateway, and non-negotiables.
-    Shows a summary for confirmation, saves the config, and optionally
-    runs generation immediately.
-
-  forge-config.yaml reference:
-  ─────────────────────────────
+  forge.yaml reference:
+  ─────────────────────
     project:
       description: str             Project description
       requirements: str            Detailed requirements
+      context_files: [str]         Paths to plan/spec/context files or dirs
       type: new|existing           Project type (default: new)
       existing_project_path: str   Path if type=existing
       directory: str               Project directory (default: .)
@@ -127,7 +130,7 @@ HELP_TEXT = f"""\n
       score_threshold: int         Quality 0-100 (default: 90)
       max_iterations: int          (default: 5)
       max_concurrency: int         0=unlimited (default: 0)
-      timeout_seconds: int         (default: 180)
+      timeout_seconds: int         (default: 300)
       cost_limit_usd: float        (default: 10.0)
 
     non_negotiables: [str]         Absolute requirements list
@@ -159,6 +162,36 @@ HELP_TEXT = f"""\n
 """
 
 
+def _resolve_config(config_path: str | None, project_dir: str = ".") -> str:
+    """Resolve config path: use explicit path or auto-detect.
+
+    Args:
+        config_path: Explicit path from --config flag, or None.
+        project_dir: Project directory for auto-detection.
+
+    Returns:
+        Resolved config path string.
+
+    Raises:
+        SystemExit: If no config found.
+    """
+    if config_path:
+        return config_path
+
+    from forge_cli.config_loader import find_config
+
+    found = find_config(project_dir)
+    if found:
+        console.print(f"  [dim]Auto-detected config: {found}[/dim]")
+        return str(found)
+
+    console.print(
+        "[red]No config file found. Run [bold]forge init[/bold] to create one, "
+        "or pass [bold]--config PATH[/bold].[/red]"
+    )
+    raise SystemExit(1)
+
+
 class ForgeGroup(click.Group):
     """Custom group that routes bare `forge --config` to the generate subcommand.
 
@@ -187,16 +220,18 @@ def cli(ctx: click.Context) -> None:
 
 
 @cli.command()
-@click.option("--config", "config_path", type=click.Path(exists=True), required=True, help="Path to forge-config.yaml")
+@click.option("--config", "config_path", type=click.Path(exists=True), required=False, default=None, help="Path to forge.yaml (auto-detected if omitted)")
 @click.option("--project-dir", type=click.Path(), default=".", help="Target project workspace directory")
 @click.option("--validate-only", is_flag=True, help="Validate config and print summary without generating files")
 @click.option("--refine/--no-refine", default=None, help="Override config refinement.enabled")
-def generate(config_path: str, project_dir: str, validate_only: bool, refine: bool | None) -> None:
-    """Generate agent files from an existing forge-config.yaml."""
+def generate(config_path: str | None, project_dir: str, validate_only: bool, refine: bool | None) -> None:
+    """Generate agent files from a forge.yaml config."""
     from forge_cli.config_loader import load_config
 
+    resolved = _resolve_config(config_path, project_dir)
+
     try:
-        config = load_config(config_path)
+        config = load_config(resolved)
     except Exception as e:
         console.print(f"[red]Configuration error: {e}[/red]")
         raise SystemExit(1)
@@ -232,17 +267,77 @@ def generate(config_path: str, project_dir: str, validate_only: bool, refine: bo
     console.print("[bold]Next steps:[/bold]")
     console.print("  1. Review the generated files in .claude/agents/")
     console.print("  2. Review CLAUDE.md and team-init-plan.md")
-    console.print("  3. Run [cyan]claude[/cyan] in your project directory")
+    console.print("  3. Run [cyan]forge start[/cyan] OR [cyan]claude[/cyan] in your project directory")
     console.print("  4. Tell Claude: [dim]\"Read team-init-plan.md and initialize the team\"[/dim]")
 
 
 @cli.command()
-@click.option("--output", default="forge-config.yaml", help="Output config file path")
-def init(output: str) -> None:
-    """Interactively build a forge-config.yaml."""
+@click.option("--output", default=None, help="Output config file path (default: .forge/forge.yaml)")
+def init(output: str | None) -> None:
+    """Interactively build a forge.yaml configuration."""
+    from forge_cli.config_loader import FORGE_DIR, CONFIG_FILENAME
+
+    if output is None:
+        output = str(Path(FORGE_DIR) / CONFIG_FILENAME)
+
     from forge_cli.init_wizard import run_wizard
 
     run_wizard(output)
+
+
+@cli.command()
+@click.option("--config", "config_path", type=click.Path(exists=True), required=False, default=None, help="Path to forge.yaml (auto-detected if omitted)")
+@click.option("--project-dir", type=click.Path(), default=".", help="Project directory")
+def start(config_path: str | None, project_dir: str) -> None:
+    """Start a Claude CLI session that initializes the agent team.
+
+    Launches `claude` with the instruction to read team-init-plan.md and
+    initialize the team. Equivalent to running `claude` manually and
+    telling it to read the init plan.
+    """
+    import os
+    import shutil
+    import subprocess
+
+    resolved = _resolve_config(config_path, project_dir)
+
+    # Verify team-init-plan.md exists
+    project_path = Path(project_dir).resolve()
+    init_plan = project_path / "team-init-plan.md"
+    if not init_plan.exists():
+        console.print(
+            "[red]team-init-plan.md not found. Run [bold]forge generate[/bold] first.[/red]"
+        )
+        raise SystemExit(1)
+
+    # Check claude CLI is available
+    claude_bin = shutil.which("claude")
+    if not claude_bin:
+        console.print(
+            "[red]Claude CLI not found. Install it first: "
+            "https://docs.anthropic.com/en/docs/claude-code[/red]"
+        )
+        raise SystemExit(1)
+
+    console.print(f"[bold]Starting Claude session in [cyan]{project_path}[/cyan][/bold]")
+    console.print("[dim]Initializing team from team-init-plan.md...[/dim]")
+    console.print()
+
+    # Launch claude with the init prompt
+    try:
+        subprocess.run(
+            [
+                claude_bin,
+                "--print",
+                "Read team-init-plan.md and initialize the team. "
+                "Follow the startup sequence and begin Iteration 1.",
+            ],
+            cwd=str(project_path),
+            env={**os.environ},
+            check=False,
+        )
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Session interrupted.[/yellow]")
 
 
 def main() -> None:

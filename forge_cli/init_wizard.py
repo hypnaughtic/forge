@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 import click
 from rich.console import Console
@@ -331,9 +332,7 @@ def _show_summary(config: ForgeConfig) -> None:
 
 def _confirm_and_save(config: ForgeConfig, output_path: str) -> None:
     """Save config and optionally run generation."""
-    from pathlib import Path
-
-    from forge_cli.config_loader import save_config
+    from forge_cli.config_loader import ensure_forge_dir, save_config
 
     save_path = click.prompt("  Save config to", default=output_path)
 
@@ -345,16 +344,27 @@ def _confirm_and_save(config: ForgeConfig, output_path: str) -> None:
         if not overwrite:
             save_path = click.prompt("  Save config to (new path)")
 
+    # Ensure .forge dir exists and .gitignore is updated
+    project_dir = str(Path(save_path).parent)
+    if Path(save_path).parent.name == ".forge":
+        project_dir = str(Path(save_path).parent.parent)
+    ensure_forge_dir(project_dir)
+
     save_config(config, save_path)
     console.print(f"  [green]Saved to {save_path}[/green]")
 
     run_now = click.confirm("  Run forge now with this config?", default=True)
     if run_now:
-        project_dir = click.prompt("  Project directory", default=".")
-        config.project.directory = project_dir
+        proj_dir = click.prompt("  Project directory", default=".")
+        config.project.directory = proj_dir
 
         from forge_cli.generators.orchestrator import generate_all
 
         generate_all(config)
         console.print()
         console.print("[bold green]Forge generation complete![/bold green]")
+        console.print()
+        console.print("[bold]Next steps:[/bold]")
+        console.print("  1. Review the generated files in .claude/agents/")
+        console.print("  2. Run [cyan]forge start[/cyan] OR [cyan]claude[/cyan] in your project directory")
+        console.print("  3. Tell Claude: [dim]\"Read team-init-plan.md and initialize the team\"[/dim]")

@@ -48,12 +48,16 @@ class RefinementIteration:
     score: int
     reasoning: str
     cost_usd: float
+    suggestions: list[str] = field(default_factory=list)
+    changes_made: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
             "iteration": self.iteration,
             "score": self.score,
             "reasoning": self.reasoning,
+            "suggestions": self.suggestions,
+            "changes_made": self.changes_made,
             "cost_usd": self.cost_usd,
         }
 
@@ -113,8 +117,12 @@ class CostLimitExceededError(Exception):
 # Prompt builders
 # ---------------------------------------------------------------------------
 
-def _build_project_context(config: ForgeConfig) -> str:
-    """Build a concise project context string from config."""
+def _build_project_context(config: ForgeConfig, project_dir: Path | None = None) -> str:
+    """Build a concise project context string from config.
+
+    If a .forge/project-context.md exists, includes its content for
+    richer context during scoring and refinement.
+    """
     agents = config.get_active_agents()
     parts = [
         f"Project: {config.project.description}",
@@ -132,6 +140,16 @@ def _build_project_context(config: ForgeConfig) -> str:
     parts.append(f"Agents: {', '.join(agents)}")
     if config.non_negotiables:
         parts.append(f"Non-negotiables: {'; '.join(config.non_negotiables)}")
+
+    # Include summarized project context if available
+    if project_dir:
+        from forge_cli.generators.context_summarizer import load_project_context
+        context = load_project_context(project_dir)
+        if context:
+            # Truncate to avoid token limits — first 4000 chars
+            truncated = context[:4000]
+            parts.append(f"\nDetailed Project Context:\n{truncated}")
+
     return "\n".join(parts)
 
 
@@ -304,6 +322,7 @@ async def refine_single_file(
             iteration=i + 1,
             score=file_score.score,
             reasoning=file_score.reasoning,
+            suggestions=file_score.suggestions,
             cost_usd=score_cost,
         )
 
@@ -327,6 +346,7 @@ async def refine_single_file(
         )
         cumulative_cost += refine_cost
         iteration.cost_usd = score_cost + refine_cost
+        iteration.changes_made = refined.changes_made
         result.iterations.append(iteration)
 
         # Hallucination guard: reject if refined is < 50% of original length

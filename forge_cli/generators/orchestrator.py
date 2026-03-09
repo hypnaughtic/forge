@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +39,16 @@ def generate_all(
     console.print()
     console.print(f"[bold]Generating files in [cyan]{project_dir}[/cyan][/bold]")
     console.print()
+
+    # 0. Ensure .forge directory exists and .gitignore is updated
+    from forge_cli.config_loader import ensure_forge_dir
+    ensure_forge_dir(project_dir)
+
+    # 0.5. Project context summarization (if context_files configured)
+    if config.project.context_files:
+        from forge_cli.generators.context_summarizer import summarize_context
+        summarize_context(config, project_dir, llm_provider=llm_provider)
+        console.print("[green]  ✓[/green] Project context summarization")
 
     # 1. Agent instruction files → .claude/agents/
     agents_dir = project_dir / ".claude" / "agents"
@@ -90,5 +101,87 @@ def generate_all(
                 f"{config.refinement.score_threshold}% threshold"
             )
 
+        # Save refinement report to .forge/
+        _save_refinement_report(refinement_report, project_dir, config)
+
     console.print()
     return refinement_report
+
+
+def _save_refinement_report(
+    report: Any,
+    project_dir: Path,
+    config: ForgeConfig,
+) -> None:
+    """Save refinement report to .forge/refinement-report.json and .md.
+
+    The report includes per-file iteration details, suggestions, changes,
+    scores, and next scope of improvement for the user to decide whether
+    to run refine again.
+    """
+    forge_dir = project_dir / ".forge"
+    forge_dir.mkdir(parents=True, exist_ok=True)
+
+    # JSON report
+    report_data = report.to_dict()
+    json_path = forge_dir / "refinement-report.json"
+    json_path.write_text(json.dumps(report_data, indent=2))
+
+    # Human-readable Markdown report
+    md_lines: list[str] = [
+        "# Forge Refinement Report",
+        "",
+        "## Summary",
+        "",
+        f"- **Total files processed**: {len(report.files)}",
+        f"- **Files improved**: {report.files_improved}",
+        f"- **Files already good**: {report.files_already_good}",
+        f"- **All passed threshold ({config.refinement.score_threshold}%)**: "
+        f"{'Yes' if report.all_passed else 'No'}",
+        f"- **Total cost**: ${report.total_cost_usd:.4f}",
+        f"- **Total LLM calls**: {report.total_llm_calls}",
+        "",
+    ]
+
+    for file_result in report.files:
+        md_lines.extend([
+            f"## {file_result.file_path}",
+            "",
+            f"- **Type**: {file_result.file_type}",
+            f"- **Initial score**: {file_result.initial_score}/100",
+            f"- **Final score**: {file_result.final_score}/100",
+            f"- **Cost**: ${file_result.total_cost_usd:.4f}",
+            "",
+            "### Iterations",
+            "",
+        ])
+
+        for iteration in file_result.iterations:
+            md_lines.extend([
+                f"**Iteration {iteration.iteration}** — Score: {iteration.score}/100",
+                "",
+                f"> {iteration.reasoning}",
+                "",
+            ])
+
+        # Improvement suggestions
+        if file_result.final_score < config.refinement.score_threshold:
+            md_lines.extend([
+                "### Next Scope of Improvement",
+                "",
+                f"File is at {file_result.final_score}/100, below the "
+                f"{config.refinement.score_threshold}% threshold. Running "
+                "`forge generate --refine` again may improve this file further.",
+                "",
+            ])
+
+    md_lines.extend([
+        "---",
+        "",
+        "*Run `forge generate --refine` to continue improving files.*",
+    ])
+
+    md_path = forge_dir / "refinement-report.md"
+    md_path.write_text("\n".join(md_lines))
+
+    console.print(f"[green]  ✓[/green] Refinement report saved to .forge/")

@@ -30,6 +30,7 @@ class TeamProfile(str, Enum):
 class ProjectConfig(BaseModel):
     description: str = ""
     requirements: str = ""
+    context_files: list[str] = Field(default_factory=list)
     type: str = "new"  # new | existing
     existing_project_path: str = ""
     directory: str = "."
@@ -96,7 +97,7 @@ class RefinementConfig(BaseModel):
     score_threshold: int = 90
     max_iterations: int = 5
     max_concurrency: int = 0  # 0 = unlimited (all files in parallel)
-    timeout_seconds: int = 180
+    timeout_seconds: int = 300
     cost_limit_usd: float = 10.0
 
 

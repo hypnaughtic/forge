@@ -155,7 +155,7 @@ class TestRefinementConfig:
         assert config.score_threshold == 90
         assert config.max_iterations == 5
         assert config.max_concurrency == 0
-        assert config.timeout_seconds == 180
+        assert config.timeout_seconds == 300
         assert config.cost_limit_usd == 10.0
 
     def test_forge_config_has_refinement(self):
