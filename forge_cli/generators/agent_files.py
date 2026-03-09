@@ -817,6 +817,113 @@ def _visual_verification_section(agent_type: str, config: ForgeConfig) -> str:
 # Agent-specific template functions
 # =============================================================================
 
+def _lang_type_hint(config: ForgeConfig) -> str:
+    """Return language-appropriate type safety description."""
+    langs = [l.lower() for l in config.tech_stack.languages]
+    parts: list[str] = []
+    if "go" in langs or "golang" in langs:
+        parts.append("Go's type system")
+    if "typescript" in langs:
+        parts.append("TypeScript strict mode")
+    if "python" in langs:
+        parts.append("Python type hints")
+    return ", ".join(parts) if parts else "complete type annotations"
+
+
+def _parallel_streams(config: ForgeConfig) -> str:
+    """Build parallel work streams from actual agent roster and project type."""
+    agent_set = set(config.get_active_agents())
+    streams: list[str] = []
+    letter = ord('A')
+
+    if config.is_cli_project():
+        if "backend-developer" in agent_set:
+            streams.append(f"- **Stream {chr(letter)}**: CLI implementation (Backend Developer + Architect)")
+            letter += 1
+    elif config.has_web_backend():
+        if "backend-developer" in agent_set:
+            streams.append(f"- **Stream {chr(letter)}**: Backend API (Backend Developer + Architect)")
+            letter += 1
+    if config.has_frontend_involvement():
+        fe_agents = [a for a in ("frontend-engineer", "frontend-developer", "frontend-designer") if a in agent_set]
+        if fe_agents:
+            streams.append(f"- **Stream {chr(letter)}**: Frontend ({' + '.join(fe_agents)})")
+            letter += 1
+    if "devops-specialist" in agent_set:
+        streams.append(f"- **Stream {chr(letter)}**: Infrastructure/CI/CD (DevOps Specialist)")
+        letter += 1
+    if "qa-engineer" in agent_set:
+        streams.append(f"- **Stream {chr(letter)}**: Testing framework (QA Engineer)")
+        letter += 1
+    return "\n    ".join(streams) if streams else "- Identify independent work tracks based on agent assignments"
+
+
+def _smoke_test_steps(config: ForgeConfig, domain_smoke_text: str) -> str:
+    """Build smoke test protocol based on project type."""
+    is_cli = config.is_cli_project()
+    has_frontend = config.has_frontend_involvement()
+    has_web = config.has_web_backend()
+    steps: list[str] = []
+
+    if is_cli:
+        steps.extend([
+            "1. Install the CLI — verify `pip install -e .` or equivalent succeeds",
+            "2. Run `<command> --help` — verify help text is complete and accurate",
+            "3. Run `<command> --version` — verify version string is correct",
+            "4. **Test domain-specific commands**:",
+            f"   {domain_smoke_text}",
+            "5. Test error cases — invalid input, missing files, verify helpful error messages",
+            "6. Test integrations — database connects, external services reachable",
+            "7. Document results in iteration summary with representative command outputs",
+            "8. Any failure is a BLOCKER — fix before proceeding",
+        ])
+    elif has_web and has_frontend:
+        steps.extend([
+            "1. Start the application — verify all services start without errors",
+            "2. Test backend endpoints — real HTTP requests, correct status codes and response bodies",
+            "3. Test frontend UI — pages load, assets served, at least one end-to-end flow works",
+            "4. **Test domain-specific flows**:",
+            f"   {domain_smoke_text}",
+            "5. **Capture screenshots** of all key pages using Playwright — save to `docs/screenshots/smoke-test/`",
+            "6. **View screenshots** with the Read tool — verify the UI looks correct, not just that it loads",
+            "7. Test integrations — database connects, services communicate",
+            "8. Document results in iteration summary — **include screenshots as visual evidence**",
+            "9. Any failure is a BLOCKER — fix before proceeding",
+            "",
+            "Visual evidence of a working application is part of the iteration deliverable.",
+            "Include screenshots in the iteration summary for human review.",
+        ])
+    elif has_frontend:
+        steps.extend([
+            "1. Build the site — verify `npm run build` succeeds without errors",
+            "2. Start dev server — verify pages load without console errors",
+            "3. Navigate all pages — verify no broken links or missing assets",
+            "4. **Test domain-specific features**:",
+            f"   {domain_smoke_text}",
+            "5. **Capture screenshots** of all key pages using Playwright — save to `docs/screenshots/smoke-test/`",
+            "6. **View screenshots** with the Read tool — verify layout and content are correct",
+            "7. Test responsive design — verify mobile and desktop viewports",
+            "8. Document results in iteration summary — **include screenshots as visual evidence**",
+            "9. Any failure is a BLOCKER — fix before proceeding",
+        ])
+    else:
+        # Backend-only API
+        steps.extend([
+            "1. Start the server — verify it starts without errors",
+            "2. Test health endpoint — verify 200 response",
+            "3. Test all API endpoints — real HTTP requests, correct status codes, correct response bodies",
+            "4. **Test domain-specific flows**:",
+            f"   {domain_smoke_text}",
+            "5. Verify API documentation — OpenAPI/Swagger docs generated and accessible",
+            "6. Test integrations — database connects, external services reachable",
+            "7. Test error responses — structured JSON errors, no stack traces",
+            "8. Document results in iteration summary with endpoint test evidence",
+            "9. Any failure is a BLOCKER — fix before proceeding",
+        ])
+
+    return "\n    ".join(steps)
+
+
 def _team_leader_template(config: ForgeConfig) -> str:
     mode_thresholds = {
         "mvp": "70%",
@@ -852,6 +959,40 @@ def _team_leader_template(config: ForgeConfig) -> str:
         smoke_checks.append("- Dashboard: verify data loads, charts render, filters work")
     if "search" in combined:
         smoke_checks.append("- Search: run a query, verify relevant results returned")
+    # Financial / compliance domain
+    if "transaction" in combined or "ledger" in combined or "debit" in combined:
+        smoke_checks.append("- Transactions: create debit/credit, verify balance calculations, check audit trail")
+    if "pci" in combined or ("financial" in combined and "compliance" in combined):
+        smoke_checks.append("- Compliance: verify no raw card numbers in logs, audit trail immutability")
+    if "rate" in combined and "limit" in combined:
+        smoke_checks.append("- Rate limiting: verify requests are throttled beyond configured limits")
+    if "webhook" in combined:
+        smoke_checks.append("- Webhooks: trigger an event, verify webhook delivery and payload")
+    # HR domain
+    if "payroll" in combined:
+        smoke_checks.append("- Payroll: run a payroll calculation, verify tax deductions and net pay")
+    if "leave" in combined and ("management" in combined or "pto" in combined):
+        smoke_checks.append("- Leave: submit a leave request, approve/reject, verify balance update")
+    if "org" in combined and ("chart" in combined or "hierarchy" in combined):
+        smoke_checks.append("- Org chart: verify hierarchy renders correctly with employee data")
+    if "sso" in combined or "saml" in combined:
+        smoke_checks.append("- SSO: verify SAML/OIDC login flow completes successfully")
+    if "performance review" in combined:
+        smoke_checks.append("- Reviews: create a performance review, submit ratings and feedback")
+    # Pipeline / CLI domain
+    if "pipeline" in combined or "etl" in combined:
+        smoke_checks.append("- Pipeline: run a sample pipeline end-to-end (extract → transform → load)")
+    if "dry-run" in combined or "dry_run" in combined:
+        smoke_checks.append("- Dry-run: verify planned operations shown without side effects")
+    if "plugin" in combined:
+        smoke_checks.append("- Plugins: verify custom plugin loads and executes correctly")
+    # E-commerce domain
+    if "vendor" in combined and ("onboard" in combined or "storefront" in combined):
+        smoke_checks.append("- Vendor: complete vendor onboarding, verify storefront creation")
+    if "inventory" in combined:
+        smoke_checks.append("- Inventory: update stock levels, verify low-stock alerts")
+    if "order" in combined and ("tracking" in combined or "management" in combined):
+        smoke_checks.append("- Orders: create order, track status through fulfillment")
     domain_smoke_text = "\n    ".join(smoke_checks) if smoke_checks else "- Exercise core features from requirements end-to-end"
 
     return dedent(f"""\
@@ -931,29 +1072,14 @@ def _team_leader_template(config: ForgeConfig) -> str:
     ## Parallel Work Streams
 
     Identify independent work tracks. Typical streams:
-    - **Stream A**: Backend API (Backend Developer + Architect)
-    - **Stream B**: Frontend (Frontend Developer/Engineer + Designer)
-    - **Stream C**: Infrastructure/CI/CD (DevOps Specialist)
-    - **Stream D**: Testing framework (QA Engineer)
+    {_parallel_streams(config)}
 
-    Define sync points: after API contracts finalize, after infrastructure is ready, before iteration review.
+    Define sync points: {"after API contracts finalize, " if config.has_web_backend() else ""}{"after architecture design, " if not config.has_web_backend() else ""}after infrastructure is ready, before iteration review.
 
     ## Smoke Test Protocol (Mandatory)
 
     Before marking ANY iteration complete:
-    1. Start the application — verify it starts without errors
-    2. Test backend endpoints — real HTTP requests, correct status codes, correct response bodies
-    3. Test frontend UI — page loads, assets served, at least one end-to-end flow works
-    4. **Test domain-specific flows**:
-    {domain_smoke_text}
-    5. **Capture screenshots** of all key pages using Playwright — save to `docs/screenshots/smoke-test/`
-    6. **View screenshots** with the Read tool — verify the UI looks correct, not just that it loads
-    7. Test integrations — database connects, services communicate
-    8. Document results in iteration summary — **include screenshots as visual evidence**
-    9. Any failure is a BLOCKER — fix before proceeding
-
-    Visual evidence of a working application is part of the iteration deliverable.
-    Include screenshots in the iteration summary for human review.
+    {_smoke_test_steps(config, domain_smoke_text)}
 
     ## Workflow Governance (Enforcement)
 
@@ -1218,10 +1344,18 @@ def _architect_template(config: ForgeConfig) -> str:
             domain_arch.append("- **Serverless functions**: Contact form handler, input validation, email delivery or storage, rate limiting")
     if "real-time" in combined or "websocket" in combined or "chat" in combined:
         domain_arch.append("- **Real-time architecture**: WebSocket message routing, connection lifecycle, event broadcasting patterns, presence detection")
-    if "kanban" in combined or "board" in combined or "drag" in combined:
+    if "kanban" in combined or "drag" in combined or ("board" in combined and ("task" in combined or "column" in combined)):
         domain_arch.append("- **Board/state management**: Optimistic UI updates for drag-and-drop, conflict resolution for concurrent edits, state synchronization")
     if "auth" in combined or "oauth" in combined:
-        domain_arch.append("- **Authentication architecture**: OAuth2 flow design, JWT token lifecycle, session management across WebSocket connections")
+        domain_arch.append("- **Authentication architecture**: OAuth2 flow design, JWT token lifecycle, session management" + (" across WebSocket connections" if "websocket" in combined or "real-time" in combined else ""))
+    if "sso" in combined or "saml" in combined or "oidc" in combined:
+        domain_arch.append("- **SSO integration**: SAML/OIDC provider integration, token validation, session federation, identity mapping")
+    if "payroll" in combined or ("hr" in combined and "management" in combined):
+        domain_arch.append("- **HR domain architecture**: Employee hierarchy modeling (tree structure), payroll calculation engine, leave workflow state machine, audit logging for all HR mutations")
+    if "leave" in combined and ("approval" in combined or "workflow" in combined):
+        domain_arch.append("- **Approval workflows**: State machine design (pending→approved→rejected), multi-level approval chains, notification triggers")
+    if "org" in combined and ("chart" in combined or "hierarchy" in combined):
+        domain_arch.append("- **Org chart architecture**: Tree/graph data structure for reporting hierarchy, efficient subtree queries, visualization data API")
     if "cart" in combined or "e-commerce" in combined or "ecommerce" in combined:
         domain_arch.append("- **E-commerce patterns**: Cart persistence, inventory locking strategy, order state machine, payment idempotency")
     if "transaction" in combined or "ledger" in combined or "financial" in combined:
@@ -1235,10 +1369,13 @@ def _architect_template(config: ForgeConfig) -> str:
 
     domain_arch_text = "\n    ".join(domain_arch) if domain_arch else "- Design domain-specific patterns based on project requirements"
 
-    # DB-specific guidance
+    # DB-specific guidance (language-aware)
+    arch_langs = [l.lower() for l in config.tech_stack.languages]
+    arch_is_go = "go" in arch_langs or "golang" in arch_langs
     db_guidance: list[str] = []
     if "postgresql" in dbs:
-        db_guidance.append("- **PostgreSQL**: Connection pooling, migration strategy (Alembic/Prisma), JSON columns for flexible data, row-level security")
+        migration_tool = "golang-migrate/goose" if arch_is_go else "Alembic/Prisma"
+        db_guidance.append(f"- **PostgreSQL**: Connection pooling, migration strategy ({migration_tool}), JSON columns for flexible data, row-level security")
     if "redis" in dbs:
         db_guidance.append("- **Redis**: Caching strategy, pub/sub for real-time events, session storage, rate limiting patterns")
     if "mongodb" in dbs:
@@ -1269,21 +1406,53 @@ def _architect_template(config: ForgeConfig) -> str:
     - Performance budget: enforce bundle size and Core Web Vitals targets
     - Content-first: content structure drives component design, not the reverse""")
     else:
-        core_resp = dedent("""\
+        langs = [l.lower() for l in config.tech_stack.languages]
+        has_frontend = config.has_frontend_involvement()
+        is_cli = config.is_cli_project()
+        has_research = "research-strategist" in set(config.get_active_agents())
+
+        strategy_ref = "the Research Strategist's strategy" if has_research else "the project requirements"
+        if is_cli:
+            api_line = "- Define CLI command interface, configuration schema, and module boundaries"
+        elif has_frontend:
+            api_line = "- Define API contracts (OpenAPI/GraphQL schemas) that frontend and backend agree on"
+        else:
+            api_line = "- Define API contracts (OpenAPI schemas) for all endpoints"
+
+        core_resp = dedent(f"""\
     ### Architecture Design
-    - Design the system architecture based on the Research Strategist's strategy
+    - Design the system architecture based on {strategy_ref}
     - Produce: system topology diagram (as text/mermaid), component responsibilities, data flow patterns
-    - Define API contracts (OpenAPI/GraphQL schemas) that frontend and backend agree on
+    {api_line}
     - Establish coding patterns, project structure conventions, and naming standards
-    - Design the database schema and data model""")
+    - Design the {"data model and processing pipeline" if is_cli else "database schema and data model"}""")
+
+        # Language-specific cross-cutting patterns
+        if "go" in langs or "golang" in langs:
+            lang_patterns = "\n    - Go interface-based dependency injection (wire/manual)"
+            lang_patterns += "\n    - Go error handling patterns (errors.Is/As, custom error types)"
+            lang_patterns += "\n    - Go service boundaries and inter-service communication"
+        else:
+            lang_patterns = "\n    - Dependency injection / service layer patterns"
+
         cross_cutting = dedent(f"""\
     ### Cross-Cutting Concerns
     - Authentication and authorization patterns
     - Error handling strategy (error codes, response formats)
     - Logging and observability patterns
-    - Configuration management (env vars, config files)
-    - Dependency injection / service layer patterns{db_section}""")
-        vendor_section = dedent("""\
+    - Configuration management (env vars, config files){lang_patterns}{db_section}""")
+
+        # Language-aware vendor section
+        if "go" in langs or "golang" in langs:
+            vendor_section = dedent("""\
+    ### Vendor-Agnostic Design (MANDATORY)
+    All external dependencies MUST be behind abstract interfaces:
+    - Database: repository pattern with Go interfaces
+    - Cache: cache interface with Redis/in-memory implementations
+    - External APIs: service interface with real/mock implementations
+    - Use Go interfaces at package boundaries for testability""")
+        else:
+            vendor_section = dedent("""\
     ### Vendor-Agnostic Design (MANDATORY)
     All external dependencies MUST be behind abstract interfaces:
     - Database: repository pattern with interface
@@ -1441,9 +1610,14 @@ def _backend_developer_template(config: ForgeConfig) -> str:
     framework_section = f"\n\n    ### Framework-Specific Patterns\n    {framework_text}" if framework_text else ""
 
     # DB-specific guidance
+    langs = [l.lower() for l in config.tech_stack.languages]
+    is_go = "go" in langs or "golang" in langs
     db_guidance: list[str] = []
     if "postgresql" in " ".join(dbs):
-        db_guidance.append("- **PostgreSQL + SQLAlchemy/Alembic**: Use async sessions, write reversible migrations, leverage database constraints (UNIQUE, CHECK, FK)")
+        if is_go:
+            db_guidance.append("- **PostgreSQL**: Use pgx or sqlx driver, write reversible migrations, leverage database constraints (UNIQUE, CHECK, FK)")
+        else:
+            db_guidance.append("- **PostgreSQL + SQLAlchemy/Alembic**: Use async sessions, write reversible migrations, leverage database constraints (UNIQUE, CHECK, FK)")
     if "redis" in dbs:
         db_guidance.append("- **Redis**: Use for caching, session storage, pub/sub for real-time events, rate limiting with TTL keys")
     if "mongodb" in " ".join(dbs):
@@ -1507,7 +1681,7 @@ def _backend_developer_template(config: ForgeConfig) -> str:
     - Verify your code actually runs — start the server, hit your endpoints
 
     ### Quality Standards
-    - Type-safe code (TypeScript strict mode, Python type hints, etc.)
+    - Type-safe code ({_lang_type_hint(config)})
     - Input validation at system boundaries
     - Meaningful error messages (not stack traces) for API consumers
     - Idempotent operations where applicable
@@ -1569,7 +1743,45 @@ def _frontend_developer_template(config: ForgeConfig) -> str:
 
 
 def _frontend_designer_template(config: ForgeConfig) -> str:
-    return dedent("""\
+    req = config.project.requirements.lower()
+    desc = config.project.description.lower()
+    combined = f"{req} {desc}"
+
+    # Build domain-specific design items
+    domain_design: list[str] = []
+    if "kanban" in combined or "drag" in combined or ("board" in combined and ("task" in combined or "column" in combined)):
+        domain_design.append("- Design Kanban board: card layouts, column headers, drag handles, drop zones, visual feedback during drag")
+        domain_design.append("- Design task detail view: assignment badges, priority indicators, due date display, comment threads")
+    if "chat" in combined or "message" in combined or "real-time" in combined:
+        domain_design.append("- Design chat interface: message bubbles, typing indicators, @mention highlights, thread views")
+    if "dashboard" in combined or "admin" in combined:
+        domain_design.append("- Design dashboard: data cards, charts, KPI widgets, filter controls, responsive grid layout")
+    if "auth" in combined or "login" in combined:
+        domain_design.append("- Design auth flows: login, registration, password reset, OAuth buttons, form validation states")
+    if "payroll" in combined or ("hr" in combined and "management" in combined):
+        domain_design.append("- Design HR interfaces: employee profiles, payroll dashboards (salary breakdown, tax tables), leave request forms")
+        domain_design.append("- Design approval workflows: request cards, approval/rejection buttons, status badges, timeline view")
+    if "org" in combined and ("chart" in combined or "hierarchy" in combined):
+        domain_design.append("- Design org chart: hierarchy visualization, expandable nodes, employee cards, reporting lines")
+    if "e-commerce" in combined or "marketplace" in combined or "cart" in combined:
+        domain_design.append("- Design product cards, catalog grid, search/filter UI, shopping cart, checkout flow steps")
+        domain_design.append("- Design vendor dashboard: sales charts, order management table, payout history")
+    if "portfolio" in combined or "showcase" in combined:
+        domain_design.append("- Design project showcase: card grid with screenshots, detail modal/page, technology tags")
+        domain_design.append("- Design hero section, about page layout, contact form")
+    if "blog" in combined or "mdx" in combined:
+        domain_design.append("- Design blog: post list cards, post detail with MDX rendering, reading time, tags/categories")
+    if "dark mode" in combined or "dark-mode" in combined:
+        domain_design.append("- Design dark mode: define color tokens for both themes, toggle component, smooth transition")
+    if "notification" in combined:
+        domain_design.append("- Design notification system: badge indicators, dropdown list, notification types (info/warning/error)")
+    if "upload" in combined or "file" in combined or "attachment" in combined:
+        domain_design.append("- Design file handling: upload dropzone, progress indicator, file preview, attachment cards")
+
+    domain_text = "\n    ".join(domain_design) if domain_design else ""
+    domain_section = f"\n\n    ## Domain-Specific Design\n\n    {domain_text}" if domain_text else ""
+
+    return dedent(f"""\
     # Frontend Designer
 
     ## Identity & Role
@@ -1587,7 +1799,7 @@ def _frontend_designer_template(config: ForgeConfig) -> str:
     - Ensure accessibility standards (WCAG AA minimum)
     - Review frontend implementation for design fidelity
     - **Screenshot the implemented UI** and compare against your design specs
-    - File visual fidelity bugs with screenshots showing expected vs actual""")
+    - File visual fidelity bugs with screenshots showing expected vs actual{domain_section}""")
 
 
 def _qa_engineer_template(config: ForgeConfig) -> str:
@@ -2040,6 +2252,18 @@ def _performance_engineer_template(config: ForgeConfig) -> str:
         - Vendor dashboard: analytics queries perform within acceptable limits
         - Image/media: CDN cache hit ratios and load times for product images"""))
 
+    if "payroll" in combined or ("hr" in combined and "management" in combined):
+        domain_sections.append(dedent("""\
+
+        ### HR / Payroll Performance
+
+        - Payroll batch processing: measure time to process full payroll run for expected employee count
+        - Employee search/directory: sub-second response for org-wide search with filters
+        - Org chart rendering: measure render time for large org hierarchies (1000+ nodes)
+        - Leave balance calculations: verify accuracy and latency under concurrent requests
+        - Approval workflow throughput: measure end-to-end time from submission to notification
+        - Report generation: performance of payroll summaries, tax reports, headcount analytics"""))
+
     if "microservice" in combined:
         domain_sections.append(dedent("""\
 
@@ -2115,6 +2339,21 @@ def _documentation_specialist_template(config: ForgeConfig) -> str:
         domain_items.append("- Document service boundaries, inter-service communication, and API contracts")
     if config.tech_stack.databases:
         domain_items.append("- Document database schema, migrations, and data model relationships")
+    # Domain-specific documentation
+    if "pipeline" in combined or "etl" in combined:
+        domain_items.append("- Document pipeline YAML schema with examples for each stage type")
+        domain_items.append("- Document dead-letter queue error handling and recovery procedures")
+        if "version" in combined and "migration" in combined:
+            domain_items.append("- Document pipeline versioning and migration workflows")
+    if "transaction" in combined or "financial" in combined or "pci" in combined:
+        domain_items.append("- Document compliance requirements (PCI-DSS data handling, audit trail)")
+        domain_items.append("- Document API security: rate limiting, authentication, error codes")
+    if "payroll" in combined or ("hr" in combined and "management" in combined):
+        domain_items.append("- Document HR workflows: payroll processing, leave management, approval chains")
+        domain_items.append("- Document SSO/SAML integration setup and configuration")
+    if "vendor" in combined or ("e-commerce" in combined and "marketplace" in combined):
+        domain_items.append("- Document vendor onboarding process and storefront setup")
+        domain_items.append("- Document payment flow (Stripe integration, webhooks, refunds)")
 
     domain_text = "\n    ".join(domain_items) if domain_items else "- Write and maintain project documentation"
 

@@ -25,6 +25,175 @@ def _non_negotiables_init_section(config: ForgeConfig) -> str:
     """)
 
 
+def _phase3_tasks(config: ForgeConfig, agents: list[str]) -> str:
+    """Build Phase 3 task list based on actual agent roster and project type."""
+    agent_set = set(agents)
+    has_frontend = config.has_frontend_involvement()
+    is_cli = config.is_cli_project()
+    has_web = config.has_web_backend()
+    sections: list[str] = []
+
+    if "research-strategist" in agent_set:
+        sections.append(dedent("""\
+
+        #### Research & Strategy (Research Strategist)
+        - Research technology options based on requirements and tech stack preferences
+        - Produce: technical strategy, iteration plan (3-7 iterations), risk assessment"""))
+
+    if "architect" in agent_set:
+        if is_cli:
+            sections.append(dedent("""\
+
+            #### Architecture (Architect)
+            - Design CLI command structure, plugin architecture, and data flow patterns
+            - Define module boundaries, configuration schema, error handling strategy
+            - Establish coding patterns and conventions"""))
+        elif has_frontend and not has_web:
+            sections.append(dedent("""\
+
+            #### Architecture (Architect)
+            - Design component architecture, page layout system, content schemas
+            - Define styling patterns, responsive breakpoints, and build configuration
+            - Establish coding patterns and conventions"""))
+        else:
+            sections.append(dedent("""\
+
+            #### Architecture (Architect)
+            - Design system architecture based on strategy
+            - Define API contracts, data models, project structure
+            - Establish coding patterns and conventions"""))
+
+    if "devops-specialist" in agent_set:
+        if is_cli:
+            infra_items = dedent("""\
+
+            #### Infrastructure (DevOps Specialist)
+            - Set up CI/CD pipeline configuration
+            - Set up project scaffolding (build tools, linting, testing framework)
+            - Configure package distribution (setuptools/pyproject.toml)""")
+        elif has_frontend and not has_web:
+            infra_items = dedent("""\
+
+            #### Infrastructure (DevOps Specialist)
+            - Set up build pipeline and deployment configuration
+            - Configure CI/CD for build, test, and deploy
+            - Set up project scaffolding (build tools, linting, testing framework)""")
+        else:
+            infra_items = dedent("""\
+
+            #### Infrastructure (DevOps Specialist)
+            - Set up Docker Compose for local development
+            - Create CI/CD pipeline configuration
+            - Set up project scaffolding (build tools, linting, testing framework)""")
+        if config.llm_gateway.enabled:
+            infra_items += "\n    - Install and configure llm-gateway"
+        sections.append(infra_items)
+
+    # Implementation section — adapt to project type
+    impl_agents = [a for a in ("backend-developer", "frontend-engineer", "frontend-developer") if a in agent_set]
+    if impl_agents:
+        if is_cli:
+            impl_text = dedent("""\
+
+            #### Implementation (Backend Developer)
+            - Implement CLI commands and data processing logic
+            - Follow architecture patterns from Architect
+            - Write input parsing, validation, and error handling""")
+        elif has_frontend and not has_web:
+            impl_text = dedent("""\
+
+            #### Implementation (Frontend)
+            - Implement pages, components, and content based on iteration 1 scope
+            - Follow architecture patterns and component interfaces from Architect""")
+        elif has_frontend:
+            impl_text = dedent("""\
+
+            #### Implementation (Backend + Frontend)
+            - Implement core feature(s) based on iteration 1 scope
+            - Follow architecture patterns from Architect
+            - Use API contracts for frontend-backend integration""")
+        else:
+            impl_text = dedent("""\
+
+            #### Implementation (Backend Developer)
+            - Implement API endpoints and business logic based on iteration 1 scope
+            - Follow architecture patterns from Architect
+            - Implement data layer and service integrations""")
+        if config.llm_gateway.enabled:
+            impl_text += "\n    - All LLM calls MUST use llm-gateway (never import vendor SDKs directly)"
+        sections.append(impl_text)
+
+    if "qa-engineer" in agent_set:
+        if is_cli:
+            sections.append(dedent("""\
+
+            #### Quality (QA Engineer)
+            - Set up testing framework (pytest)
+            - Write tests for CLI commands and data processing
+            - Define quality gates (test coverage, command behavior verification)"""))
+        elif has_frontend:
+            sections.append(dedent("""\
+
+            #### Quality (QA Engineer)
+            - Set up testing framework
+            - Set up Playwright for visual verification: `npx playwright install chromium`
+            - Write tests for iteration 1 deliverables
+            - Capture screenshot baselines for all key pages
+            - Define quality gates (including visual regression)"""))
+        else:
+            sections.append(dedent("""\
+
+            #### Quality (QA Engineer)
+            - Set up testing framework
+            - Write API integration tests for iteration 1 endpoints
+            - Define quality gates (coverage targets, API contract compliance)"""))
+
+    if "critic" in agent_set:
+        sections.append(dedent("""\
+
+        #### Review (Critic)
+        - Review all iteration 1 deliverables
+        - Check requirements compliance, architecture compliance, code quality"""))
+
+    return "\n".join(sections) if sections else ""
+
+
+def _phase4_checklist(config: ForgeConfig) -> str:
+    """Build Phase 4 verification checklist based on project type."""
+    has_frontend = config.has_frontend_involvement()
+    is_cli = config.is_cli_project()
+    has_web = config.has_web_backend()
+    threshold = '70%' if config.mode.value == 'mvp' else '90%' if config.mode.value == 'production-ready' else '100%'
+
+    items = [
+        "1. All tasks have deliverables",
+        "2. All tests pass",
+    ]
+
+    if is_cli:
+        items.append("3. **Smoke test**: CLI installs, commands run, output is correct")
+        items.append("4. **Output verification**: Help text and error messages reviewed")
+    elif has_frontend and has_web:
+        items.append("3. **Smoke test**: Application starts, endpoints respond, UI loads")
+        items.append("4. **Visual verification**: Screenshots of all key pages captured and reviewed")
+    elif has_frontend:
+        items.append("3. **Smoke test**: Build succeeds, dev server starts, pages load")
+        items.append("4. **Visual verification**: Screenshots of all key pages captured and reviewed")
+    elif has_web:
+        items.append("3. **Smoke test**: Server starts, all endpoints respond with correct status codes")
+        items.append("4. **API documentation**: OpenAPI docs generated and accurate")
+    else:
+        items.append("3. **Smoke test**: Application starts and core features work")
+
+    items.extend([
+        f"{'5' if len(items) > 3 else '4'}. Code review completed",
+        f"{'6' if len(items) > 4 else '5'}. Quality threshold met ({threshold})",
+        f"{'7' if len(items) > 5 else '6'}. Tag: `iteration-1-verified`",
+    ])
+
+    return "\n    ".join(items)
+
+
 def generate_team_init_plan(config: ForgeConfig, project_dir: Path) -> None:
     """Generate team-init-plan.md in the project root."""
     agents = config.get_active_agents()
@@ -232,49 +401,11 @@ def generate_team_init_plan(config: ForgeConfig, project_dir: Path) -> None:
     ### Phase 3: Iteration 1 — Bootstrap
 
     The first iteration should establish the project foundation:
-
-    #### Research & Strategy (Research Strategist)
-    - Research technology options based on requirements and tech stack preferences
-    - Produce: technical strategy, iteration plan (3-7 iterations), risk assessment
-
-    #### Architecture (Architect)
-    - Design system architecture based on strategy
-    - Define API contracts, data models, project structure
-    - Establish coding patterns and conventions
-
-    #### Infrastructure (DevOps Specialist)
-    - Set up Docker Compose for local development
-    - Create CI/CD pipeline configuration
-    - Set up project scaffolding (build tools, linting, testing framework)
-    {'- Install and configure llm-gateway: `pip install ' + "'llm-gateway @ git+https://github.com/Rushabh1798/llm-gateway.git'" + '`' + chr(10) + '    - Configure LLM_PROVIDER env var in .env and Docker Compose' if config.llm_gateway.enabled else ''}
-
-    #### Implementation (Backend + Frontend)
-    - Implement core feature(s) based on iteration 1 scope
-    - Follow architecture patterns from Architect
-    - Use API contracts for frontend-backend integration
-    {'- All LLM calls MUST use llm-gateway (never import vendor SDKs directly)' if config.llm_gateway.enabled else ''}
-
-    #### Quality (QA Engineer)
-    - Set up testing framework
-    - Set up Playwright for visual verification: `npx playwright install chromium`
-    - Write tests for iteration 1 deliverables
-    - Capture screenshot baselines for all key pages
-    - Define quality gates (including visual regression)
-
-    #### Review (Critic)
-    - Review all iteration 1 deliverables
-    - Check requirements compliance, architecture compliance, code quality
-
+    {_phase3_tasks(config, agents)}
     ### Phase 4: Verify and Proceed
 
     Before marking Iteration 1 complete:
-    1. All tasks have deliverables
-    2. All tests pass
-    3. **Smoke test**: Application starts, endpoints respond, UI loads
-    4. **Visual verification**: Screenshots of all key pages captured and reviewed
-    5. Code review completed
-    6. Quality threshold met ({'70%' if config.mode.value == 'mvp' else '90%' if config.mode.value == 'production-ready' else '100%'})
-    7. Tag: `iteration-1-verified`
+    {_phase4_checklist(config)}
 
     ## Agent File Locations
 

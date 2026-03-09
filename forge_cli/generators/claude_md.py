@@ -179,13 +179,7 @@ def generate_claude_md(config: ForgeConfig, project_dir: Path) -> None:
     Example: To spawn the backend developer, use the Agent tool and include the
     contents of `.claude/agents/backend-developer.md` in the system prompt.
     {atlassian_section}{spawning_section}{workflow_section}{naming_section}{llm_gateway_section}{git_auth_section}
-    ## Visual Verification
-
-    Playwright MCP is configured in `.claude/mcp.json` for browser automation and screenshots.
-    - Frontend agents and QA must **visually verify** their work via screenshots before marking tasks complete
-    - Use Playwright CLI or MCP to capture screenshots, then use the Read tool to view them
-    - Screenshots are saved to `docs/screenshots/` for human review
-    - Smoke tests must include screenshot evidence of a working UI
+    {"## Visual Verification" + chr(10) + chr(10) + "    Playwright MCP is configured in `.claude/mcp.json` for browser automation and screenshots." + chr(10) + "    - Frontend agents and QA must **visually verify** their work via screenshots before marking tasks complete" + chr(10) + "    - Use Playwright CLI or MCP to capture screenshots, then use the Read tool to view them" + chr(10) + "    - Screenshots are saved to `docs/screenshots/` for human review" + chr(10) + "    - Smoke tests must include screenshot evidence of a working UI" if config.has_frontend_involvement() else "## Verification" + chr(10) + chr(10) + ("    - **CLI output verification**: Capture and review command outputs for all subcommands" + chr(10) + "    - Verify help text is complete and accurate, error messages are helpful" + chr(10) + "    - Playwright MCP is configured for API documentation screenshots if applicable" if config.is_cli_project() else "    - **API documentation verification**: Verify OpenAPI/Swagger docs are generated and accurate" + chr(10) + "    - Playwright MCP is configured in `.claude/mcp.json` — use for API docs screenshots" + chr(10) + "    - Smoke tests must verify all endpoints respond correctly with proper status codes")}
 
     ## Project Requirements
 

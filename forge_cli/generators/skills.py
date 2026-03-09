@@ -548,6 +548,13 @@ def _spawn_agent_skill(config: ForgeConfig) -> str:
     4. **Verify spawn**: Confirm the sub-agent acknowledged its role and task
     5. **Track**: Log the spawned agent in the current iteration status
 
+    ## Domain Context for Spawning
+
+    When spawning agents for this project, include this domain context:
+    - **Project**: {config.project.description}
+    - **Requirements**: {config.project.requirements[:500] if config.project.requirements else config.project.description}
+    - **Strategy**: {config.strategy.value} — {"agents have full autonomy" if config.strategy.value == "auto-pilot" else "agents ask human only for architecture/scope/domain decisions" if config.strategy.value == "co-pilot" else "agents present significant decisions to human for approval"}
+
     ## Error Handling
 
     - If agent file not found: list available agents from `.claude/agents/` and report error
@@ -1268,7 +1275,8 @@ def _pr_workflow_skill(config: ForgeConfig) -> str:
     req = config.project.requirements.lower()
     desc = config.project.description.lower()
     pr_combined = f"{req} {desc}"
-    domain_test_lines = []
+    is_cli = config.is_cli_project()
+    domain_test_lines: list[str] = []
     if "auth" in pr_combined:
         domain_test_lines.append("- Auth changes: verify login/logout and user sessions work")
     if "cart" in pr_combined or "checkout" in pr_combined:
@@ -1277,12 +1285,38 @@ def _pr_workflow_skill(config: ForgeConfig) -> str:
         domain_test_lines.append("- Product changes: verify product display and search")
     if "real-time" in pr_combined or "websocket" in pr_combined or "chat" in pr_combined:
         domain_test_lines.append("- Real-time changes: verify WebSocket connectivity and live updates")
-    if "kanban" in pr_combined or "board" in pr_combined or "task" in pr_combined:
+    if "kanban" in pr_combined or "drag" in pr_combined or ("board" in pr_combined and "task" in pr_combined):
         domain_test_lines.append("- Board/task changes: verify drag-and-drop, task state transitions")
-    if "notification" in pr_combined or "email" in pr_combined:
+    if "notification" in pr_combined or ("email" in pr_combined and "notification" in pr_combined):
         domain_test_lines.append("- Notification changes: verify delivery and rendering")
-    if "upload" in pr_combined or "file" in pr_combined or "attachment" in pr_combined:
+    if ("upload" in pr_combined or "attachment" in pr_combined) and not is_cli:
         domain_test_lines.append("- File changes: verify upload, validation, and retrieval")
+    # Financial domain
+    if "transaction" in pr_combined or "ledger" in pr_combined or "financial" in pr_combined:
+        domain_test_lines.append("- Transaction changes: verify bookkeeping accuracy and audit trail")
+    if "pci" in pr_combined:
+        domain_test_lines.append("- Security: verify no raw card numbers in logs or responses")
+    if "rate" in pr_combined and "limit" in pr_combined:
+        domain_test_lines.append("- Rate limiting: verify throttling works correctly")
+    if "webhook" in pr_combined:
+        domain_test_lines.append("- Webhook changes: verify payload delivery and retry logic")
+    # HR domain
+    if "payroll" in pr_combined:
+        domain_test_lines.append("- Payroll changes: verify tax calculations and deduction accuracy")
+    if "leave" in pr_combined and ("approval" in pr_combined or "management" in pr_combined):
+        domain_test_lines.append("- Leave changes: verify approval workflow state transitions")
+    if "sso" in pr_combined or "saml" in pr_combined:
+        domain_test_lines.append("- SSO changes: verify SAML/OIDC login flow end-to-end")
+    # Pipeline / CLI domain
+    if "pipeline" in pr_combined or "etl" in pr_combined:
+        domain_test_lines.append("- Pipeline changes: verify end-to-end extract → transform → load")
+    if "plugin" in pr_combined and is_cli:
+        domain_test_lines.append("- Plugin changes: verify plugin loading and execution")
+    # E-commerce
+    if "vendor" in pr_combined and ("onboard" in pr_combined or "storefront" in pr_combined):
+        domain_test_lines.append("- Vendor changes: verify onboarding and storefront creation")
+    if "inventory" in pr_combined:
+        domain_test_lines.append("- Inventory changes: verify stock tracking and alerts")
     domain_test_text = "\n".join(f"   {l}" for l in domain_test_lines)
     domain_section = f"\n\n    **Domain-specific testing** (run if your changes touch these areas):\n{domain_test_text}" if domain_test_lines else ""
 
@@ -1379,6 +1413,12 @@ def _release_management_skill(config: ForgeConfig) -> str:
         domain_checks.append("- Transaction processing verified (create, validate, reconcile)")
     if "audit" in combined or "compliance" in combined:
         domain_checks.append("- Audit trail integrity verified (immutable records, no data leakage)")
+    if "payroll" in combined or ("hr" in combined and "management" in combined):
+        domain_checks.append("- Payroll calculations verified (salary, taxes, deductions produce correct totals)")
+        domain_checks.append("- Leave management workflows tested (request, approve, reject, balance updates)")
+        domain_checks.append("- SSO/SAML authentication flow verified end-to-end")
+        domain_checks.append("- Audit logs capture all sensitive operations (payroll runs, permission changes)")
+        domain_checks.append("- Employee data privacy: PII masking and access controls verified")
     if config.tech_stack.databases:
         dbs = ", ".join(config.tech_stack.databases)
         domain_checks.append(f"- Database ({dbs}) migrations verified (up and down)")
