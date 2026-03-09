@@ -59,13 +59,13 @@ def _build_agent_file(agent_type: str, config: ForgeConfig) -> str:
         sections.append(_atlassian_section(agent_type, config))
 
     # Visual verification protocol
-    # Always-on for frontend specialists and QA (they inherently work on UI)
-    # Conditional on frontend involvement for team-leader and critic (review roles)
-    always_visual = {"frontend-engineer", "frontend-developer", "frontend-designer", "qa-engineer"}
-    review_visual = {"team-leader", "critic"}
+    # Frontend specialists always get it (they inherently work on UI)
+    # QA, team-leader, and critic get it only when project has frontend involvement
+    always_visual = {"frontend-engineer", "frontend-developer", "frontend-designer"}
+    conditional_visual = {"qa-engineer", "team-leader", "critic"}
     if agent_type in always_visual:
         sections.append(_visual_verification_section(agent_type, config))
-    elif agent_type in review_visual and config.has_frontend_involvement():
+    elif agent_type in conditional_visual and config.has_frontend_involvement():
         sections.append(_visual_verification_section(agent_type, config))
 
     # LLM Gateway integration (if enabled)
@@ -382,8 +382,8 @@ def _sub_agent_spawning_section(agent_type: str, config: ForgeConfig) -> str:
     ### When to Spawn Sub-Agents
 
     - Your assigned task can be decomposed into **independent** sub-tasks that benefit from parallel execution
-    - Example: You're assigned to build an entire frontend — spawn sub-agents for independent pages/features
-    - Example: A backend API change requires checking frontend integration impacts — spawn a frontend sub-agent
+    - Example: You're assigned to build an entire {"frontend — spawn sub-agents for independent pages/features" if config.has_frontend_involvement() else "module — spawn sub-agents for independent components"}
+    - Example: {"A backend API change requires checking frontend integration impacts — spawn a frontend sub-agent" if config.has_frontend_involvement() else "A core module change requires checking dependent modules — spawn sub-agents for impact analysis"}
     - Example: Multiple independent test suites need to run — spawn sub-agents per suite
 
     ### How to Spawn
@@ -406,8 +406,8 @@ def _sub_agent_spawning_section(agent_type: str, config: ForgeConfig) -> str:
     ### Cross-Specialty Spawning
 
     You may spawn sub-agents of a DIFFERENT specialty when needed:
-    - Backend developer changes an API → spawn a frontend sub-agent to check integration impacts
-    - Frontend engineer needs a quick API endpoint → spawn a backend sub-agent
+    - {"Backend developer changes an API → spawn a frontend sub-agent to check integration impacts" if config.has_frontend_involvement() else "Backend developer changes an API → spawn a QA sub-agent to verify integration impacts"}
+    - {"Frontend engineer needs a quick API endpoint → spawn a backend sub-agent" if config.has_frontend_involvement() else "Any agent needs architecture guidance → spawn an architect sub-agent for review"}
     - Any agent can spawn a QA sub-agent to validate their own output
 
     Always load the correct specialty's instruction file from `.claude/agents/` for cross-specialty spawns.
@@ -474,9 +474,7 @@ def _agent_naming_section(config: ForgeConfig) -> str:
     ### Where to Use Your Name
 
     - **Git commits**: `[YourName] feat: description`
-    - **Git branches**: `agent/YourName/task-id-description`
-    - **Jira comments and updates**: Sign all updates with your name
-    - **Confluence edits**: Attribute your contributions
+    - **Git branches**: `agent/YourName/task-id-description`{"" if not config.atlassian.enabled else chr(10) + "    - **Jira comments and updates**: Sign all updates with your name" + chr(10) + "    - **Confluence edits**: Attribute your contributions"}
     - **All inter-agent messages**: Use your name as the sender
     - **Status reports**: Identify yourself by name
 
@@ -945,7 +943,7 @@ def _team_leader_template(config: ForgeConfig) -> str:
         smoke_checks.append("- Cart: add item to cart, update quantity, remove item")
     if "checkout" in combined or "payment" in combined:
         smoke_checks.append("- Checkout: complete a purchase flow end-to-end")
-    if "product" in combined or "catalog" in combined:
+    if "catalog" in combined or ("product" in combined and "production" not in combined):
         smoke_checks.append("- Catalog: browse products, search, filter by category")
     if "chat" in combined or "message" in combined:
         smoke_checks.append("- Chat: send a message, verify real-time delivery")
@@ -1034,7 +1032,7 @@ def _team_leader_template(config: ForgeConfig) -> str:
     ### TEST
     - Test deliverables as they arrive — don't wait for all agents to finish
     - If QA Engineer is active, delegate testing. Otherwise, instruct delivering agents to self-test
-    - Run smoke tests: start the app, hit endpoints, verify UI loads, check integrations
+    - Run smoke tests: {"start the app, hit endpoints, verify UI loads, check integrations" if config.has_frontend_involvement() else "start the app, hit endpoints, verify responses are correct, check integrations" if config.has_web_backend() else "run CLI commands, verify outputs, check integrations"}
     - **Verify the application actually starts and responds** — passing tests alone is NOT sufficient
 
     ### INTEGRATE

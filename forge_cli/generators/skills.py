@@ -219,7 +219,7 @@ def _functional_checks(config: ForgeConfig) -> str:
         checks.append("- Transaction processing works correctly (create, validate, record)?")
     if "audit" in combined or "compliance" in combined:
         checks.append("- Audit trail captures all operations with immutable records?")
-    if ("product" in combined or "catalog" in combined) and has_frontend:
+    if ("catalog" in combined or ("product" in combined and "production" not in combined)) and has_frontend:
         checks.append("- Product catalog functionality complete (browse, search, filter)?")
     if "cart" in combined or "shopping" in combined:
         checks.append("- Shopping cart operations functional (add, remove, update quantities)?")
@@ -1123,7 +1123,7 @@ def _screenshot_review_skill(config: ForgeConfig) -> str:
         pages.append("- Login page")
         pages.append("- Registration page")
         pages.append("- User profile / account settings")
-    if "product" in combined or "catalog" in combined:
+    if "catalog" in combined or ("product" in combined and "production" not in combined):
         pages.append("- Product listing / catalog page")
         pages.append("- Product detail page")
     if "cart" in combined or "shopping" in combined:
@@ -1281,7 +1281,7 @@ def _pr_workflow_skill(config: ForgeConfig) -> str:
         domain_test_lines.append("- Auth changes: verify login/logout and user sessions work")
     if "cart" in pr_combined or "checkout" in pr_combined:
         domain_test_lines.append("- Cart/checkout changes: test full purchase flow end-to-end")
-    if "product" in pr_combined or "catalog" in pr_combined:
+    if "catalog" in pr_combined or ("product" in pr_combined and "production" not in pr_combined):
         domain_test_lines.append("- Product changes: verify product display and search")
     if "real-time" in pr_combined or "websocket" in pr_combined or "chat" in pr_combined:
         domain_test_lines.append("- Real-time changes: verify WebSocket connectivity and live updates")
