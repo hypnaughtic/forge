@@ -221,13 +221,10 @@ class TestCoplannerGeneration:
         """Generation creates .forge directory."""
         assert (self.project_dir / ".forge").is_dir()
 
-    def test_gitignore_updated(self):
-        """Generation adds .forge/ and .claude/ to .gitignore."""
+    def test_no_gitignore_created(self):
+        """Generation does not create or modify .gitignore."""
         gitignore = self.project_dir / ".gitignore"
-        assert gitignore.exists()
-        content = gitignore.read_text()
-        assert ".forge/" in content
-        assert ".claude/" in content
+        assert not gitignore.exists()
 
 
 # ---------------------------------------------------------------------------
@@ -592,3 +589,187 @@ class TestCoplannerCrossFileConsistency:
         """CLAUDE.md references agent instruction file paths."""
         claude_md = (self.project_dir / "CLAUDE.md").read_text()
         assert ".claude/agents/" in claude_md
+
+
+# ---------------------------------------------------------------------------
+# Context summarization quality scoring tests
+# ---------------------------------------------------------------------------
+
+
+class TestCoplannerContextQuality:
+    """Score the quality of project context summarization.
+
+    When FORGE_TEST_DRY_RUN=0, uses Sonnet via llm-gateway to score the
+    summarization against the original source material. Verifies that the
+    LLM-generated summary captures all key points without losing details.
+    """
+
+    @pytest.fixture(autouse=True)
+    def setup(self, tmp_path):
+        """Generate context summary for scoring."""
+        from forge_cli.generators.context_summarizer import (
+            build_raw_context,
+            summarize_context,
+        )
+
+        self.config = _load_co_planner_config()
+        self.config.project.directory = str(tmp_path)
+        self.project_dir = tmp_path
+
+        # Build raw context for comparison
+        self.raw_context = build_raw_context(self.config)
+
+        # Generate summary
+        provider = _get_refinement_provider()
+        self.summary = summarize_context(
+            self.config, tmp_path, llm_provider=provider,
+        )
+        self.context_file = tmp_path / ".forge" / "project-context.md"
+
+    def test_summary_not_empty(self):
+        """Summary should be substantial."""
+        assert len(self.summary) > 200
+
+    def test_summary_saved_to_file(self):
+        """Summary is persisted to .forge/project-context.md."""
+        assert self.context_file.exists()
+        assert self.context_file.read_text() == self.summary
+
+    def test_summary_mentions_project_name(self):
+        """Summary includes the project name."""
+        assert "co-planner" in self.summary.lower() or "co_planner" in self.summary.lower()
+
+    def test_summary_mentions_key_technologies(self):
+        """Summary references core technologies from the project."""
+        lower = self.summary.lower()
+        # In dry-run mode, fake provider returns a canned summary that may not
+        # have all technologies. Check for at least 2 of the 4 key techs.
+        found = [tech for tech in ["fastapi", "react", "websocket", "postgresql"] if tech in lower]
+        if FORGE_DRY_RUN:
+            assert len(found) >= 2, f"Summary missing key technologies. Found only: {found}"
+        else:
+            assert len(found) == 4, f"Summary missing key technologies: {set(['fastapi', 'react', 'websocket', 'postgresql']) - set(found)}"
+
+    def test_summary_mentions_suggestion_engine(self):
+        """Summary captures the multi-tier suggestion engine concept."""
+        lower = self.summary.lower()
+        assert "suggestion" in lower, "Summary missing suggestion engine concept"
+
+    def test_raw_context_includes_all_spec_files(self):
+        """Raw context includes content from all spec files."""
+        # These are key terms from spec files that must be in raw context
+        key_terms = [
+            "feedback",    # feedback-loop.md
+            "pattern",     # pattern-library.md
+            "rag",         # rag-architecture.md
+            "cache",       # suggestion-cache.md
+            "pipeline",    # suggestion-pipeline.md
+            "prediction",  # prediction-quality.md
+        ]
+        lower = self.raw_context.lower()
+        for term in key_terms:
+            assert term in lower, f"Raw context missing spec content for: {term}"
+
+    @pytest.mark.skipif(FORGE_DRY_RUN, reason="LLM scoring requires real provider")
+    @pytest.mark.timeout(300)
+    def test_llm_scores_summary_quality(self, tmp_path):
+        """Use Sonnet to score the summary against the original material.
+
+        The summary must score >= 90% on completeness to pass.
+        Uses Sonnet (not Opus) for cost-effective scoring in tests.
+        """
+        from pydantic import BaseModel, Field as PydanticField
+
+        class ContextQualityScore(BaseModel):
+            completeness: int = PydanticField(
+                ge=0, le=100,
+                description="How well the summary captures ALL details from source (0-100)",
+            )
+            accuracy: int = PydanticField(
+                ge=0, le=100,
+                description="How accurate the summary is vs source material (0-100)",
+            )
+            specificity: int = PydanticField(
+                ge=0, le=100,
+                description="Preserves exact technical details, numbers, names (0-100)",
+            )
+            missing_items: list[str] = PydanticField(
+                default_factory=list,
+                description="Key items from source that are missing in summary",
+            )
+            overall_score: int = PydanticField(
+                ge=0, le=100,
+                description="Weighted overall quality score (0-100)",
+            )
+            reasoning: str = PydanticField(
+                description="Detailed reasoning for the score",
+            )
+
+        try:
+            from llm_gateway import LLMClient, GatewayConfig
+        except ImportError:
+            pytest.skip("llm-gateway not installed")
+
+        # Use Sonnet for scoring (cost-effective for test evaluation)
+        gw_config = GatewayConfig(
+            provider="local_claude",
+            model="claude-sonnet-4-20250514",
+            max_tokens=4096,
+            timeout_seconds=120,
+        )
+
+        import asyncio
+
+        async def _score():
+            llm = LLMClient(config=gw_config)
+            try:
+                resp = await llm.complete(
+                    messages=[{
+                        "role": "user",
+                        "content": f"""Score the quality of this project context summary.
+
+ORIGINAL SOURCE MATERIAL:
+{self.raw_context[:30000]}
+
+GENERATED SUMMARY:
+{self.summary}
+
+SCORING CRITERIA:
+- completeness (40%): Does the summary capture ALL key details from the source?
+  Check: project name, all features, all technologies, all architectural components,
+  all spec file contents, all phases/milestones, all API endpoints, all data models.
+- accuracy (30%): Is every claim in the summary actually present in the source?
+  No hallucinated details, no incorrect information.
+- specificity (30%): Does the summary preserve EXACT technical details?
+  Library names, version numbers, specific algorithms (WL hash, VF2), debounce times,
+  cache tiers, coverage targets, endpoint paths.
+
+For missing_items: list every important detail from the source that is NOT in the summary.
+
+overall_score = 0.4*completeness + 0.3*accuracy + 0.3*specificity
+
+Be strict. A score of 90+ means the summary is nearly as comprehensive as the original.""",
+                    }],
+                    response_model=ContextQualityScore,
+                    max_tokens=4096,
+                )
+                return resp.content
+            finally:
+                await llm.close()
+
+        score = asyncio.run(_score())
+
+        # Log the score for debugging
+        print(f"\nContext Quality Score: {score.overall_score}/100")
+        print(f"  Completeness: {score.completeness}/100")
+        print(f"  Accuracy: {score.accuracy}/100")
+        print(f"  Specificity: {score.specificity}/100")
+        if score.missing_items:
+            print(f"  Missing items: {score.missing_items[:5]}")
+        print(f"  Reasoning: {score.reasoning[:200]}")
+
+        assert score.overall_score >= 90, (
+            f"Context summary quality {score.overall_score}/100 below 90% threshold.\n"
+            f"Missing: {score.missing_items[:5]}\n"
+            f"Reasoning: {score.reasoning}"
+        )

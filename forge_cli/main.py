@@ -21,10 +21,9 @@ HELP_TEXT = f"""\n
     forge init                                          Build config interactively
     forge generate                                      Generate (auto-detect config)
     forge generate --config .forge/forge.yaml           Generate from explicit config
-    forge --config .forge/forge.yaml --project-dir ./my-project
-    forge --config .forge/forge.yaml --validate-only
-    forge --config .forge/forge.yaml --refine
-    forge start                                         Start Claude session with team
+    forge generate --refine                             Generate + LLM refinement
+    forge start                                         Launch Claude with team init
+    forge --config .forge/forge.yaml --validate-only    Validate config only
 
   Config auto-detection (in order):
     1. .forge/forge.yaml         (canonical location)
@@ -39,30 +38,38 @@ HELP_TEXT = f"""\n
     .claude/settings.json      Strategy-enforced tool permissions
                                (auto-pilot & co-pilot: all tools allowed;
                                 micro-manage: not generated, all tools prompt)
+    .forge/project-context.md  Summarized project context (if context_files set)
+    .forge/refinement-report   Refinement report (JSON + Markdown, if refined)
     CLAUDE.md                  Team Leader context (project root)
     team-init-plan.md          Bootstrap plan for first Claude session
 
   Getting started:
     Option A — Interactive (recommended for new users):
       1. Run: forge init
-      2. Follow the wizard to configure your project
+      2. Follow the wizard (use Up/Down arrows to navigate between steps)
       3. Confirm and generate — or save the config for later
 
     Option B — Config file:
       1. Copy examples/forge.yaml and customize it
       2. Run: forge generate --project-dir ./my-project
 
-    Then:
-      1. Run: forge start
-         OR cd into your project and run: claude
-         then tell Claude: "Read team-init-plan.md and initialize the team"
+    Then start building:
+      forge start
+        Launches an interactive Claude session with the team init prompt.
+      OR run: claude
+        Then tell Claude: "Read team-init-plan.md and initialize the team"
+
+    To improve generated files with LLM scoring + refinement:
+      forge generate --refine
 
   forge.yaml reference:
   ─────────────────────
     project:
       description: str             Project description
       requirements: str            Detailed requirements
-      context_files: [str]         Paths to plan/spec/context files or dirs
+      context_files: [str]         Paths to context files or directories
+                                   (directories are scanned for .md/.txt/.yaml)
+      plan_file: str               Path to implementation plan (followed exactly)
       type: new|existing           Project type (default: new)
       existing_project_path: str   Path if type=existing
       directory: str               Project directory (default: .)
@@ -265,10 +272,11 @@ def generate(config_path: str | None, project_dir: str, validate_only: bool, ref
     console.print(f"Generated files in: [cyan]{config.project.directory}[/cyan]")
     console.print()
     console.print("[bold]Next steps:[/bold]")
-    console.print("  1. Review the generated files in .claude/agents/")
-    console.print("  2. Review CLAUDE.md and team-init-plan.md")
-    console.print("  3. Run [cyan]forge start[/cyan] OR [cyan]claude[/cyan] in your project directory")
-    console.print("  4. Tell Claude: [dim]\"Read team-init-plan.md and initialize the team\"[/dim]")
+    console.print("  1. Review generated files in .claude/agents/, CLAUDE.md, team-init-plan.md")
+    console.print("  2. Start building:")
+    console.print("     [cyan]forge start[/cyan]  — launches Claude with the team init prompt")
+    console.print("     OR run [cyan]claude[/cyan] and tell it: \"Read team-init-plan.md and initialize the team\"")
+    console.print("  3. To improve generated file quality: [cyan]forge generate --refine[/cyan]")
 
 
 @cli.command()
@@ -289,17 +297,16 @@ def init(output: str | None) -> None:
 @click.option("--config", "config_path", type=click.Path(exists=True), required=False, default=None, help="Path to forge.yaml (auto-detected if omitted)")
 @click.option("--project-dir", type=click.Path(), default=".", help="Project directory")
 def start(config_path: str | None, project_dir: str) -> None:
-    """Start a Claude CLI session that initializes the agent team.
+    """Start an interactive Claude CLI session with the team init prompt.
 
-    Launches `claude` with the instruction to read team-init-plan.md and
-    initialize the team. Equivalent to running `claude` manually and
-    telling it to read the init plan.
+    Launches `claude` in your project directory with the instruction to read
+    team-init-plan.md and initialize the team. The session is fully interactive —
+    forge sends the first prompt and hands control to you.
     """
     import os
     import shutil
-    import subprocess
 
-    resolved = _resolve_config(config_path, project_dir)
+    _resolve_config(config_path, project_dir)
 
     # Verify team-init-plan.md exists
     project_path = Path(project_dir).resolve()
@@ -320,24 +327,15 @@ def start(config_path: str | None, project_dir: str) -> None:
         raise SystemExit(1)
 
     console.print(f"[bold]Starting Claude session in [cyan]{project_path}[/cyan][/bold]")
-    console.print("[dim]Initializing team from team-init-plan.md...[/dim]")
     console.print()
 
-    # Launch claude with the init prompt
-    try:
-        subprocess.run(
-            [
-                claude_bin,
-                "--print",
-                "Read team-init-plan.md and initialize the team. "
-                "Follow the startup sequence and begin Iteration 1.",
-            ],
-            cwd=str(project_path),
-            env={**os.environ},
-            check=False,
-        )
-    except KeyboardInterrupt:
-        console.print("\n[yellow]Session interrupted.[/yellow]")
+    # Hand over to claude — replaces this process entirely
+    os.chdir(str(project_path))
+    os.execvp(claude_bin, [
+        claude_bin,
+        "Read team-init-plan.md and initialize the team. "
+        "Follow the startup sequence and begin Iteration 1.",
+    ])
 
 
 def main() -> None:

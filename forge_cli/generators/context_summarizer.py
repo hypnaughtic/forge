@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 
 CONTEXT_FILENAME = "project-context.md"
 MAX_FILE_SIZE = 100_000  # 100KB per file limit
+# Use Opus for context summarization — higher quality for the foundational
+# project context that all agents reference throughout development.
+CONTEXT_MODEL = "claude-opus-4-6"
 
 
 def collect_context_files(config: ForgeConfig) -> list[tuple[str, str]]:
@@ -68,8 +71,8 @@ def build_raw_context(config: ForgeConfig) -> str:
     """Build raw context string from config fields and context files.
 
     Returns:
-        Combined text of project description, requirements, and all
-        context file contents.
+        Combined text of project description, requirements, plan file,
+        and all context file contents.
     """
     parts: list[str] = []
 
@@ -78,6 +81,22 @@ def build_raw_context(config: ForgeConfig) -> str:
 
     if config.project.requirements:
         parts.append(f"## Project Requirements\n\n{config.project.requirements}")
+
+    # Include plan file content if configured
+    if config.project.plan_file:
+        plan_path = Path(config.project.plan_file).expanduser()
+        if not plan_path.is_absolute():
+            plan_path = Path(config.project.directory).resolve() / plan_path
+        if plan_path.is_file():
+            try:
+                plan_content = plan_path.read_text(errors="replace")
+                if len(plan_content) > MAX_FILE_SIZE:
+                    plan_content = plan_content[:MAX_FILE_SIZE] + "\n\n[... truncated at 100KB ...]"
+                parts.append(f"## Implementation Plan: {plan_path.name}\n\n{plan_content}")
+            except (OSError, UnicodeDecodeError) as e:
+                logger.warning("Could not read plan file %s: %s", plan_path, e)
+        else:
+            logger.warning("Plan file not found: %s", config.project.plan_file)
 
     context_files = collect_context_files(config)
     for filename, content in context_files:
@@ -88,7 +107,16 @@ def build_raw_context(config: ForgeConfig) -> str:
 
 def _build_summarize_prompt(raw_context: str, config: ForgeConfig) -> str:
     """Build the LLM prompt for project context summarization."""
+    plan_note = ""
+    if config.project.plan_file:
+        plan_note = (
+            "\n\nIMPORTANT: A plan file has been provided. This is an authoritative "
+            "implementation blueprint. Ensure every phase, milestone, deliverable, "
+            "and architectural decision from the plan is captured in the summary."
+        )
     return f"""You are summarizing project context for an AI agent team that will build this project.
+Your summary is the SINGLE SOURCE OF TRUTH that agents will reference — nothing from
+the source material should be lost.
 
 RAW PROJECT CONTEXT:
 {raw_context}
@@ -98,25 +126,46 @@ PROJECT CONFIG:
 - Strategy: {config.strategy.value}
 - Tech Stack: {', '.join(config.tech_stack.languages + config.tech_stack.frameworks + config.tech_stack.databases)}
 - Team: {', '.join(config.get_active_agents())}
+- Non-negotiables: {', '.join(config.non_negotiables) if config.non_negotiables else 'none'}
+{plan_note}
 
 INSTRUCTIONS:
-Produce a comprehensive project context summary that captures:
-1. **Project Overview**: What is being built, its purpose, and target users
-2. **Architecture**: System components, data flow, tech decisions already made
-3. **Key Requirements**: Functional and non-functional requirements
-4. **Current State**: What has been completed vs. what remains (if applicable)
-5. **Constraints & Decisions**: Technology choices, design patterns, ADRs
-6. **Integration Points**: External services, APIs, databases, protocols
-7. **Quality Standards**: Testing strategy, coverage requirements, performance targets
+Produce a comprehensive project context summary that captures EVERY detail from the
+source material. Structure it as follows:
+
+1. **Project Overview**: What is being built, its purpose, target users, and value proposition
+2. **Architecture & System Design**: All system components, services, data flow diagrams,
+   communication protocols (HTTP, WebSocket, gRPC, etc.), and tech decisions already made
+3. **Data Model & Storage**: Database schemas, tables, relationships, indexes, migrations
+4. **Key Features & Requirements**: Every functional requirement — enumerate each feature,
+   endpoint, UI component, workflow, and interaction
+5. **Non-Functional Requirements**: Performance targets, scalability, security, reliability,
+   observability, monitoring
+6. **Current State & Phases**: What has been completed vs. what remains. If there are
+   phases/milestones, detail deliverables and dependencies for each
+7. **Technical Decisions & Constraints**: Technology choices, design patterns, ADRs,
+   library versions, API contracts
+8. **Integration Points**: External services, APIs, databases, message queues, protocols,
+   authentication/authorization flows
+9. **Quality Standards**: Testing strategy, coverage requirements, performance benchmarks,
+   CI/CD pipeline expectations
+10. **Domain-Specific Concepts**: All domain terminology, business rules, algorithms,
+    and domain models mentioned in the source material
 
 CRITICAL RULES:
-- Do NOT invent details not present in the source material
-- Preserve specific technical details (exact library names, version numbers, API endpoints)
-- Include all domain-specific terminology and concepts
-- Note any explicit ADRs (Architecture Decision Records) or design decisions
-- Keep numerical targets and thresholds exact (e.g., "90% coverage", "800ms debounce")
-- If the project has phases/milestones, summarize what was delivered in each
-- This summary will be used by AI agents as their primary project reference
+- Do NOT invent or embellish details not present in the source material
+- Do NOT summarize away specifics — preserve EXACT technical details:
+  - Library names and versions (e.g., "React Flow v12", "FastAPI 0.115")
+  - API endpoints and routes (e.g., "POST /api/v1/suggestions")
+  - Database table/column names (e.g., "suggestion_cache table with wl_hash column")
+  - Configuration values (e.g., "800ms debounce", "3-tier cache", "90% coverage")
+  - Algorithm names (e.g., "WL hash", "VF2 isomorphism", "exponential backoff")
+- Include ALL domain-specific terminology and concepts without simplification
+- Note every explicit ADR (Architecture Decision Record) or design decision
+- Keep ALL numerical targets and thresholds exact
+- If multiple source files discuss the same topic, merge details without duplication
+- The summary must be self-contained — an agent reading only this summary should
+  understand the full project scope without needing the original files
 
 Return a structured response with:
 - summary: the complete project context summary in Markdown format"""
@@ -173,7 +222,7 @@ async def summarize_context_async(
 
         gw_config = GatewayConfig(
             provider=config.refinement.provider,
-            model=config.refinement.model,
+            model=CONTEXT_MODEL,
             max_tokens=config.refinement.max_tokens,
             timeout_seconds=config.refinement.timeout_seconds,
         )

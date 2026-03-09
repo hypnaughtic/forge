@@ -81,7 +81,7 @@ def save_config(config: ForgeConfig, path: str | Path) -> None:
 
 
 def ensure_forge_dir(project_dir: str | Path) -> Path:
-    """Create .forge directory in project workspace and update .gitignore.
+    """Create .forge directory in project workspace.
 
     Returns:
         Path to the .forge directory.
@@ -89,21 +89,4 @@ def ensure_forge_dir(project_dir: str | Path) -> Path:
     base = Path(project_dir)
     forge_dir = base / FORGE_DIR
     forge_dir.mkdir(parents=True, exist_ok=True)
-
-    # Ensure .forge and .claude are in .gitignore
-    gitignore = base / ".gitignore"
-    entries_to_add = [".forge/", ".claude/"]
-    existing_lines: list[str] = []
-    if gitignore.exists():
-        existing_lines = gitignore.read_text().splitlines()
-
-    lines_added = False
-    for entry in entries_to_add:
-        if not any(line.strip() == entry for line in existing_lines):
-            existing_lines.append(entry)
-            lines_added = True
-
-    if lines_added:
-        gitignore.write_text("\n".join(existing_lines) + "\n")
-
     return forge_dir

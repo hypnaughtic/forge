@@ -8,6 +8,31 @@ from textwrap import dedent
 from forge_cli.config_schema import ForgeConfig
 
 
+def _plan_file_section(config: ForgeConfig) -> str:
+    """Generate plan file blueprint section for team-init-plan.md."""
+    if not config.project.plan_file:
+        return ""
+
+    return dedent(f"""\
+
+    ## Implementation Blueprint
+
+    A plan file has been provided: **`{config.project.plan_file}`**
+
+    This plan is the **AUTHORITATIVE implementation blueprint**. All agents MUST:
+    - Read this plan before starting any work
+    - Follow the plan's phases, milestones, and deliverables exactly as specified
+    - Use the agentic team structure to parallelize work defined in the plan
+    - NOT deviate from the plan's architecture or technology decisions unless the
+      user explicitly instructs otherwise during the session
+    - Treat this plan as the source of truth for scope, sequencing, and implementation details
+
+    The user has planned every detail. Forge's agent team executes this plan — it defines
+    **WHAT** to build and in what order. Agent instruction files define **HOW** the team
+    operates (roles, workflows, quality gates).
+    """)
+
+
 def _non_negotiables_init_section(config: ForgeConfig) -> str:
     """Generate non-negotiables section for team-init-plan.md."""
     if not config.non_negotiables:
@@ -375,7 +400,7 @@ def generate_team_init_plan(config: ForgeConfig, project_dir: Path) -> None:
     ## Project Requirements
 
     {config.project.requirements or config.project.description}
-    {_non_negotiables_init_section(config)}
+    {_plan_file_section(config)}{_non_negotiables_init_section(config)}
     ## Initialization Sequence
     {git_auth_init}
     ### Phase 1: Read and Internalize

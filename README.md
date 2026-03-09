@@ -2,7 +2,7 @@
 
 > Config-driven project initializer for Claude Code CLI agent teams.
 
-Forge reads a `forge-config.yaml` and generates customized agent instruction files,
+Forge reads a `forge.yaml` and generates customized agent instruction files,
 CLAUDE.md, skills, team-init-plan.md, and strategy-enforced permissions for your
 project workspace. Configure once, then let Claude Code agents build your project
 with precision.
@@ -41,47 +41,51 @@ pip install -e ".[test]"
 
 ```bash
 forge init
-# Follow the 8-step wizard → confirm → generate
-cd my-project
-claude
-# Tell Claude: "Read team-init-plan.md and initialize the team"
+# Follow the 8-step wizard (use Up/Down arrows to navigate between steps)
+# Confirm and generate
+
+forge start
+# Launches Claude with the team init prompt — fully interactive session
 ```
 
 ### Option B — Config file
 
 ```bash
 # 1. Start from the example config
-cp examples/forge-config.yaml forge-config.yaml
-# Edit forge-config.yaml with your project details
+cp examples/forge-config.yaml .forge/forge.yaml
+# Edit .forge/forge.yaml with your project details
 
 # 2. Generate files
-forge --config forge-config.yaml --project-dir ./my-project
+forge generate --project-dir ./my-project
 
 # 3. Start building
-cd my-project
-claude
-# Tell Claude: "Read team-init-plan.md and initialize the team"
+forge start
+# OR: cd my-project && claude
+# Then tell Claude: "Read team-init-plan.md and initialize the team"
 ```
 
 ### Other commands
 
 ```bash
 # Validate config without generating files
-forge --config forge-config.yaml --validate-only
+forge generate --validate-only
 
 # Generate with LLM-powered refinement
-forge --config forge-config.yaml --project-dir ./my-project --refine
+forge generate --refine
+
+# Force refinement off (overrides config)
+forge generate --no-refine
 ```
 
 ---
 
 ## Interactive Setup (`forge init`)
 
-`forge init` walks you through building a `forge-config.yaml` interactively:
+`forge init` walks you through building a `forge.yaml` interactively:
 
 | Step | What it configures |
 |------|--------------------|
-| 1 | Project description, requirements, type (new/existing) |
+| 1 | Project description, requirements, plan file, context files, type |
 | 2 | Quality mode (mvp / production-ready / no-compromise) |
 | 3 | Execution strategy (auto-pilot / co-pilot / micro-manage) |
 | 4 | Tech stack (languages, frameworks, databases, infrastructure) |
@@ -90,8 +94,11 @@ forge --config forge-config.yaml --project-dir ./my-project --refine
 | 7 | LLM Gateway |
 | 8 | Non-negotiables (absolute requirements) |
 
+**Navigation:** Use Up arrow to go back to the previous step, Down arrow or Enter
+to proceed. Full cursor editing (Home, End, arrow keys) in all text prompts.
+
 After all steps, Forge shows a summary for confirmation, saves the config file,
-and optionally runs generation immediately. No YAML editing required.
+and optionally runs generation immediately.
 
 ```bash
 forge init
@@ -102,7 +109,13 @@ forge init --output my-config.yaml   # custom output path
 
 ## Configuration
 
-All configuration lives in a single `forge-config.yaml` file.
+All configuration lives in a single `forge.yaml` file, stored in `.forge/` by default.
+Forge auto-detects the config in this order:
+
+1. `.forge/forge.yaml` (canonical)
+2. `forge.yaml` (project root)
+3. `.forge/forge-config.yaml` (legacy)
+4. `forge-config.yaml` (legacy)
 
 See [`examples/forge-config.yaml`](examples/forge-config.yaml) for a comprehensive
 annotated example covering every option.
@@ -124,7 +137,11 @@ strategy: co-pilot
 ```yaml
 project:
   description: "E-commerce platform"
-  requirements: "Build a full-stack e-commerce platform with auth, product catalog, cart, and checkout"
+  requirements: "Build a full-stack e-commerce platform"
+  context_files:                 # Files or directories for project context
+    - PLAN.md                    # Scanned for .md, .txt, .yaml files
+    - specs/
+  plan_file: PLAN.md             # Authoritative implementation blueprint
   type: new                      # new | existing
 
 mode: production-ready           # mvp | production-ready | no-compromise
@@ -180,16 +197,31 @@ refinement:
   score_threshold: 90            # 0-100, files must score >= this
   max_iterations: 5              # max refine loops per file
   max_concurrency: 0             # 0 = all files in parallel (default)
-  timeout_seconds: 180           # per-LLM-call timeout
+  timeout_seconds: 300           # per-LLM-call timeout
   cost_limit_usd: 10.0           # stop if cumulative cost exceeds this
 ```
+
+### Plan file vs context files
+
+- **`plan_file`**: An authoritative implementation blueprint. When set, generated files
+  instruct agents to follow the plan exactly — phases, milestones, architecture, and
+  sequencing. The agent team executes the plan using parallel agentic collaboration.
+
+- **`context_files`**: Reference material (specs, previous discussions, architecture docs).
+  Forge summarizes these into `.forge/project-context.md` and uses the context to generate
+  more tailored agent instructions. Accepts individual files or directories (scanned
+  recursively for `.md`, `.txt`, `.yaml`, `.yml`, `.rst` files).
 
 ### Refinement (LLM-powered)
 
 After generating files, Forge can optionally refine them using an LLM to improve
 quality. Each `.md` file is scored against weighted quality criteria and iteratively
 improved until it meets a configurable threshold (default 90%). All files are refined
-in parallel for fast turnaround (~4–7 minutes for 18 files with `local_claude`).
+in parallel for fast turnaround (~4-7 minutes for 18 files with `local_claude`).
+
+Refinement reports are saved to `.forge/refinement-report.json` and
+`.forge/refinement-report.md` with per-file iteration details, suggestions,
+changes, scores, and next scope of improvement.
 
 **Scoring criteria** (weighted):
 
@@ -205,10 +237,10 @@ CLI override:
 
 ```bash
 # Force refinement on (overrides config)
-forge --config forge-config.yaml --project-dir ./my-project --refine
+forge generate --refine
 
 # Force refinement off
-forge --config forge-config.yaml --project-dir ./my-project --no-refine
+forge generate --no-refine
 ```
 
 Install the refinement dependency:
@@ -282,6 +314,10 @@ my-project/
       sprint-report.md               # When Atlassian enabled
     mcp.json                         # MCP server configuration
     settings.json                    # Strategy-enforced permissions (auto-pilot/co-pilot)
+  .forge/
+    project-context.md               # Summarized project context (if context_files set)
+    refinement-report.json           # Refinement report (if refinement ran)
+    refinement-report.md             # Human-readable refinement report
   .env.example                       # Required environment variables
 ```
 
@@ -300,6 +336,9 @@ python -m pytest tests/test_generators.py tests/test_config_schema.py \
 # Run integration tests (dry-run, uses FakeLLMProvider)
 FORGE_TEST_DRY_RUN=1 python -m pytest tests/test_integration.py -v
 
+# Run co_planner quality case tests
+FORGE_TEST_DRY_RUN=1 python -m pytest tests/test_co_planner.py -v
+
 # Run refinement tests with real LLM (requires local_claude)
 FORGE_TEST_DRY_RUN=0 python -m pytest tests/test_integration.py -v \
   -k "Refinement" --timeout=1200
@@ -316,7 +355,10 @@ make ci-local
 | `test_config_schema.py` | Config schema validation | ~15 | No |
 | `test_config_loader.py` | YAML loading/round-trip | ~9 | No |
 | `test_refinement.py` | Refinement unit tests (FakeLLMProvider) | ~20 | No |
+| `test_init_wizard.py` | Init wizard, CLI routing, config auto-detect | ~64 | No |
+| `test_context_summarizer.py` | Context summarization | ~16 | No |
 | `test_integration.py` | Full pipeline, CLI, strategy enforcement, live Claude CLI tests | ~195 | Dry-run default |
+| `test_co_planner.py` | Co-planner quality case (generation, refinement, content quality) | ~48 | Dry-run default |
 
 The `FORGE_TEST_DRY_RUN` environment variable controls whether integration tests
 use a `FakeLLMProvider` (instant, default) or real `local_claude` (requires
@@ -329,7 +371,7 @@ pip install pre-commit
 pre-commit install
 ```
 
-Hooks run yamllint, markdownlint, and pytest unit tests before every commit.
+Hooks run yamllint, markdownlint, and pytest unit tests (with coverage) before every commit.
 
 ---
 

@@ -8,6 +8,22 @@ from textwrap import dedent
 from forge_cli.config_schema import ForgeConfig
 
 
+def _plan_file_claude_md(config: ForgeConfig) -> str:
+    """Generate plan file reference for CLAUDE.md."""
+    if not config.project.plan_file:
+        return ""
+
+    return dedent(f"""\
+
+    ## Implementation Blueprint
+
+    Follow **`{config.project.plan_file}`** as the authoritative implementation plan.
+    The agent team executes this plan — it defines WHAT to build and in what order.
+    Forge agent instruction files define HOW the team operates (roles, workflows, quality gates).
+    Do NOT deviate from the plan unless the user explicitly instructs otherwise.
+    """)
+
+
 def generate_claude_md(config: ForgeConfig, project_dir: Path) -> None:
     """Generate CLAUDE.md in the project root."""
     agents = config.get_active_agents()
@@ -163,7 +179,7 @@ def generate_claude_md(config: ForgeConfig, project_dir: Path) -> None:
     2. Iteration 1 task decomposition
     3. Agent spawning instructions
     4. Quality gates and success criteria
-
+    {_plan_file_claude_md(config)}
     ## Agent Roster
 
     Available agents (spawn via Agent tool with instruction files as context):

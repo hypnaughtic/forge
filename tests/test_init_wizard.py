@@ -298,7 +298,8 @@ class TestPromptProject:
 
     def test_basic_project(self):
         """Builds ProjectConfig from basic inputs."""
-        inputs = "My awesome project\nBuild something great\n\nnew\n"
+        # description, requirements, plan_file, context_files, project_type
+        inputs = "My awesome project\nBuild something great\n\n\nnew\n"
         runner = CliRunner()
         with runner.isolated_filesystem():
             result = runner.invoke(
@@ -308,8 +309,8 @@ class TestPromptProject:
 
     def test_empty_description_reprompts(self):
         """Empty description causes re-prompt."""
-        # First empty, then valid
-        inputs = "\nActual description\n\n\nnew\n"
+        # First empty, then valid desc, requirements, plan_file, context_files, type
+        inputs = "\nActual description\n\n\n\nnew\n"
         runner = CliRunner()
         result = runner.invoke(
             _make_click_command(_prompt_project), input=inputs
@@ -318,7 +319,7 @@ class TestPromptProject:
 
     def test_existing_project_asks_path(self):
         """Choosing 'existing' prompts for path."""
-        inputs = "My project\nSome reqs\n\nexisting\n/path/to/project\n"
+        inputs = "My project\nSome reqs\n\n\nexisting\n/path/to/project\n"
         runner = CliRunner()
         result = runner.invoke(
             _make_click_command(_prompt_project), input=inputs
@@ -327,7 +328,7 @@ class TestPromptProject:
 
     def test_new_project_no_path(self):
         """Choosing 'new' does not ask for path."""
-        inputs = "My project\n\n\nnew\n"
+        inputs = "My project\n\n\n\nnew\n"
         runner = CliRunner()
         result = runner.invoke(
             _make_click_command(_prompt_project), input=inputs
@@ -485,6 +486,7 @@ class TestWizardIntegration:
         self,
         description: str = "Test project",
         requirements: str = "",
+        plan_file: str = "",
         context_files: str = "",
         project_type: str = "new",
         mode: str = "1",
@@ -507,6 +509,7 @@ class TestWizardIntegration:
         lines = [
             description,
             requirements,
+            plan_file,
             context_files,
             project_type,
             mode,
@@ -608,6 +611,7 @@ class TestWizardIntegration:
         lines = [
             "My project",       # description
             "",                 # requirements
+            "",                 # plan file
             "",                 # context files
             "new",              # project type
             "1",                # mode: mvp
@@ -717,6 +721,7 @@ class TestWizardIntegration:
         lines = [
             "My project",   # description
             "",             # requirements
+            "",             # plan file
             "",             # context files
             "new",          # project type
             "1",            # mode
@@ -913,22 +918,11 @@ class TestConfigAutoDetect:
         assert forge_dir.is_dir()
         assert forge_dir.name == ".forge"
 
-    def test_ensure_forge_dir_updates_gitignore(self, tmp_path):
-        """ensure_forge_dir adds .forge/ and .claude/ to .gitignore."""
+    def test_ensure_forge_dir_no_gitignore(self, tmp_path):
+        """ensure_forge_dir does not create or modify .gitignore."""
         from forge_cli.config_loader import ensure_forge_dir
         ensure_forge_dir(tmp_path)
-        gitignore = (tmp_path / ".gitignore").read_text()
-        assert ".forge/" in gitignore
-        assert ".claude/" in gitignore
-
-    def test_ensure_forge_dir_idempotent(self, tmp_path):
-        """ensure_forge_dir doesn't duplicate .gitignore entries."""
-        from forge_cli.config_loader import ensure_forge_dir
-        ensure_forge_dir(tmp_path)
-        ensure_forge_dir(tmp_path)
-        gitignore = (tmp_path / ".gitignore").read_text()
-        assert gitignore.count(".forge/") == 1
-        assert gitignore.count(".claude/") == 1
+        assert not (tmp_path / ".gitignore").exists()
 
 
 # =============================================================================

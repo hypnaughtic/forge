@@ -44,8 +44,11 @@ def generate_all(
     from forge_cli.config_loader import ensure_forge_dir
     ensure_forge_dir(project_dir)
 
-    # 0.5. Project context summarization (if context_files configured)
-    if config.project.context_files:
+    # 0.5. Project context summarization (if context files or plan file provided)
+    # Only triggers LLM summarization when there are actual files to process.
+    # Requirements-only projects get a basic context without LLM calls.
+    _has_context_sources = config.project.context_files or config.project.plan_file
+    if _has_context_sources:
         from forge_cli.generators.context_summarizer import summarize_context
         summarize_context(config, project_dir, llm_provider=llm_provider)
         console.print("[green]  ✓[/green] Project context summarization")

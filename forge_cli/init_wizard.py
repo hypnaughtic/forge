@@ -1,7 +1,8 @@
 """Interactive configuration wizard for forge init.
 
 Uses prompt_toolkit for full readline-style text editing (cursor movement,
-home/end, word navigation) and supports navigating between steps via 'back'.
+home/end, word navigation) and supports navigating between steps via
+up-arrow (go back) and down-arrow (proceed/accept).
 """
 
 from __future__ import annotations
@@ -30,10 +31,38 @@ from forge_cli.config_schema import (
 
 console = Console()
 
+# Sentinel value returned by prompt when user presses Up arrow (go back)
+_BACK_SENTINEL = "__BACK__"
+
 
 def _is_interactive() -> bool:
     """Check if stdin is an interactive terminal."""
     return sys.stdin.isatty()
+
+
+def _make_nav_bindings():
+    """Create key bindings for step navigation.
+
+    Up arrow: go back to previous step (returns _BACK_SENTINEL).
+    Down arrow: accept current input (same as Enter).
+    """
+    try:
+        from prompt_toolkit.key_binding import KeyBindings
+        from prompt_toolkit.keys import Keys
+    except ImportError:
+        return None
+
+    kb = KeyBindings()
+
+    @kb.add(Keys.Up)
+    def _go_back(event):
+        event.app.exit(result=_BACK_SENTINEL)
+
+    @kb.add(Keys.Down)
+    def _go_forward(event):
+        event.current_buffer.validate_and_handle()
+
+    return kb
 
 
 def _pt_prompt(message: str, default: str = "", **kwargs: object) -> str:
@@ -50,10 +79,12 @@ def _pt_prompt(message: str, default: str = "", **kwargs: object) -> str:
         from prompt_toolkit import prompt as pt_prompt_fn
         from prompt_toolkit.formatted_text import HTML
 
+        kb = _make_nav_bindings()
         suffix = f" [{default}]" if default else ""
         result = pt_prompt_fn(
             HTML(f"  <b>{message}</b>{suffix}: "),
             default=default,
+            key_bindings=kb,
         )
         return result
     except (ImportError, EOFError):
@@ -72,11 +103,15 @@ def _pt_confirm(message: str, default: bool = True) -> bool:
         from prompt_toolkit import prompt as pt_prompt_fn
         from prompt_toolkit.formatted_text import HTML
 
+        kb = _make_nav_bindings()
         default_str = "Y/n" if default else "y/N"
         result = pt_prompt_fn(
             HTML(f"  <b>{message}</b> [{default_str}]: "),
             default="y" if default else "n",
+            key_bindings=kb,
         )
+        if result == _BACK_SENTINEL:
+            return result  # type: ignore[return-value]
         if not result.strip():
             return default
         return result.strip().lower() in ("y", "yes", "true", "1")
@@ -97,6 +132,7 @@ def _pt_choice(message: str, choices: list[str], default: str = "") -> str:
         from prompt_toolkit.formatted_text import HTML
         from prompt_toolkit.validation import Validator
 
+        kb = _make_nav_bindings()
         validator = Validator.from_callable(
             lambda text: text.strip() in choices or text.strip() == "",
             error_message=f"Choose from: {', '.join(choices)}",
@@ -107,7 +143,10 @@ def _pt_choice(message: str, choices: list[str], default: str = "") -> str:
             HTML(f"  <b>{message}</b> ({choices_str}){suffix}: "),
             default=default,
             validator=validator,
+            key_bindings=kb,
         )
+        if result == _BACK_SENTINEL:
+            return result
         return result.strip() or default
     except (ImportError, EOFError):
         return click.prompt(message, type=click.Choice(choices), default=default)
@@ -126,6 +165,8 @@ def _pt_int(message: str, default: int = 0, min_val: int = 0, max_val: int = 999
         from prompt_toolkit.formatted_text import HTML
         from prompt_toolkit.validation import Validator
 
+        kb = _make_nav_bindings()
+
         def _validate(text: str) -> bool:
             if not text.strip():
                 return True  # use default
@@ -143,20 +184,19 @@ def _pt_int(message: str, default: int = 0, min_val: int = 0, max_val: int = 999
             HTML(f"  <b>{message}</b> [{default}]: "),
             default=str(default),
             validator=validator,
+            key_bindings=kb,
         )
+        if result == _BACK_SENTINEL:
+            return result  # type: ignore[return-value]
         return int(result.strip()) if result.strip() else default
     except (ImportError, EOFError):
         return click.prompt(message, type=click.IntRange(min_val, max_val), default=default)
 
 
-# Sentinel value to indicate "go back to previous step"
-_BACK = "__BACK__"
-
-
 def run_wizard(output_path: str) -> ForgeConfig:
     """Run the interactive configuration wizard.
 
-    Supports navigating back to previous steps by typing 'back'.
+    Supports step navigation: press Up arrow to go back, Down arrow to proceed.
 
     Returns:
         The built ForgeConfig (for testing).
@@ -172,7 +212,7 @@ def run_wizard(output_path: str) -> ForgeConfig:
     console.print(
         Panel(
             "[bold]Forge — Interactive Configuration Builder[/bold]\n"
-            "[dim]Type 'back' at any prompt to return to the previous step.[/dim]",
+            "[dim]Up arrow: go back  |  Down arrow / Enter: proceed[/dim]",
             expand=False,
         )
     )
@@ -235,14 +275,14 @@ def run_wizard(output_path: str) -> ForgeConfig:
 
 
 class _BackSignal(Exception):
-    """Raised when user types 'back' to go to previous step."""
+    """Raised when user presses Up arrow to go to previous step."""
 
 
-def _check_back(value: str) -> str:
-    """Check if user typed 'back' and raise _BackSignal if so."""
-    if value.strip().lower() == "back":
+def _check_back(value: object) -> str:
+    """Check if value is the back sentinel and raise _BackSignal if so."""
+    if value == _BACK_SENTINEL:
         raise _BackSignal()
-    return value
+    return str(value)
 
 
 def _prompt_project() -> ProjectConfig:
@@ -260,9 +300,14 @@ def _prompt_project() -> ProjectConfig:
         _pt_prompt("Detailed requirements (Enter to skip)", default="")
     )
 
+    # Plan file
+    console.print("  [dim]If you have a detailed plan, provide the path. Agents will follow it exactly.[/dim]")
+    plan_file = _check_back(
+        _pt_prompt("Plan file (path to implementation plan, Enter to skip)", default="")
+    ).strip()
+
     # Context files
-    console.print("  [dim]Provide paths to plan/spec/context files or directories.[/dim]")
-    console.print("  [dim]These help forge understand your project better.[/dim]")
+    console.print("  [dim]Provide paths to spec/context files or directories for additional context.[/dim]")
     context_raw = _check_back(
         _pt_prompt("Context files (comma-separated paths, Enter to skip)", default="")
     )
@@ -280,6 +325,7 @@ def _prompt_project() -> ProjectConfig:
         description=description.strip(),
         requirements=requirements.strip(),
         context_files=context_files,
+        plan_file=plan_file,
         type=project_type,
         existing_project_path=existing_path,
     )
@@ -448,10 +494,10 @@ def _prompt_non_negotiables() -> list[str]:
     rules: list[str] = []
     while True:
         rule = _pt_prompt(">", default="")
+        if rule == _BACK_SENTINEL:
+            raise _BackSignal()
         if not rule.strip():
             break
-        if rule.strip().lower() == "back":
-            raise _BackSignal()
         rules.append(rule.strip())
 
     return rules
@@ -528,6 +574,8 @@ def _confirm_and_save(config: ForgeConfig, output_path: str) -> None:
         console.print("[bold green]Forge generation complete![/bold green]")
         console.print()
         console.print("[bold]Next steps:[/bold]")
-        console.print("  1. Review the generated files in .claude/agents/")
-        console.print("  2. Run [cyan]forge start[/cyan] OR [cyan]claude[/cyan] in your project directory")
-        console.print("  3. Tell Claude: [dim]\"Read team-init-plan.md and initialize the team\"[/dim]")
+        console.print("  1. Review generated files in .claude/agents/, CLAUDE.md, team-init-plan.md")
+        console.print("  2. Start building:")
+        console.print("     [cyan]forge start[/cyan]  — launches Claude with the team init prompt")
+        console.print("     OR run [cyan]claude[/cyan] and tell it: \"Read team-init-plan.md and initialize the team\"")
+        console.print("  3. To improve generated file quality: [cyan]forge generate --refine[/cyan]")

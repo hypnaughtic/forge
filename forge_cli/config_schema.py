@@ -31,6 +31,7 @@ class ProjectConfig(BaseModel):
     description: str = ""
     requirements: str = ""
     context_files: list[str] = Field(default_factory=list)
+    plan_file: str = ""  # Authoritative implementation blueprint (followed exactly)
     type: str = "new"  # new | existing
     existing_project_path: str = ""
     directory: str = "."

@@ -157,6 +157,51 @@ class TestBuildRawContext:
         context = build_raw_context(config)
         assert "Phase 1: Build MVP" in context
 
+    def test_plan_file_included(self, tmp_path):
+        """Plan file content is included in raw context."""
+        (tmp_path / "PLAN.md").write_text("# Implementation Plan\n\nPhase 1: Setup")
+        config = ForgeConfig(
+            project=ProjectConfig(
+                description="My project",
+                directory=str(tmp_path),
+                plan_file="PLAN.md",
+            )
+        )
+        context = build_raw_context(config)
+        assert "Implementation Plan" in context
+        assert "Phase 1: Setup" in context
+
+    def test_plan_file_and_context_files_both_included(self, tmp_path):
+        """Both plan file and context files are included."""
+        (tmp_path / "PLAN.md").write_text("# Plan\n\nBuild MVP first")
+        specs = tmp_path / "specs"
+        specs.mkdir()
+        (specs / "api.md").write_text("# API Spec\n\nREST endpoints")
+
+        config = ForgeConfig(
+            project=ProjectConfig(
+                description="My project",
+                directory=str(tmp_path),
+                plan_file="PLAN.md",
+                context_files=["specs"],
+            )
+        )
+        context = build_raw_context(config)
+        assert "Build MVP first" in context
+        assert "REST endpoints" in context
+
+    def test_missing_plan_file_not_error(self, tmp_path):
+        """Missing plan file is logged but doesn't cause errors."""
+        config = ForgeConfig(
+            project=ProjectConfig(
+                description="My project",
+                directory=str(tmp_path),
+                plan_file="/nonexistent/plan.md",
+            )
+        )
+        context = build_raw_context(config)
+        assert "My project" in context  # Description still present
+
 
 class TestSummarizeContext:
     """Tests for summarize_context."""
