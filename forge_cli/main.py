@@ -25,7 +25,8 @@ HELP_TEXT = f"""\n
   team-init-plan.md in the target project.
 
   Usage:
-    forge --config forge-config.yaml
+    forge init                                          Build config interactively
+    forge --config forge-config.yaml                    Generate from config
     forge --config forge-config.yaml --project-dir ./my-project
     forge --config forge-config.yaml --validate-only
     forge --config forge-config.yaml --refine
@@ -41,10 +42,26 @@ HELP_TEXT = f"""\n
     team-init-plan.md          Bootstrap plan for first Claude session
 
   Getting started:
-    1. Copy examples/forge-config.yaml and customize it
-    2. Run: forge --config forge-config.yaml --project-dir ./my-project
-    3. cd into your project and run: claude
-    4. Tell Claude: "Read team-init-plan.md and initialize the team"
+    Option A — Interactive (recommended for new users):
+      1. Run: forge init
+      2. Follow the 8-step wizard to configure your project
+      3. Confirm and generate — or save the config for later
+
+    Option B — Config file:
+      1. Copy examples/forge-config.yaml and customize it
+      2. Run: forge --config forge-config.yaml --project-dir ./my-project
+
+    Then:
+      1. cd into your project and run: claude
+      2. Tell Claude: "Read team-init-plan.md and initialize the team"
+
+  forge init:
+  ──────────
+    Interactive configuration builder. Walks you through every option
+    step by step: project details, mode, strategy, tech stack, team
+    configuration, Atlassian integration, LLM gateway, and non-negotiables.
+    Shows a summary for confirmation, saves the config, and optionally
+    runs generation immediately.
 
   forge-config.yaml reference:
   ─────────────────────────────

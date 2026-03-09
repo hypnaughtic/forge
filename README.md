@@ -37,6 +37,18 @@ pip install -e ".[test]"
 
 ## Quick Start
 
+### Option A — Interactive setup (recommended)
+
+```bash
+forge init
+# Follow the 8-step wizard → confirm → generate
+cd my-project
+claude
+# Tell Claude: "Read team-init-plan.md and initialize the team"
+```
+
+### Option B — Config file
+
 ```bash
 # 1. Start from the example config
 cp examples/forge-config.yaml forge-config.yaml
@@ -59,6 +71,31 @@ forge --config forge-config.yaml --validate-only
 
 # Generate with LLM-powered refinement
 forge --config forge-config.yaml --project-dir ./my-project --refine
+```
+
+---
+
+## Interactive Setup (`forge init`)
+
+`forge init` walks you through building a `forge-config.yaml` interactively:
+
+| Step | What it configures |
+|------|--------------------|
+| 1 | Project description, requirements, type (new/existing) |
+| 2 | Quality mode (mvp / production-ready / no-compromise) |
+| 3 | Execution strategy (auto-pilot / co-pilot / micro-manage) |
+| 4 | Tech stack (languages, frameworks, databases, infrastructure) |
+| 5 | Team configuration (profile, sub-agents, naming, cost cap) |
+| 6 | Atlassian integration (Jira/Confluence) |
+| 7 | LLM Gateway |
+| 8 | Non-negotiables (absolute requirements) |
+
+After all steps, Forge shows a summary for confirmation, saves the config file,
+and optionally runs generation immediately. No YAML editing required.
+
+```bash
+forge init
+forge init --output my-config.yaml   # custom output path
 ```
 
 ---

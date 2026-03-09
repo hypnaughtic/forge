@@ -50,3 +50,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `agents.custom_instructions`
 - **Example configuration** — Comprehensive annotated `examples/forge-config.yaml`
   documenting every option with inline comments
+- **Interactive setup (`forge init`)** — 8-step interactive wizard that walks users
+  through every configuration option, shows a summary for confirmation, saves the
+  config file, and optionally runs generation immediately. No YAML editing required.
