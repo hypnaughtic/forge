@@ -40,8 +40,10 @@ def _pt_prompt(message: str, default: str = "", **kwargs: object) -> str:
     """Prompt with prompt_toolkit for full cursor/editing support.
 
     Falls back to click.prompt() in non-TTY environments (e.g., testing).
+    Uses sys.stdin.isatty() directly so tests can patch _is_interactive for
+    the command-level guard while still falling back to click.prompt.
     """
-    if not _is_interactive():
+    if not sys.stdin.isatty():
         return click.prompt(message, default=default, **kwargs)
 
     try:
@@ -63,7 +65,7 @@ def _pt_confirm(message: str, default: bool = True) -> bool:
 
     Falls back to click.confirm() in non-TTY or if prompt_toolkit unavailable.
     """
-    if not _is_interactive():
+    if not sys.stdin.isatty():
         return click.confirm(message, default=default)
 
     try:
@@ -87,7 +89,7 @@ def _pt_choice(message: str, choices: list[str], default: str = "") -> str:
 
     Falls back to click.prompt() in non-TTY.
     """
-    if not _is_interactive():
+    if not sys.stdin.isatty():
         return click.prompt(message, type=click.Choice(choices), default=default)
 
     try:
@@ -116,7 +118,7 @@ def _pt_int(message: str, default: int = 0, min_val: int = 0, max_val: int = 999
 
     Falls back to click.prompt() in non-TTY.
     """
-    if not _is_interactive():
+    if not sys.stdin.isatty():
         return click.prompt(message, type=click.IntRange(min_val, max_val), default=default)
 
     try:
