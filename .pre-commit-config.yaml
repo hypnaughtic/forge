@@ -15,13 +15,17 @@ repos:
   - repo: local
     hooks:
       - id: pytest-unit
-        name: Python unit tests
+        name: Python unit tests with coverage
         entry: >-
           python -m pytest
           tests/test_generators.py
           tests/test_config_schema.py
           tests/test_config_loader.py
           tests/test_refinement.py
+          tests/test_init_wizard.py
+          tests/test_context_summarizer.py
+          --cov=forge_cli
+          --cov-fail-under=75
           -x -q --tb=short
         language: system
         pass_filenames: false

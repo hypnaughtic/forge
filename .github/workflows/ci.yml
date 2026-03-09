@@ -30,7 +30,7 @@ jobs:
   test:
     name: Tests (Python ${{ matrix.python-version }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 5
+    timeout-minutes: 10
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
@@ -43,7 +43,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
         run: pip install -e ".[test]"
-      - name: Run tests
+      - name: Run tests with coverage
         env:
           FORGE_TEST_DRY_RUN: "1"
         run: >-
@@ -52,5 +52,9 @@ jobs:
           tests/test_config_schema.py
           tests/test_config_loader.py
           tests/test_refinement.py
+          tests/test_init_wizard.py
+          tests/test_context_summarizer.py
           tests/test_integration.py
+          --cov=forge_cli
+          --cov-fail-under=90
           -v --tb=short
