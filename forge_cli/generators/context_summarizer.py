@@ -207,6 +207,16 @@ async def summarize_context_async(
         context_path.write_text(summary)
         return summary
 
+    # In dry-run mode, auto-use FakeLLMProvider if no provider given
+    if llm_provider is None:
+        import os
+        if os.environ.get("FORGE_TEST_DRY_RUN", "0") == "1":
+            try:
+                from llm_gateway.testing import FakeLLMProvider
+                llm_provider = FakeLLMProvider()
+            except ImportError:
+                pass
+
     # Use LLM to summarize
     if llm_provider is not None:
         from llm_gateway import LLMClient

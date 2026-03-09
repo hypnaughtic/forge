@@ -19,6 +19,22 @@ from forge_cli.generators.team_init_plan import generate_team_init_plan
 console = Console()
 
 
+def _get_dry_run_provider() -> Any | None:
+    """Return a FakeLLMProvider if FORGE_TEST_DRY_RUN=1, else None.
+
+    This ensures dry-run mode NEVER makes real LLM requests — all calls
+    go through llm-gateway's FakeLLMProvider.
+    """
+    import os
+    if os.environ.get("FORGE_TEST_DRY_RUN", "0") != "1":
+        return None
+    try:
+        from llm_gateway.testing import FakeLLMProvider
+        return FakeLLMProvider()
+    except ImportError:
+        return None
+
+
 def generate_all(
     config: ForgeConfig,
     llm_provider: Any | None = None,
@@ -27,12 +43,18 @@ def generate_all(
 
     Args:
         config: Forge configuration.
-        llm_provider: Optional LLM provider instance for refinement.
-            If None and refinement is enabled, creates one from config.
+        llm_provider: Optional LLM provider instance for refinement/summarization.
+            In dry-run mode (FORGE_TEST_DRY_RUN=1), automatically uses
+            FakeLLMProvider if no provider is given — guaranteeing zero
+            real LLM requests.
 
     Returns:
         RefinementReport if refinement ran, else None.
     """
+    # In dry-run mode, never make real LLM calls
+    if llm_provider is None:
+        llm_provider = _get_dry_run_provider()
+
     project_dir = Path(config.project.directory).resolve()
     project_dir.mkdir(parents=True, exist_ok=True)
 
