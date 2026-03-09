@@ -2422,7 +2422,7 @@ class TestRefinementQualityCases:
         # Generate without refinement first to measure generation time
         config_no_refine = config.model_copy(deep=True)
         config_no_refine.refinement.enabled = False
-        generate_all(config_no_refine)
+        generate_all(config_no_refine, llm_provider=provider)
         gen_time = time.monotonic() - gen_start
 
         # Now run refinement
