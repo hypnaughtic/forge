@@ -1,4 +1,8 @@
-"""Interactive configuration wizard for forge init."""
+"""Interactive configuration wizard for forge init.
+
+Uses prompt_toolkit for full readline-style text editing (cursor movement,
+home/end, word navigation) and supports navigating between steps via 'back'.
+"""
 
 from __future__ import annotations
 
@@ -32,11 +36,125 @@ def _is_interactive() -> bool:
     return sys.stdin.isatty()
 
 
+def _pt_prompt(message: str, default: str = "", **kwargs: object) -> str:
+    """Prompt with prompt_toolkit for full cursor/editing support.
+
+    Falls back to click.prompt() in non-TTY environments (e.g., testing).
+    """
+    if not _is_interactive():
+        return click.prompt(message, default=default, **kwargs)
+
+    try:
+        from prompt_toolkit import prompt as pt_prompt_fn
+        from prompt_toolkit.formatted_text import HTML
+
+        suffix = f" [{default}]" if default else ""
+        result = pt_prompt_fn(
+            HTML(f"  <b>{message}</b>{suffix}: "),
+            default=default,
+        )
+        return result
+    except (ImportError, EOFError):
+        return click.prompt(message, default=default, **kwargs)
+
+
+def _pt_confirm(message: str, default: bool = True) -> bool:
+    """Confirm prompt with prompt_toolkit.
+
+    Falls back to click.confirm() in non-TTY or if prompt_toolkit unavailable.
+    """
+    if not _is_interactive():
+        return click.confirm(message, default=default)
+
+    try:
+        from prompt_toolkit import prompt as pt_prompt_fn
+        from prompt_toolkit.formatted_text import HTML
+
+        default_str = "Y/n" if default else "y/N"
+        result = pt_prompt_fn(
+            HTML(f"  <b>{message}</b> [{default_str}]: "),
+            default="y" if default else "n",
+        )
+        if not result.strip():
+            return default
+        return result.strip().lower() in ("y", "yes", "true", "1")
+    except (ImportError, EOFError):
+        return click.confirm(message, default=default)
+
+
+def _pt_choice(message: str, choices: list[str], default: str = "") -> str:
+    """Choice prompt with prompt_toolkit and validation.
+
+    Falls back to click.prompt() in non-TTY.
+    """
+    if not _is_interactive():
+        return click.prompt(message, type=click.Choice(choices), default=default)
+
+    try:
+        from prompt_toolkit import prompt as pt_prompt_fn
+        from prompt_toolkit.formatted_text import HTML
+        from prompt_toolkit.validation import Validator
+
+        validator = Validator.from_callable(
+            lambda text: text.strip() in choices or text.strip() == "",
+            error_message=f"Choose from: {', '.join(choices)}",
+        )
+        choices_str = "/".join(choices)
+        suffix = f" [{default}]" if default else ""
+        result = pt_prompt_fn(
+            HTML(f"  <b>{message}</b> ({choices_str}){suffix}: "),
+            default=default,
+            validator=validator,
+        )
+        return result.strip() or default
+    except (ImportError, EOFError):
+        return click.prompt(message, type=click.Choice(choices), default=default)
+
+
+def _pt_int(message: str, default: int = 0, min_val: int = 0, max_val: int = 999) -> int:
+    """Integer prompt with prompt_toolkit and validation.
+
+    Falls back to click.prompt() in non-TTY.
+    """
+    if not _is_interactive():
+        return click.prompt(message, type=click.IntRange(min_val, max_val), default=default)
+
+    try:
+        from prompt_toolkit import prompt as pt_prompt_fn
+        from prompt_toolkit.formatted_text import HTML
+        from prompt_toolkit.validation import Validator
+
+        def _validate(text: str) -> bool:
+            if not text.strip():
+                return True  # use default
+            try:
+                val = int(text.strip())
+                return min_val <= val <= max_val
+            except ValueError:
+                return False
+
+        validator = Validator.from_callable(
+            _validate,
+            error_message=f"Enter a number between {min_val} and {max_val}",
+        )
+        result = pt_prompt_fn(
+            HTML(f"  <b>{message}</b> [{default}]: "),
+            default=str(default),
+            validator=validator,
+        )
+        return int(result.strip()) if result.strip() else default
+    except (ImportError, EOFError):
+        return click.prompt(message, type=click.IntRange(min_val, max_val), default=default)
+
+
+# Sentinel value to indicate "go back to previous step"
+_BACK = "__BACK__"
+
+
 def run_wizard(output_path: str) -> ForgeConfig:
     """Run the interactive configuration wizard.
 
-    Walks through 8 steps, builds a ForgeConfig, shows summary,
-    saves to file, and optionally runs generation.
+    Supports navigating back to previous steps by typing 'back'.
 
     Returns:
         The built ForgeConfig (for testing).
@@ -51,23 +169,49 @@ def run_wizard(output_path: str) -> ForgeConfig:
     console.print()
     console.print(
         Panel(
-            "[bold]Forge — Interactive Configuration Builder[/bold]",
+            "[bold]Forge — Interactive Configuration Builder[/bold]\n"
+            "[dim]Type 'back' at any prompt to return to the previous step.[/dim]",
             expand=False,
         )
     )
 
+    # Step functions in order
+    step_fns = [
+        _prompt_project,
+        _prompt_mode,
+        _prompt_strategy,
+        _prompt_tech_stack,
+        _prompt_agents_wrapper,
+        _prompt_atlassian,
+        _prompt_llm_gateway,
+        _prompt_non_negotiables,
+    ]
+    results: list[object] = [None] * len(step_fns)
+    step_idx = 0
+
     try:
-        project = _prompt_project()
-        mode = _prompt_mode()
-        strategy = _prompt_strategy()
-        tech_stack = _prompt_tech_stack()
-        agents_cfg, naming_cfg, cost_cfg = _prompt_agents(mode)
-        atlassian = _prompt_atlassian()
-        llm_gateway = _prompt_llm_gateway()
-        non_negotiables = _prompt_non_negotiables()
+        while step_idx < len(step_fns):
+            try:
+                results[step_idx] = step_fns[step_idx]()
+                step_idx += 1
+            except _BackSignal:
+                if step_idx > 0:
+                    step_idx -= 1
+                    console.print("[dim]  Going back...[/dim]")
+                else:
+                    console.print("[dim]  Already at first step.[/dim]")
     except (KeyboardInterrupt, EOFError):
         console.print("\n[yellow]Aborted.[/yellow]")
         raise SystemExit(130)
+
+    project = results[0]
+    mode = results[1]
+    strategy = results[2]
+    tech_stack = results[3]
+    agents_cfg, naming_cfg, cost_cfg = results[4]
+    atlassian = results[5]
+    llm_gateway = results[6]
+    non_negotiables = results[7]
 
     config = ForgeConfig(
         project=project,
@@ -88,6 +232,17 @@ def run_wizard(output_path: str) -> ForgeConfig:
     return config
 
 
+class _BackSignal(Exception):
+    """Raised when user types 'back' to go to previous step."""
+
+
+def _check_back(value: str) -> str:
+    """Check if user typed 'back' and raise _BackSignal if so."""
+    if value.strip().lower() == "back":
+        raise _BackSignal()
+    return value
+
+
 def _prompt_project() -> ProjectConfig:
     """Step 1/8: Project details."""
     console.print("\n  [bold]Step 1/8: Project Details[/bold]")
@@ -95,25 +250,34 @@ def _prompt_project() -> ProjectConfig:
 
     description = ""
     while not description.strip():
-        description = click.prompt("  Project description")
+        description = _check_back(_pt_prompt("Project description"))
         if not description.strip():
             console.print("  [red]Description is required.[/red]")
 
-    requirements = click.prompt(
-        "  Detailed requirements (Enter to skip)", default="", show_default=False
+    requirements = _check_back(
+        _pt_prompt("Detailed requirements (Enter to skip)", default="")
     )
 
-    project_type = click.prompt(
-        "  Project type", type=click.Choice(["new", "existing"]), default="new"
+    # Context files
+    console.print("  [dim]Provide paths to plan/spec/context files or directories.[/dim]")
+    console.print("  [dim]These help forge understand your project better.[/dim]")
+    context_raw = _check_back(
+        _pt_prompt("Context files (comma-separated paths, Enter to skip)", default="")
+    )
+    context_files = [s.strip() for s in context_raw.split(",") if s.strip()] if context_raw.strip() else []
+
+    project_type = _check_back(
+        _pt_choice("Project type", ["new", "existing"], default="new")
     )
 
     existing_path = ""
     if project_type == "existing":
-        existing_path = click.prompt("  Path to existing project")
+        existing_path = _check_back(_pt_prompt("Path to existing project"))
 
     return ProjectConfig(
         description=description.strip(),
         requirements=requirements.strip(),
+        context_files=context_files,
         type=project_type,
         existing_project_path=existing_path,
     )
@@ -132,12 +296,9 @@ def _prompt_mode() -> ProjectMode:
     for i, (name, desc) in enumerate(options, 1):
         console.print(f"    {i}. [cyan]{name}[/cyan] — {desc}")
 
-    choice = click.prompt(
-        "  Choice", type=click.IntRange(1, 3), default=1
-    )
-    return [ProjectMode.MVP, ProjectMode.PRODUCTION_READY, ProjectMode.NO_COMPROMISE][
-        choice - 1
-    ]
+    choice = _check_back(str(_pt_int("Choice", default=1, min_val=1, max_val=3)))
+    idx = int(choice) - 1 if choice.strip().isdigit() else 0
+    return [ProjectMode.MVP, ProjectMode.PRODUCTION_READY, ProjectMode.NO_COMPROMISE][idx]
 
 
 def _prompt_strategy() -> ExecutionStrategy:
@@ -153,14 +314,13 @@ def _prompt_strategy() -> ExecutionStrategy:
     for i, (name, desc) in enumerate(options, 1):
         console.print(f"    {i}. [cyan]{name}[/cyan] — {desc}")
 
-    choice = click.prompt(
-        "  Choice", type=click.IntRange(1, 3), default=2
-    )
+    choice = _check_back(str(_pt_int("Choice", default=2, min_val=1, max_val=3)))
+    idx = int(choice) - 1 if choice.strip().isdigit() else 1
     return [
         ExecutionStrategy.AUTO_PILOT,
         ExecutionStrategy.CO_PILOT,
         ExecutionStrategy.MICRO_MANAGE,
-    ][choice - 1]
+    ][idx]
 
 
 def _prompt_tech_stack() -> TechStack:
@@ -171,18 +331,18 @@ def _prompt_tech_stack() -> TechStack:
     def _parse_list(raw: str) -> list[str]:
         return [s.strip() for s in raw.split(",") if s.strip()] if raw.strip() else []
 
-    languages = _parse_list(
-        click.prompt("  Languages (comma-separated, Enter to skip)", default="", show_default=False)
-    )
-    frameworks = _parse_list(
-        click.prompt("  Frameworks (comma-separated, Enter to skip)", default="", show_default=False)
-    )
-    databases = _parse_list(
-        click.prompt("  Databases (comma-separated, Enter to skip)", default="", show_default=False)
-    )
-    infrastructure = _parse_list(
-        click.prompt("  Infrastructure (comma-separated, Enter to skip)", default="", show_default=False)
-    )
+    languages = _parse_list(_check_back(
+        _pt_prompt("Languages (comma-separated, Enter to skip)", default="")
+    ))
+    frameworks = _parse_list(_check_back(
+        _pt_prompt("Frameworks (comma-separated, Enter to skip)", default="")
+    ))
+    databases = _parse_list(_check_back(
+        _pt_prompt("Databases (comma-separated, Enter to skip)", default="")
+    ))
+    infrastructure = _parse_list(_check_back(
+        _pt_prompt("Infrastructure (comma-separated, Enter to skip)", default="")
+    ))
 
     return TechStack(
         languages=languages,
@@ -199,10 +359,8 @@ def _prompt_agents(
     console.print("\n  [bold]Step 5/8: Team Configuration[/bold]")
     console.print("  " + "─" * 28)
 
-    profile_choice = click.prompt(
-        "  Team profile",
-        type=click.Choice(["auto", "lean", "full", "custom"]),
-        default="auto",
+    profile_choice = _check_back(
+        _pt_choice("Team profile", ["auto", "lean", "full", "custom"], default="auto")
     )
     profile = TeamProfile(profile_choice)
 
@@ -218,20 +376,18 @@ def _prompt_agents(
         console.print("  Available agents:")
         for agent in available:
             console.print(f"    - {agent}")
-        raw = click.prompt("  Include agents (comma-separated)")
+        raw = _check_back(_pt_prompt("Include agents (comma-separated)"))
         include = [s.strip() for s in raw.split(",") if s.strip()]
 
-    spawning = click.confirm("  Allow sub-agent spawning?", default=True)
+    spawning = _pt_confirm("Allow sub-agent spawning?", default=True)
 
-    naming_choice = click.prompt(
-        "  Agent naming style",
-        type=click.Choice(["creative", "functional", "codename", "off"]),
-        default="creative",
+    naming_choice = _check_back(
+        _pt_choice("Agent naming style", ["creative", "functional", "codename", "off"], default="creative")
     )
     naming_enabled = naming_choice != "off"
     naming_style = naming_choice if naming_enabled else "creative"
 
-    max_cost = click.prompt("  Max development cost in USD", type=int, default=50)
+    max_cost = _pt_int("Max development cost in USD", default=50, min_val=1, max_val=10000)
 
     agents_cfg = AgentsConfig(
         team_profile=profile,
@@ -244,19 +400,24 @@ def _prompt_agents(
     return agents_cfg, naming_cfg, cost_cfg
 
 
+def _prompt_agents_wrapper() -> tuple[AgentsConfig, AgentNamingConfig, CostConfig]:
+    """Wrapper for _prompt_agents to work with step navigation."""
+    return _prompt_agents(ProjectMode.MVP)
+
+
 def _prompt_atlassian() -> AtlassianConfig:
     """Step 6/8: Atlassian integration."""
     console.print("\n  [bold]Step 6/8: Atlassian Integration[/bold]")
     console.print("  " + "─" * 31)
 
-    enabled = click.confirm("  Enable Jira/Confluence integration?", default=False)
+    enabled = _pt_confirm("Enable Jira/Confluence integration?", default=False)
     if not enabled:
         return AtlassianConfig(enabled=False)
 
-    jira_key = click.prompt("  Jira project key", default="", show_default=False)
-    jira_url = click.prompt("  Jira base URL", default="", show_default=False)
-    confluence_key = click.prompt("  Confluence space key", default="", show_default=False)
-    confluence_url = click.prompt("  Confluence base URL", default="", show_default=False)
+    jira_key = _check_back(_pt_prompt("Jira project key", default=""))
+    jira_url = _check_back(_pt_prompt("Jira base URL", default=""))
+    confluence_key = _check_back(_pt_prompt("Confluence space key", default=""))
+    confluence_url = _check_back(_pt_prompt("Confluence base URL", default=""))
 
     return AtlassianConfig(
         enabled=True,
@@ -272,9 +433,7 @@ def _prompt_llm_gateway() -> LLMGatewayConfig:
     console.print("\n  [bold]Step 7/8: LLM Gateway[/bold]")
     console.print("  " + "─" * 21)
 
-    enabled = click.confirm(
-        "  Enable llm-gateway mandate in generated files?", default=True
-    )
+    enabled = _pt_confirm("Enable llm-gateway mandate in generated files?", default=True)
     return LLMGatewayConfig(enabled=enabled)
 
 
@@ -286,9 +445,11 @@ def _prompt_non_negotiables() -> list[str]:
 
     rules: list[str] = []
     while True:
-        rule = click.prompt("  >", default="", show_default=False)
+        rule = _pt_prompt(">", default="")
         if not rule.strip():
             break
+        if rule.strip().lower() == "back":
+            raise _BackSignal()
         rules.append(rule.strip())
 
     return rules
@@ -323,6 +484,8 @@ def _show_summary(config: ForgeConfig) -> None:
     table.add_row(
         "LLM Gateway", "enabled" if config.llm_gateway.enabled else "disabled"
     )
+    if config.project.context_files:
+        table.add_row("Context files", f"{len(config.project.context_files)} files/dirs")
     if config.non_negotiables:
         table.add_row("Non-negotiables", f"{len(config.non_negotiables)} rules")
 
@@ -334,15 +497,13 @@ def _confirm_and_save(config: ForgeConfig, output_path: str) -> None:
     """Save config and optionally run generation."""
     from forge_cli.config_loader import ensure_forge_dir, save_config
 
-    save_path = click.prompt("  Save config to", default=output_path)
+    save_path = _pt_prompt("Save config to", default=output_path)
 
     # Check for existing file
     if Path(save_path).exists():
-        overwrite = click.confirm(
-            f"  {save_path} exists. Overwrite?", default=False
-        )
+        overwrite = _pt_confirm(f"{save_path} exists. Overwrite?", default=False)
         if not overwrite:
-            save_path = click.prompt("  Save config to (new path)")
+            save_path = _pt_prompt("Save config to (new path)")
 
     # Ensure .forge dir exists and .gitignore is updated
     project_dir = str(Path(save_path).parent)
@@ -353,9 +514,9 @@ def _confirm_and_save(config: ForgeConfig, output_path: str) -> None:
     save_config(config, save_path)
     console.print(f"  [green]Saved to {save_path}[/green]")
 
-    run_now = click.confirm("  Run forge now with this config?", default=True)
+    run_now = _pt_confirm("Run forge now with this config?", default=True)
     if run_now:
-        proj_dir = click.prompt("  Project directory", default=".")
+        proj_dir = _pt_prompt("Project directory", default=".")
         config.project.directory = proj_dir
 
         from forge_cli.generators.orchestrator import generate_all

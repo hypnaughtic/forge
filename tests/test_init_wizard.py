@@ -173,6 +173,51 @@ class TestCLIRouting:
         assert result.exit_code == 0
         assert "interactively" in result.output.lower() or "config" in result.output.lower()
 
+    def test_forge_start_subcommand_exists(self):
+        """The `start` subcommand is registered and accessible."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["start", "--help"])
+        assert result.exit_code == 0
+        assert "claude" in result.output.lower() or "start" in result.output.lower()
+
+    def test_forge_generate_auto_detect(self, tmp_path):
+        """Running `forge generate --project-dir <dir>` auto-detects config."""
+        config = ForgeConfig()
+        config.project.description = "Auto detect test"
+        # Save to canonical location
+        forge_dir = tmp_path / ".forge"
+        forge_dir.mkdir()
+        config_path = forge_dir / "forge.yaml"
+        save_config(config, config_path)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["generate", "--project-dir", str(tmp_path), "--validate-only"]
+        )
+        assert result.exit_code == 0
+        assert "valid" in result.output.lower()
+
+    def test_forge_generate_auto_detect_legacy(self, tmp_path):
+        """Auto-detect finds legacy forge-config.yaml."""
+        config = ForgeConfig()
+        config.project.description = "Legacy auto detect"
+        config_path = tmp_path / "forge-config.yaml"
+        save_config(config, config_path)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["generate", "--project-dir", str(tmp_path), "--validate-only"]
+        )
+        assert result.exit_code == 0
+
+    def test_forge_generate_no_config_found(self, tmp_path):
+        """Auto-detect fails when no config file exists."""
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["generate", "--project-dir", str(tmp_path), "--validate-only"]
+        )
+        assert result.exit_code != 0
+
 
 # =============================================================================
 # CLI Routing via Subprocess — End-to-end like the user actually runs it
@@ -253,7 +298,7 @@ class TestPromptProject:
 
     def test_basic_project(self):
         """Builds ProjectConfig from basic inputs."""
-        inputs = "My awesome project\nBuild something great\nnew\n"
+        inputs = "My awesome project\nBuild something great\n\nnew\n"
         runner = CliRunner()
         with runner.isolated_filesystem():
             result = runner.invoke(
@@ -264,7 +309,7 @@ class TestPromptProject:
     def test_empty_description_reprompts(self):
         """Empty description causes re-prompt."""
         # First empty, then valid
-        inputs = "\nActual description\n\nnew\n"
+        inputs = "\nActual description\n\n\nnew\n"
         runner = CliRunner()
         result = runner.invoke(
             _make_click_command(_prompt_project), input=inputs
@@ -273,7 +318,7 @@ class TestPromptProject:
 
     def test_existing_project_asks_path(self):
         """Choosing 'existing' prompts for path."""
-        inputs = "My project\nSome reqs\nexisting\n/path/to/project\n"
+        inputs = "My project\nSome reqs\n\nexisting\n/path/to/project\n"
         runner = CliRunner()
         result = runner.invoke(
             _make_click_command(_prompt_project), input=inputs
@@ -282,7 +327,7 @@ class TestPromptProject:
 
     def test_new_project_no_path(self):
         """Choosing 'new' does not ask for path."""
-        inputs = "My project\n\nnew\n"
+        inputs = "My project\n\n\nnew\n"
         runner = CliRunner()
         result = runner.invoke(
             _make_click_command(_prompt_project), input=inputs
@@ -440,6 +485,7 @@ class TestWizardIntegration:
         self,
         description: str = "Test project",
         requirements: str = "",
+        context_files: str = "",
         project_type: str = "new",
         mode: str = "1",
         strategy: str = "2",
@@ -461,6 +507,7 @@ class TestWizardIntegration:
         lines = [
             description,
             requirements,
+            context_files,
             project_type,
             mode,
             strategy,
@@ -486,7 +533,7 @@ class TestWizardIntegration:
 
     def test_full_wizard_saves_config(self, tmp_path):
         """Full wizard flow produces a valid, loadable config file."""
-        output_file = tmp_path / "forge-config.yaml"
+        output_file = tmp_path / ".forge" / "forge.yaml"
         inputs = self._wizard_inputs(
             description="E-commerce platform",
             requirements="Full-stack with auth",
@@ -500,7 +547,6 @@ class TestWizardIntegration:
         )
 
         runner = CliRunner()
-        # Patch isatty to return True (CliRunner's stdin is not a real TTY)
         with patch("forge_cli.init_wizard._is_interactive", return_value=True):
             result = runner.invoke(cli, ["init", "--output", str(output_file)], input=inputs)
 
@@ -518,7 +564,7 @@ class TestWizardIntegration:
 
     def test_wizard_minimal_inputs(self, tmp_path):
         """Wizard with all defaults produces valid config."""
-        output_file = tmp_path / "forge-config.yaml"
+        output_file = tmp_path / ".forge" / "forge.yaml"
         inputs = self._wizard_inputs(
             description="Simple CLI tool",
             save_path=str(output_file),
@@ -538,7 +584,7 @@ class TestWizardIntegration:
 
     def test_wizard_with_non_negotiables(self, tmp_path):
         """Wizard captures non-negotiable rules."""
-        output_file = tmp_path / "forge-config.yaml"
+        output_file = tmp_path / ".forge" / "forge.yaml"
         inputs = self._wizard_inputs(
             description="Secure API",
             non_negotiables=["All APIs must require auth", "No eval()"],
@@ -557,11 +603,12 @@ class TestWizardIntegration:
 
     def test_wizard_atlassian_enabled(self, tmp_path):
         """Wizard with Atlassian enabled captures Jira/Confluence details."""
-        output_file = tmp_path / "forge-config.yaml"
+        output_file = tmp_path / ".forge" / "forge.yaml"
         # Build inputs manually for Atlassian-enabled flow
         lines = [
             "My project",       # description
             "",                 # requirements
+            "",                 # context files
             "new",              # project type
             "1",                # mode: mvp
             "2",                # strategy: co-pilot
@@ -597,7 +644,7 @@ class TestWizardIntegration:
 
     def test_wizard_config_roundtrip(self, tmp_path):
         """Config saved by wizard round-trips through load_config correctly."""
-        output_file = tmp_path / "forge-config.yaml"
+        output_file = tmp_path / ".forge" / "forge.yaml"
         inputs = self._wizard_inputs(
             description="Roundtrip test project",
             mode="3",  # no-compromise
@@ -630,7 +677,7 @@ class TestWizardIntegration:
     def test_wizard_and_generate_produce_same_output(self, tmp_path):
         """Config from wizard generates same files as config from YAML."""
         # Create config via wizard
-        wizard_config_path = tmp_path / "wizard-config.yaml"
+        wizard_config_path = tmp_path / ".forge" / "forge.yaml"
         inputs = self._wizard_inputs(
             description="Consistency test project",
             mode="1",  # mvp
@@ -661,7 +708,8 @@ class TestWizardIntegration:
 
     def test_wizard_overwrite_existing_declines(self, tmp_path):
         """Wizard asks about overwrite when file exists, decline saves to new path."""
-        existing = tmp_path / "forge-config.yaml"
+        existing = tmp_path / ".forge" / "forge.yaml"
+        existing.parent.mkdir(parents=True, exist_ok=True)
         existing.write_text("# existing\n")
         alt_path = tmp_path / "alt-config.yaml"
 
@@ -669,6 +717,7 @@ class TestWizardIntegration:
         lines = [
             "My project",   # description
             "",             # requirements
+            "",             # context files
             "new",          # project type
             "1",            # mode
             "2",            # strategy
@@ -696,6 +745,25 @@ class TestWizardIntegration:
 
         assert result.exit_code == 0, f"Wizard failed: {result.output}"
         assert alt_path.exists()
+
+    def test_wizard_with_context_files(self, tmp_path):
+        """Wizard captures context_files correctly."""
+        output_file = tmp_path / ".forge" / "forge.yaml"
+        inputs = self._wizard_inputs(
+            description="Context test project",
+            context_files="PLAN.md, specs/",
+            save_path=str(output_file),
+        )
+
+        runner = CliRunner()
+        with patch("forge_cli.init_wizard._is_interactive", return_value=True):
+            result = runner.invoke(cli, ["init", "--output", str(output_file)], input=inputs)
+
+        assert result.exit_code == 0, f"Wizard failed: {result.output}"
+
+        config = load_config(output_file)
+        assert "PLAN.md" in config.project.context_files
+        assert "specs/" in config.project.context_files
 
 
 # =============================================================================
@@ -728,10 +796,10 @@ class TestWizardEdgeCases:
         assert result.exit_code == 0
         assert "--config" in result.output
 
-    def test_forge_generate_requires_config(self):
-        """forge generate without --config fails."""
+    def test_forge_generate_requires_config_or_auto_detect(self, tmp_path):
+        """forge generate without --config and no auto-detectable config fails."""
         runner = CliRunner()
-        result = runner.invoke(cli, ["generate"])
+        result = runner.invoke(cli, ["generate", "--project-dir", str(tmp_path)])
         assert result.exit_code != 0
 
     def test_init_output_flag(self):
@@ -772,6 +840,95 @@ class TestWizardEdgeCases:
             ["--project-dir", str(output_dir), "--config", str(config_path)],
         )
         assert result.exit_code == 0
+
+    def test_forge_start_no_team_init_plan(self, tmp_path):
+        """forge start fails when team-init-plan.md is missing."""
+        config = ForgeConfig()
+        config.project.description = "Start test"
+        forge_dir = tmp_path / ".forge"
+        forge_dir.mkdir()
+        config_path = forge_dir / "forge.yaml"
+        save_config(config, config_path)
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["start", "--project-dir", str(tmp_path)])
+        assert result.exit_code != 0
+        assert "team-init-plan.md" in result.output
+
+
+# =============================================================================
+# Config Auto-Detection Tests
+# =============================================================================
+
+
+class TestConfigAutoDetect:
+    """Test config file auto-detection."""
+
+    def test_find_config_forge_yaml_in_forge_dir(self, tmp_path):
+        """Finds .forge/forge.yaml (canonical location)."""
+        from forge_cli.config_loader import find_config
+        forge_dir = tmp_path / ".forge"
+        forge_dir.mkdir()
+        (forge_dir / "forge.yaml").write_text("mode: mvp\n")
+        assert find_config(tmp_path) == forge_dir / "forge.yaml"
+
+    def test_find_config_forge_yaml_in_root(self, tmp_path):
+        """Finds forge.yaml in project root."""
+        from forge_cli.config_loader import find_config
+        (tmp_path / "forge.yaml").write_text("mode: mvp\n")
+        assert find_config(tmp_path) == tmp_path / "forge.yaml"
+
+    def test_find_config_legacy_in_forge_dir(self, tmp_path):
+        """Finds .forge/forge-config.yaml (legacy)."""
+        from forge_cli.config_loader import find_config
+        forge_dir = tmp_path / ".forge"
+        forge_dir.mkdir()
+        (forge_dir / "forge-config.yaml").write_text("mode: mvp\n")
+        assert find_config(tmp_path) == forge_dir / "forge-config.yaml"
+
+    def test_find_config_legacy_in_root(self, tmp_path):
+        """Finds forge-config.yaml in project root (legacy)."""
+        from forge_cli.config_loader import find_config
+        (tmp_path / "forge-config.yaml").write_text("mode: mvp\n")
+        assert find_config(tmp_path) == tmp_path / "forge-config.yaml"
+
+    def test_find_config_priority_order(self, tmp_path):
+        """Canonical .forge/forge.yaml takes priority over legacy."""
+        from forge_cli.config_loader import find_config
+        forge_dir = tmp_path / ".forge"
+        forge_dir.mkdir()
+        (forge_dir / "forge.yaml").write_text("mode: mvp\n")
+        (tmp_path / "forge-config.yaml").write_text("mode: production-ready\n")
+        assert find_config(tmp_path) == forge_dir / "forge.yaml"
+
+    def test_find_config_none(self, tmp_path):
+        """Returns None when no config found."""
+        from forge_cli.config_loader import find_config
+        assert find_config(tmp_path) is None
+
+    def test_ensure_forge_dir_creates_dir(self, tmp_path):
+        """ensure_forge_dir creates .forge directory."""
+        from forge_cli.config_loader import ensure_forge_dir
+        forge_dir = ensure_forge_dir(tmp_path)
+        assert forge_dir.is_dir()
+        assert forge_dir.name == ".forge"
+
+    def test_ensure_forge_dir_updates_gitignore(self, tmp_path):
+        """ensure_forge_dir adds .forge/ and .claude/ to .gitignore."""
+        from forge_cli.config_loader import ensure_forge_dir
+        ensure_forge_dir(tmp_path)
+        gitignore = (tmp_path / ".gitignore").read_text()
+        assert ".forge/" in gitignore
+        assert ".claude/" in gitignore
+
+    def test_ensure_forge_dir_idempotent(self, tmp_path):
+        """ensure_forge_dir doesn't duplicate .gitignore entries."""
+        from forge_cli.config_loader import ensure_forge_dir
+        ensure_forge_dir(tmp_path)
+        ensure_forge_dir(tmp_path)
+        gitignore = (tmp_path / ".gitignore").read_text()
+        assert gitignore.count(".forge/") == 1
+        assert gitignore.count(".claude/") == 1
 
 
 # =============================================================================
