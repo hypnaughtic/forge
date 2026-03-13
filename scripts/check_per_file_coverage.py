@@ -21,14 +21,6 @@ EXEMPTIONS: dict[str, float] = {
     # CLI entry point — Click commands with rich output, error branches,
     # and optimize-descriptions flow require subprocess or complex mocking
     "forge_cli/main.py": 65,
-    # Async LLM-dependent optimizer — requires real LLM or complex mocking;
-    # pure utility functions are tested, async flow needs integration tests
-    "forge_cli/evals/description_optimizer.py": 45,
-    # LLM-dependent grading paths — deterministic grading fully tested,
-    # LLM judge flow requires real llm-gateway provider
-    "forge_cli/evals/grading.py": 80,
-    # LLM client creation and LLM grading path in grade_file/run_eval
-    "forge_cli/evals/eval_runner.py": 83,
     # Interactive wizard — prompt_toolkit flows hard to test without TTY
     "forge_cli/init_wizard.py": 85,
     # LLM-dependent refinement loop — score/refine with real LLM

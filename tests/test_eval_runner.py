@@ -1233,3 +1233,434 @@ class TestEvalCLI:
             "--project-dir", str(tmp_path), "--no-llm",
         ])
         assert result.exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# FakeLLMProvider tests — exercise LLM code paths without real LLM
+# ---------------------------------------------------------------------------
+
+def _make_fake_llm_client(response_factory=None):
+    """Create an LLMClient backed by FakeLLMProvider."""
+    from llm_gateway import LLMClient
+    from llm_gateway.testing import FakeLLMProvider
+
+    fake = FakeLLMProvider(response_factory=response_factory)
+    return LLMClient(provider_instance=fake)
+
+
+class TestLLMGradeWithFake:
+    """Test the full LLM grading path using FakeLLMProvider."""
+
+    def test_llm_grade_happy_path(self):
+        """LLM grade returns expectations from fake LLM response."""
+        import asyncio
+        from forge_cli.evals.grading import llm_grade, LLMGradingResponse, LLMExpectation
+
+        def factory(model_class, messages):
+            if model_class is LLMGradingResponse:
+                return LLMGradingResponse(expectations=[
+                    LLMExpectation(text="has good structure", passed=True, evidence="Well organized"),
+                    LLMExpectation(text="mentions API", passed=False, evidence="No API reference found"),
+                ])
+            raise ValueError(f"Unexpected model: {model_class}")
+
+        llm = _make_fake_llm_client(response_factory=factory)
+        config = _make_config()
+        assertions = [
+            Assertion(text="has good structure", check_type=CheckType.LLM_JUDGE, value="Check structure"),
+            Assertion(text="mentions API", check_type=CheckType.LLM_JUDGE, value="Check API mention"),
+        ]
+
+        expectations, cost = asyncio.run(llm_grade(llm, "some content", "test.md", assertions, config))
+        assert len(expectations) == 2
+        assert expectations[0].passed is True
+        assert expectations[0].text == "has good structure"
+        assert expectations[1].passed is False
+        assert cost >= 0
+
+    def test_llm_grade_fewer_responses_than_assertions(self):
+        """LLM returns fewer expectations than assertions — missing ones are marked failed."""
+        import asyncio
+        from forge_cli.evals.grading import llm_grade, LLMGradingResponse, LLMExpectation
+
+        def factory(model_class, messages):
+            # Return only 1 expectation for 3 assertions
+            return LLMGradingResponse(expectations=[
+                LLMExpectation(text="first", passed=True, evidence="ok"),
+            ])
+
+        llm = _make_fake_llm_client(response_factory=factory)
+        config = _make_config()
+        assertions = [
+            Assertion(text="first", check_type=CheckType.LLM_JUDGE, value="a"),
+            Assertion(text="second", check_type=CheckType.LLM_JUDGE, value="b"),
+            Assertion(text="third", check_type=CheckType.LLM_JUDGE, value="c"),
+        ]
+
+        expectations, cost = asyncio.run(llm_grade(llm, "content", "f.md", assertions, config))
+        assert len(expectations) == 3
+        assert expectations[0].passed is True
+        # Missing ones should be marked as failed
+        assert expectations[1].passed is False
+        assert "did not return" in expectations[1].evidence
+        assert expectations[2].passed is False
+
+    def test_llm_grade_exception_handling(self):
+        """LLM call that raises an exception results in failed expectations."""
+        import asyncio
+        from forge_cli.evals.grading import llm_grade
+
+        def factory(model_class, messages):
+            raise RuntimeError("LLM connection failed")
+
+        llm = _make_fake_llm_client(response_factory=factory)
+        config = _make_config()
+        assertions = [
+            Assertion(text="check a", check_type=CheckType.LLM_JUDGE, value="a"),
+            Assertion(text="check b", check_type=CheckType.LLM_JUDGE, value="b"),
+        ]
+
+        expectations, cost = asyncio.run(llm_grade(llm, "content", "f.md", assertions, config))
+        assert len(expectations) == 2
+        assert all(not e.passed for e in expectations)
+        assert all("error" in e.evidence.lower() for e in expectations)
+
+    def test_llm_grade_batching(self):
+        """LLM grade batches assertions (max 15 per call)."""
+        import asyncio
+        from forge_cli.evals.grading import llm_grade, LLMGradingResponse, LLMExpectation
+
+        call_count = [0]
+
+        def factory(model_class, messages):
+            call_count[0] += 1
+            # Count assertions in the prompt to return the right number
+            prompt = messages[-1]["content"] if messages else ""
+            import re
+            items = re.findall(r"^\d+\.", prompt, re.MULTILINE)
+            return LLMGradingResponse(expectations=[
+                LLMExpectation(text=f"exp_{i}", passed=True, evidence="ok")
+                for i in range(len(items))
+            ])
+
+        llm = _make_fake_llm_client(response_factory=factory)
+        config = _make_config()
+        # Create 20 assertions to trigger 2 batches (15 + 5)
+        assertions = [
+            Assertion(text=f"check_{i}", check_type=CheckType.LLM_JUDGE, value=f"val_{i}")
+            for i in range(20)
+        ]
+
+        expectations, cost = asyncio.run(llm_grade(llm, "content", "f.md", assertions, config))
+        assert len(expectations) == 20
+        assert call_count[0] == 2  # Two batches
+
+
+class TestGradeFileWithLLM:
+    """Test grade_file with LLM assertions using FakeLLMProvider."""
+
+    def test_grade_file_mixed_assertions(self):
+        """grade_file processes both deterministic and LLM assertions."""
+        import asyncio
+        from forge_cli.evals.grading import LLMGradingResponse, LLMExpectation
+
+        def factory(model_class, messages):
+            return LLMGradingResponse(expectations=[
+                LLMExpectation(text="llm check", passed=True, evidence="LLM says ok"),
+            ])
+
+        llm = _make_fake_llm_client(response_factory=factory)
+        config = _make_config()
+        assertions = [
+            Assertion(text="has hello", check_type=CheckType.CONTAINS, value="hello"),
+            Assertion(text="no goodbye", check_type=CheckType.NOT_CONTAINS, value="goodbye"),
+            Assertion(text="llm check", check_type=CheckType.LLM_JUDGE, value="Is it good?"),
+        ]
+
+        result = asyncio.run(grade_file("hello world", "test.md", config, assertions, llm))
+        assert len(result.expectations) == 3
+        # Deterministic: 2 pass
+        det_exps = [e for e in result.expectations if "LLM" not in e.evidence]
+        assert all(e.passed for e in det_exps)
+        # LLM: 1 pass
+        llm_exps = [e for e in result.expectations if "LLM" in e.evidence]
+        assert len(llm_exps) == 1
+        assert llm_exps[0].passed is True
+
+
+class TestRunEvalWithLLM:
+    """Test run_eval with use_llm=True using FakeLLMProvider."""
+
+    def test_run_eval_with_llm_provider(self, tmp_path):
+        """run_eval with LLM provider exercises LLM grading path."""
+        from llm_gateway.testing import FakeLLMProvider
+        from forge_cli.evals.grading import LLMGradingResponse, LLMExpectation
+        from forge_cli.generators.orchestrator import generate_all
+
+        def factory(model_class, messages):
+            if model_class is LLMGradingResponse:
+                return LLMGradingResponse(expectations=[
+                    LLMExpectation(text="quality check", passed=True, evidence="Good"),
+                ])
+            raise ValueError(f"Unexpected: {model_class}")
+
+        config = _make_config()
+        config.project.directory = str(tmp_path)
+        generate_all(config)
+
+        fake = FakeLLMProvider(response_factory=factory)
+        report = run_eval(tmp_path, config, use_llm=True, llm_provider=fake)
+
+        assert len(report.files) > 0
+        assert report.overall_pass_rate > 0
+        assert report.duration_seconds >= 0
+
+    def test_create_llm_client_with_provider(self):
+        """_create_llm_client wraps a provider in LLMClient."""
+        from forge_cli.evals.eval_runner import _create_llm_client
+        from llm_gateway.testing import FakeLLMProvider
+
+        fake = FakeLLMProvider()
+        config = _make_config()
+        client = _create_llm_client(config, provider=fake)
+        assert client is not None
+
+    def test_create_llm_client_dry_run_mode(self):
+        """_create_llm_client uses FakeLLMProvider when FORGE_TEST_DRY_RUN=1."""
+        import os
+        from forge_cli.evals.eval_runner import _create_llm_client
+
+        old = os.environ.get("FORGE_TEST_DRY_RUN")
+        try:
+            os.environ["FORGE_TEST_DRY_RUN"] = "1"
+            config = _make_config()
+            client = _create_llm_client(config)
+            assert client is not None
+        finally:
+            if old is not None:
+                os.environ["FORGE_TEST_DRY_RUN"] = old
+            else:
+                os.environ.pop("FORGE_TEST_DRY_RUN", None)
+
+    def test_create_llm_client_real_mode(self):
+        """_create_llm_client creates a real client when no provider and no dry-run."""
+        import os
+        from forge_cli.evals.eval_runner import _create_llm_client
+
+        old = os.environ.get("FORGE_TEST_DRY_RUN")
+        try:
+            os.environ["FORGE_TEST_DRY_RUN"] = "0"
+            config = _make_config()
+            client = _create_llm_client(config)
+            assert client is not None
+        finally:
+            if old is not None:
+                os.environ["FORGE_TEST_DRY_RUN"] = old
+            else:
+                os.environ.pop("FORGE_TEST_DRY_RUN", None)
+
+
+class TestDescriptionOptimizerWithFake:
+    """Test description_optimizer async flow using FakeLLMProvider."""
+
+    def test_optimize_description_full_flow(self, tmp_path):
+        """Full optimization flow with fake LLM."""
+        import asyncio
+        from forge_cli.evals.description_optimizer import (
+            optimize_description,
+            GeneratedQueries,
+            TriggerQuery,
+            TriggerEvaluation,
+            ImprovedDescription,
+        )
+
+        skill_path = tmp_path / "smoke-test.md"
+        skill_path.write_text(
+            '---\nname: smoke-test\ndescription: "Run smoke tests"\n---\n'
+            "# Smoke Test\nRun the smoke test suite.\n"
+        )
+
+        call_types = []
+
+        def factory(model_class, messages):
+            call_types.append(model_class.__name__)
+            if model_class is GeneratedQueries:
+                return GeneratedQueries(queries=[
+                    TriggerQuery(query="run smoke tests", should_trigger=True),
+                    TriggerQuery(query="execute test suite", should_trigger=True),
+                    TriggerQuery(query="check if tests pass", should_trigger=True),
+                    TriggerQuery(query="run all smoke checks", should_trigger=True),
+                    TriggerQuery(query="smoke test the app", should_trigger=True),
+                    TriggerQuery(query="what is the weather", should_trigger=False),
+                    TriggerQuery(query="create a PR", should_trigger=False),
+                    TriggerQuery(query="review the code", should_trigger=False),
+                    TriggerQuery(query="deploy to production", should_trigger=False),
+                    TriggerQuery(query="write documentation", should_trigger=False),
+                ])
+            if model_class is TriggerEvaluation:
+                prompt = messages[-1]["content"] if messages else ""
+                import re
+                items = re.findall(r"^\d+\.", prompt, re.MULTILINE)
+                count = max(len(items), 1)
+                # Return all True (imperfect — will trigger optimization)
+                return TriggerEvaluation(evaluations=[True] * count)
+            if model_class is ImprovedDescription:
+                return ImprovedDescription(
+                    description="Run smoke tests to verify application health",
+                    reasoning="More specific about purpose",
+                )
+            raise ValueError(f"Unexpected: {model_class}")
+
+        llm = _make_fake_llm_client(response_factory=factory)
+        config = _make_config()
+
+        report = asyncio.run(optimize_description(skill_path, config, llm, max_iterations=2))
+
+        assert report.original_description == "Run smoke tests"
+        assert report.iterations > 0
+        assert report.skill_path == str(skill_path)
+        assert len(report.train_results) > 0 or len(report.test_results) > 0
+        assert "GeneratedQueries" in call_types
+        assert "TriggerEvaluation" in call_types
+
+    def test_optimize_description_perfect_accuracy_stops_early(self, tmp_path):
+        """Optimizer stops early when train accuracy is 100%."""
+        import asyncio
+        from forge_cli.evals.description_optimizer import (
+            optimize_description,
+            GeneratedQueries,
+            TriggerQuery,
+            TriggerEvaluation,
+            ImprovedDescription,
+        )
+
+        skill_path = tmp_path / "test-skill.md"
+        skill_path.write_text(
+            '---\nname: test-skill\ndescription: "A test skill"\n---\n# Test\n'
+        )
+
+        def factory(model_class, messages):
+            if model_class is GeneratedQueries:
+                return GeneratedQueries(queries=[
+                    TriggerQuery(query="do test", should_trigger=True),
+                    TriggerQuery(query="do test 2", should_trigger=True),
+                    TriggerQuery(query="not test", should_trigger=False),
+                    TriggerQuery(query="not test 2", should_trigger=False),
+                    TriggerQuery(query="do test 3", should_trigger=True),
+                    TriggerQuery(query="not test 3", should_trigger=False),
+                ])
+            if model_class is TriggerEvaluation:
+                prompt = messages[-1]["content"] if messages else ""
+                import re
+                items = re.findall(r"^\d+\.", prompt, re.MULTILINE)
+                count = max(len(items), 1)
+                # Return correct answers based on query content
+                evals = []
+                for i in range(count):
+                    evals.append("not test" not in (items[i] if i < len(items) else ""))
+                return TriggerEvaluation(evaluations=evals)
+            if model_class is ImprovedDescription:
+                return ImprovedDescription(
+                    description="better", reasoning="improved",
+                )
+            raise ValueError(f"Unexpected: {model_class}")
+
+        llm = _make_fake_llm_client(response_factory=factory)
+        config = _make_config()
+
+        report = asyncio.run(optimize_description(skill_path, config, llm, max_iterations=5))
+        assert report.skill_path == str(skill_path)
+
+    def test_evaluate_queries_and_accuracy(self):
+        """Test _evaluate_queries and _evaluate_accuracy helpers."""
+        import asyncio
+        from forge_cli.evals.description_optimizer import (
+            _evaluate_queries,
+            _evaluate_accuracy,
+            TriggerQuery,
+            TriggerEvaluation,
+        )
+
+        def factory(model_class, messages):
+            return TriggerEvaluation(evaluations=[True, True, False])
+
+        llm = _make_fake_llm_client(response_factory=factory)
+        queries = [
+            TriggerQuery(query="run tests", should_trigger=True),
+            TriggerQuery(query="check tests", should_trigger=True),
+            TriggerQuery(query="create PR", should_trigger=False),
+        ]
+
+        results = asyncio.run(_evaluate_queries(llm, "skill", "desc", queries))
+        assert len(results) == 3
+        assert results[0].correct is True
+        assert results[1].correct is True
+        assert results[2].correct is True
+
+        accuracy = asyncio.run(_evaluate_accuracy(llm, "skill", "desc", queries))
+        assert accuracy == 1.0
+
+    def test_evaluate_accuracy_empty(self):
+        """_evaluate_accuracy returns 0 for empty queries."""
+        import asyncio
+        from forge_cli.evals.description_optimizer import (
+            _evaluate_accuracy,
+            TriggerEvaluation,
+        )
+
+        def factory(model_class, messages):
+            return TriggerEvaluation(evaluations=[])
+
+        llm = _make_fake_llm_client(response_factory=factory)
+        accuracy = asyncio.run(_evaluate_accuracy(llm, "skill", "desc", []))
+        assert accuracy == 0.0
+
+    def test_generate_queries(self):
+        """Test _generate_queries helper."""
+        import asyncio
+        from forge_cli.evals.description_optimizer import (
+            _generate_queries,
+            GeneratedQueries,
+            TriggerQuery,
+        )
+
+        def factory(model_class, messages):
+            return GeneratedQueries(queries=[
+                TriggerQuery(query="q1", should_trigger=True),
+                TriggerQuery(query="q2", should_trigger=False),
+            ])
+
+        llm = _make_fake_llm_client(response_factory=factory)
+        config = _make_config()
+        queries = asyncio.run(_generate_queries(llm, "skill", "desc", "body", config))
+        assert len(queries) == 2
+        assert queries[0].should_trigger is True
+
+    def test_propose_improvement(self):
+        """Test _propose_improvement helper."""
+        import asyncio
+        from forge_cli.evals.description_optimizer import (
+            _propose_improvement,
+            ImprovedDescription,
+            TriggerEvalResult,
+        )
+
+        def factory(model_class, messages):
+            return ImprovedDescription(
+                description="improved desc",
+                reasoning="because it's better",
+            )
+
+        llm = _make_fake_llm_client(response_factory=factory)
+        config = _make_config()
+        failures = [
+            TriggerEvalResult(
+                query="run tests", should_trigger=True,
+                would_trigger=False, correct=False,
+            ),
+        ]
+        result = asyncio.run(
+            _propose_improvement(llm, "skill", "old desc", "body text", failures, config)
+        )
+        assert result.description == "improved desc"
+        assert result.reasoning == "because it's better"
