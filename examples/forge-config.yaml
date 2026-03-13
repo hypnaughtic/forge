@@ -27,15 +27,20 @@ project:
     E-commerce platform with storefront, admin dashboard,
     and payment processing
 
-  # Detailed requirements — the more specific, the better the generated
-  # instructions. Include features, constraints, and acceptance criteria.
-  requirements: >-
-    Build a full-stack e-commerce platform. Features: user authentication
-    (OAuth2 + email/password), product catalog with search and filtering,
-    shopping cart with persistent state, checkout with Stripe integration,
-    order management dashboard for admins, email notifications (order
-    confirmation, shipping updates), inventory tracking. API-first design
-    with REST endpoints. Mobile-responsive storefront.
+  # Detailed requirements are derived automatically from context_files
+  # and plan_file below. You can still provide requirements manually
+  # for backward compatibility, but context files are preferred.
+  # requirements: (deprecated — use context_files instead)
+
+  # Provide paths to spec files, architecture docs, or directories.
+  # Forge reads these and derives detailed project requirements via LLM.
+  # context_files:
+  #   - PLAN.md
+  #   - specs/
+  #   - ARCHITECTURE.md
+
+  # Authoritative implementation plan — agents follow it exactly.
+  # plan_file: PLAN.md
 
   # "new" = greenfield project (default)
   # "existing" = agents analyze existing code before planning
@@ -132,6 +137,15 @@ tech_stack:
     - docker
     # - kubernetes
     # - terraform
+
+# -----------------------------------------------------------------------------
+# Workspace — How agents treat the working directory
+# -----------------------------------------------------------------------------
+# single-repo  Single git repository, single project (default)
+# monorepo     Single git repository, multiple packages (agents auto-detect)
+# workspace    Multiple git repositories under one directory
+workspace:
+  type: single-repo
 
 # -----------------------------------------------------------------------------
 # Atlassian — Jira & Confluence integration (optional)
