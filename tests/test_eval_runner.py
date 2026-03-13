@@ -1445,7 +1445,11 @@ class TestRunEvalWithLLM:
     def test_create_llm_client_real_mode(self):
         """_create_llm_client creates a real client when no provider and no dry-run."""
         import os
+        import shutil
         from forge_cli.evals.eval_runner import _create_llm_client
+
+        if not shutil.which("claude"):
+            pytest.skip("claude CLI not available — required for local_claude provider")
 
         old = os.environ.get("FORGE_TEST_DRY_RUN")
         try:
