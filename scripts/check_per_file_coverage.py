@@ -20,13 +20,13 @@ from pathlib import Path
 EXEMPTIONS: dict[str, float] = {
     # CLI entry point — Click commands with rich output, error branches,
     # and optimize-descriptions flow require subprocess or complex mocking
-    "forge_cli/main.py": 65,
+    "forge_cli/main.py": 86,
     # Interactive wizard — prompt_toolkit flows hard to test without TTY
-    "forge_cli/init_wizard.py": 85,
+    "forge_cli/init_wizard.py": 86,
     # LLM-dependent refinement loop — score/refine with real LLM
-    "forge_cli/generators/refinement.py": 88,
+    "forge_cli/generators/refinement.py": 89,
     # LLM-dependent context summarizer — summarization requires real LLM
-    "forge_cli/generators/context_summarizer.py": 80,
+    "forge_cli/generators/context_summarizer.py": 82,
 }
 
 
