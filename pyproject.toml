@@ -65,10 +65,10 @@ python_functions = ["test_*"]
 
 [tool.coverage.run]
 source = ["forge_cli"]
-omit = ["forge_cli/__pycache__/*", "forge_cli/progress.py"]
+omit = ["forge_cli/__pycache__/*"]
 
 [tool.coverage.report]
-fail_under = 75
+fail_under = 90
 show_missing = true
 exclude_lines = [
     "pragma: no cover",

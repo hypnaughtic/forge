@@ -42,7 +42,7 @@ def _is_interactive() -> bool:
     return sys.stdin.isatty()
 
 
-def _make_nav_bindings():
+def _make_nav_bindings():  # pragma: no cover — requires interactive TTY
     """Create key bindings for step navigation.
 
     Up arrow: go back to previous step (returns _BACK_SENTINEL).
@@ -77,7 +77,7 @@ def _pt_prompt(message: str, default: str = "", **kwargs: object) -> str:
     if not sys.stdin.isatty():
         return click.prompt(message, default=default, **kwargs)
 
-    try:
+    try:  # pragma: no cover — requires interactive TTY
         from prompt_toolkit import prompt as pt_prompt_fn
         from prompt_toolkit.formatted_text import HTML
 
@@ -101,7 +101,7 @@ def _pt_confirm(message: str, default: bool = True) -> bool:
     if not sys.stdin.isatty():
         return click.confirm(message, default=default)
 
-    try:
+    try:  # pragma: no cover — requires interactive TTY
         from prompt_toolkit import prompt as pt_prompt_fn
         from prompt_toolkit.formatted_text import HTML
 
@@ -129,7 +129,7 @@ def _pt_choice(message: str, choices: list[str], default: str = "") -> str:
     if not sys.stdin.isatty():
         return click.prompt(message, type=click.Choice(choices), default=default)
 
-    try:
+    try:  # pragma: no cover — requires interactive TTY
         from prompt_toolkit import prompt as pt_prompt_fn
         from prompt_toolkit.formatted_text import HTML
         from prompt_toolkit.validation import Validator
@@ -162,7 +162,7 @@ def _pt_int(message: str, default: int = 0, min_val: int = 0, max_val: int = 999
     if not sys.stdin.isatty():
         return click.prompt(message, type=click.IntRange(min_val, max_val), default=default)
 
-    try:
+    try:  # pragma: no cover — requires interactive TTY
         from prompt_toolkit import prompt as pt_prompt_fn
         from prompt_toolkit.formatted_text import HTML
         from prompt_toolkit.validation import Validator

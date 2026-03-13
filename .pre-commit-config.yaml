@@ -15,9 +15,10 @@ repos:
 
   - repo: local
     hooks:
-      - id: pytest-unit
-        name: Python unit tests with coverage
+      - id: pytest-full
+        name: Full test suite with coverage (dry-run)
         entry: >-
+          env FORGE_TEST_DRY_RUN=1 COVERAGE_FILE=/tmp/.forge-coverage
           python -m pytest
           tests/test_generators.py
           tests/test_config_schema.py
@@ -25,8 +26,13 @@ repos:
           tests/test_refinement.py
           tests/test_init_wizard.py
           tests/test_context_summarizer.py
+          tests/test_main.py
+          tests/test_progress.py
+          tests/test_integration.py
+          tests/test_co_planner.py
+          tests/test_context_quality.py
           --cov=forge_cli
-          --cov-fail-under=75
+          --cov-fail-under=90
           -x -q --tb=short
         language: system
         pass_filenames: false

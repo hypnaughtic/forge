@@ -54,8 +54,11 @@ jobs:
           tests/test_refinement.py
           tests/test_init_wizard.py
           tests/test_context_summarizer.py
+          tests/test_main.py
+          tests/test_progress.py
           tests/test_integration.py
           tests/test_co_planner.py
+          tests/test_context_quality.py
           --cov=forge_cli
           --cov-fail-under=90
           -v --tb=short
