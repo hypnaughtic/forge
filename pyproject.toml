@@ -51,10 +51,10 @@ test = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "pytest-timeout>=2.3",
-    "llm-gateway @ git+https://github.com/Rushabh1798/llm-gateway.git",
+    "llm-gateway @ git+https://github.com/hypnaughtic/llm-gateway.git",
 ]
 refinement = [
-    "llm-gateway @ git+https://github.com/Rushabh1798/llm-gateway.git",
+    "llm-gateway @ git+https://github.com/hypnaughtic/llm-gateway.git",
 ]
 
 [tool.pytest.ini_options]
