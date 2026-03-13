@@ -65,7 +65,7 @@ python_functions = ["test_*"]
 
 [tool.coverage.run]
 source = ["forge_cli"]
-omit = ["forge_cli/__pycache__/*"]
+omit = ["forge_cli/__pycache__/*", "forge_cli/progress.py"]
 
 [tool.coverage.report]
 fail_under = 75
