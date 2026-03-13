@@ -70,11 +70,8 @@ forge start
 # Validate config without generating files
 forge generate --validate-only
 
-# Generate with LLM-powered refinement
-forge generate --refine
-
-# Force refinement off (overrides config)
-forge generate --no-refine
+# Refine generated files with LLM scoring
+forge refine
 ```
 
 ---
@@ -233,14 +230,11 @@ changes, scores, and next scope of improvement.
 | Clarity | 20% | Clear, actionable instructions an AI agent can follow |
 | Consistency | 10% | Internally consistent, no contradictions |
 
-CLI override:
+Standalone refinement command:
 
 ```bash
-# Force refinement on (overrides config)
-forge generate --refine
-
-# Force refinement off
-forge generate --no-refine
+# Refine generated files with LLM scoring
+forge refine
 ```
 
 Install the refinement dependency:
