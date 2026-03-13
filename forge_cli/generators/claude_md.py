@@ -115,7 +115,7 @@ def generate_claude_md(config: ForgeConfig, project_dir: Path) -> None:
 
         ## LLM Gateway
 
-        All LLM calls in this project MUST use [llm-gateway](https://github.com/Rushabh1798/llm-gateway).
+        All LLM calls in this project MUST use [llm-gateway](https://github.com/hypnaughtic/llm-gateway).
         Direct vendor SDK imports (anthropic, openai) are forbidden.
         - **Provider switching**: `LLM_PROVIDER` env var (anthropic, local_claude, fake)
         - **Structured output**: Pydantic response models for every call
@@ -148,6 +148,12 @@ def generate_claude_md(config: ForgeConfig, project_dir: Path) -> None:
         {rules}
         """)
 
+    optional_sections = [s for s in [
+        atlassian_section, spawning_section, workflow_section,
+        naming_section, llm_gateway_section, git_auth_section,
+    ] if s.strip()]
+    optional_content = "\n".join(optional_sections)
+
     content = dedent(f"""\
     # Forge — Team Leader Context
 
@@ -160,6 +166,7 @@ def generate_claude_md(config: ForgeConfig, project_dir: Path) -> None:
     - **Cost Cap**: ${config.cost.max_development_cost}
     - **Team Profile**: {config.resolve_team_profile()} ({', '.join(agents)})
     - **Tech Stack**: {tech_str}
+    - **Workspace**: {config.workspace.type.value}
     {non_negotiables_section}
     ## Your Identity
 
@@ -194,7 +201,7 @@ def generate_claude_md(config: ForgeConfig, project_dir: Path) -> None:
 
     Example: To spawn the backend developer, use the Agent tool and include the
     contents of `.claude/agents/backend-developer.md` in the system prompt.
-    {atlassian_section}{spawning_section}{workflow_section}{naming_section}{llm_gateway_section}{git_auth_section}
+    {optional_content}
     {"## Visual Verification" + chr(10) + chr(10) + "    Playwright MCP is configured in `.claude/mcp.json` for browser automation and screenshots." + chr(10) + "    - Frontend agents and QA must **visually verify** their work via screenshots before marking tasks complete" + chr(10) + "    - Use Playwright CLI or MCP to capture screenshots, then use the Read tool to view them" + chr(10) + "    - Screenshots are saved to `docs/screenshots/` for human review" + chr(10) + "    - Smoke tests must include screenshot evidence of a working UI" if config.has_frontend_involvement() else "## Verification" + chr(10) + chr(10) + ("    - **CLI output verification**: Capture and review command outputs for all subcommands" + chr(10) + "    - Verify help text is complete and accurate, error messages are helpful" + chr(10) + "    - Playwright MCP is configured for API documentation screenshots if applicable" if config.is_cli_project() else "    - **API documentation verification**: Verify OpenAPI/Swagger docs are generated and accurate" + chr(10) + "    - Playwright MCP is configured in `.claude/mcp.json` — use for API docs screenshots" + chr(10) + "    - Smoke tests must verify all endpoints respond correctly with proper status codes")}
 
     ## Project Requirements
@@ -209,6 +216,22 @@ def generate_claude_md(config: ForgeConfig, project_dir: Path) -> None:
     - Smoke test protocol (mandatory for ALL modes)
     - Progressive work advancement (don't wait for all agents to finish)
     - Parallel work streams with sync points
+
+    ## Project Completion Rule (NON-NEGOTIABLE)
+
+    **You must iterate until the ENTIRE project is complete.** Completing one iteration is not
+    completing the project. After each iteration's PROCEED decision, immediately plan and begin
+    the next iteration. Keep going until:
+
+    1. Every requirement is fully implemented and working
+    2. All code is committed (`git status` = clean working tree)
+    3. All iterations tagged (`iteration-N-verified`)
+    4. End-to-end smoke tests pass for the complete application
+    5. Critic confirms no BLOCKER findings remain
+
+    **Never stop between iterations unless the human explicitly tells you to stop or you hit
+    the cost cap.** If requirements are unclear, ask — but do NOT use ambiguity as a reason
+    to stop working. Resolve the ambiguity and continue.
     """)
 
     output_path = project_dir / "CLAUDE.md"

@@ -25,7 +25,7 @@ from forge_cli.config_schema import (
     ProjectMode,
     RefinementConfig,
 )
-from forge_cli.generators.orchestrator import generate_all
+from forge_cli.generators.orchestrator import generate_all, run_refinement
 
 # ---------------------------------------------------------------------------
 # Fixtures & helpers
@@ -351,7 +351,8 @@ class TestCoplannerRefinement:
         )
 
         provider = _get_refinement_provider(initial_score=85, refined_score=95)
-        report = generate_all(config, llm_provider=provider)
+        generate_all(config, llm_provider=provider)
+        report = run_refinement(config, tmp_path, llm_provider=provider)
 
         assert report is not None
         assert len(report.files) > 0
@@ -368,6 +369,7 @@ class TestCoplannerRefinement:
 
         provider = _get_refinement_provider(initial_score=80, refined_score=95)
         generate_all(config, llm_provider=provider)
+        run_refinement(config, tmp_path, llm_provider=provider)
 
         # Check JSON report
         json_report = tmp_path / ".forge" / "refinement-report.json"
@@ -395,7 +397,8 @@ class TestCoplannerRefinement:
         )
 
         provider = _get_refinement_provider(initial_score=85, refined_score=95)
-        report = generate_all(config, llm_provider=provider)
+        generate_all(config, llm_provider=provider)
+        report = run_refinement(config, tmp_path, llm_provider=provider)
 
         for file_result in report.files:
             assert file_result.initial_score > 0
@@ -413,7 +416,8 @@ class TestCoplannerRefinement:
         )
 
         provider = _get_refinement_provider(initial_score=85, refined_score=95)
-        report = generate_all(config, llm_provider=provider)
+        generate_all(config, llm_provider=provider)
+        report = run_refinement(config, tmp_path, llm_provider=provider)
 
         for file_result in report.files:
             assert file_result.final_score >= 90, (

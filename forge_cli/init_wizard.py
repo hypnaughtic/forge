@@ -27,6 +27,8 @@ from forge_cli.config_schema import (
     ProjectMode,
     TeamProfile,
     TechStack,
+    WorkspaceConfig,
+    WorkspaceType,
 )
 
 console = Console()
@@ -223,6 +225,7 @@ def run_wizard(output_path: str) -> ForgeConfig:
         _prompt_mode,
         _prompt_strategy,
         _prompt_tech_stack,
+        _prompt_workspace,
         _prompt_agents_wrapper,
         _prompt_atlassian,
         _prompt_llm_gateway,
@@ -250,10 +253,11 @@ def run_wizard(output_path: str) -> ForgeConfig:
     mode = results[1]
     strategy = results[2]
     tech_stack = results[3]
-    agents_cfg, naming_cfg, cost_cfg = results[4]
-    atlassian = results[5]
-    llm_gateway = results[6]
-    non_negotiables = results[7]
+    workspace = results[4]
+    agents_cfg, naming_cfg, cost_cfg = results[5]
+    atlassian = results[6]
+    llm_gateway = results[7]
+    non_negotiables = results[8]
 
     config = ForgeConfig(
         project=project,
@@ -262,6 +266,7 @@ def run_wizard(output_path: str) -> ForgeConfig:
         cost=cost_cfg,
         agents=agents_cfg,
         tech_stack=tech_stack,
+        workspace=workspace,
         atlassian=atlassian,
         agent_naming=naming_cfg,
         llm_gateway=llm_gateway,
@@ -285,37 +290,78 @@ def _check_back(value: object) -> str:
     return str(value)
 
 
+class _IntraStepBack(Exception):
+    """Raised within _run_fields to go to the previous field.
+
+    If at the first field, this is re-raised as _BackSignal to go to the
+    previous step.
+    """
+
+
+def _run_fields(field_fns: list) -> list:
+    """Run a sequence of field-prompt functions with intra-step back navigation.
+
+    Each function in field_fns takes no arguments and returns a value.
+    If any function raises _BackSignal (via _check_back), we go back to the
+    previous field. If already at the first field, we propagate _BackSignal
+    to go back to the previous step.
+
+    Returns a list of results, one per field function.
+    """
+    results: list = [None] * len(field_fns)
+    idx = 0
+    while idx < len(field_fns):
+        try:
+            results[idx] = field_fns[idx]()
+            idx += 1
+        except _BackSignal:
+            if idx > 0:
+                idx -= 1
+                console.print("[dim]  ↑ previous field[/dim]")
+            else:
+                raise  # propagate to step-level navigation
+    return results
+
+
 def _prompt_project() -> ProjectConfig:
-    """Step 1/8: Project details."""
-    console.print("\n  [bold]Step 1/8: Project Details[/bold]")
+    """Step 1/9: Project details."""
+    console.print("\n  [bold]Step 1/9: Project Details[/bold]")
     console.print("  " + "─" * 24)
 
-    description = ""
-    while not description.strip():
-        description = _check_back(_pt_prompt("Project description"))
-        if not description.strip():
-            console.print("  [red]Description is required.[/red]")
+    def _get_description() -> str:
+        desc = ""
+        while not desc.strip():
+            desc = _check_back(_pt_prompt("Project description"))
+            if not desc.strip():
+                console.print("  [red]Description is required.[/red]")
+        return desc
 
-    requirements = _check_back(
-        _pt_prompt("Detailed requirements (Enter to skip)", default="")
-    )
+    def _get_plan_file() -> str:
+        console.print("  [dim]If you have a detailed plan, provide the path. Agents will follow it exactly.[/dim]")
+        return _check_back(
+            _pt_prompt("Plan file (path to implementation plan, Enter to skip)", default="")
+        ).strip()
 
-    # Plan file
-    console.print("  [dim]If you have a detailed plan, provide the path. Agents will follow it exactly.[/dim]")
-    plan_file = _check_back(
-        _pt_prompt("Plan file (path to implementation plan, Enter to skip)", default="")
-    ).strip()
+    def _get_context_files() -> list[str]:
+        console.print("  [dim]Provide paths to spec/context files or directories for additional context.[/dim]")
+        raw = _check_back(
+            _pt_prompt("Context files (comma-separated paths, Enter to skip)", default="")
+        )
+        return [s.strip() for s in raw.split(",") if s.strip()] if raw.strip() else []
 
-    # Context files
-    console.print("  [dim]Provide paths to spec/context files or directories for additional context.[/dim]")
-    context_raw = _check_back(
-        _pt_prompt("Context files (comma-separated paths, Enter to skip)", default="")
-    )
-    context_files = [s.strip() for s in context_raw.split(",") if s.strip()] if context_raw.strip() else []
+    def _get_project_type() -> str:
+        return _check_back(
+            _pt_choice("Project type", ["new", "existing"], default="new")
+        )
 
-    project_type = _check_back(
-        _pt_choice("Project type", ["new", "existing"], default="new")
-    )
+    results = _run_fields([
+        _get_description,
+        _get_plan_file,
+        _get_context_files,
+        _get_project_type,
+    ])
+
+    description, plan_file, context_files, project_type = results
 
     existing_path = ""
     if project_type == "existing":
@@ -323,7 +369,6 @@ def _prompt_project() -> ProjectConfig:
 
     return ProjectConfig(
         description=description.strip(),
-        requirements=requirements.strip(),
         context_files=context_files,
         plan_file=plan_file,
         type=project_type,
@@ -332,8 +377,8 @@ def _prompt_project() -> ProjectConfig:
 
 
 def _prompt_mode() -> ProjectMode:
-    """Step 2/8: Quality mode."""
-    console.print("\n  [bold]Step 2/8: Quality Mode[/bold]")
+    """Step 2/9: Quality mode."""
+    console.print("\n  [bold]Step 2/9: Quality Mode[/bold]")
     console.print("  " + "─" * 21)
 
     options = [
@@ -350,8 +395,8 @@ def _prompt_mode() -> ProjectMode:
 
 
 def _prompt_strategy() -> ExecutionStrategy:
-    """Step 3/8: Execution strategy."""
-    console.print("\n  [bold]Step 3/8: Execution Strategy[/bold]")
+    """Step 3/9: Execution strategy."""
+    console.print("\n  [bold]Step 3/9: Execution Strategy[/bold]")
     console.print("  " + "─" * 28)
 
     options = [
@@ -372,70 +417,133 @@ def _prompt_strategy() -> ExecutionStrategy:
 
 
 def _prompt_tech_stack() -> TechStack:
-    """Step 4/8: Tech stack."""
-    console.print("\n  [bold]Step 4/8: Tech Stack[/bold]")
+    """Step 4/9: Tech stack."""
+    console.print("\n  [bold]Step 4/9: Tech Stack[/bold]")
     console.print("  " + "─" * 20)
 
     def _parse_list(raw: str) -> list[str]:
         return [s.strip() for s in raw.split(",") if s.strip()] if raw.strip() else []
 
-    languages = _parse_list(_check_back(
-        _pt_prompt("Languages (comma-separated, Enter to skip)", default="")
-    ))
-    frameworks = _parse_list(_check_back(
-        _pt_prompt("Frameworks (comma-separated, Enter to skip)", default="")
-    ))
-    databases = _parse_list(_check_back(
-        _pt_prompt("Databases (comma-separated, Enter to skip)", default="")
-    ))
-    infrastructure = _parse_list(_check_back(
-        _pt_prompt("Infrastructure (comma-separated, Enter to skip)", default="")
-    ))
+    def _get_languages() -> list[str]:
+        return _parse_list(_check_back(
+            _pt_prompt("Languages (comma-separated, Enter to skip)", default="")
+        ))
+
+    def _get_frameworks() -> list[str]:
+        return _parse_list(_check_back(
+            _pt_prompt("Frameworks (comma-separated, Enter to skip)", default="")
+        ))
+
+    def _get_databases() -> list[str]:
+        return _parse_list(_check_back(
+            _pt_prompt("Databases (comma-separated, Enter to skip)", default="")
+        ))
+
+    def _get_infrastructure() -> list[str]:
+        return _parse_list(_check_back(
+            _pt_prompt("Infrastructure (comma-separated, Enter to skip)", default="")
+        ))
+
+    results = _run_fields([
+        _get_languages,
+        _get_frameworks,
+        _get_databases,
+        _get_infrastructure,
+    ])
 
     return TechStack(
-        languages=languages,
-        frameworks=frameworks,
-        databases=databases,
-        infrastructure=infrastructure,
+        languages=results[0],
+        frameworks=results[1],
+        databases=results[2],
+        infrastructure=results[3],
     )
+
+
+def _prompt_workspace() -> WorkspaceConfig:
+    """Step 5/9: Workspace type."""
+    console.print("\n  [bold]Step 5/9: Workspace Type[/bold]")
+    console.print("  " + "─" * 23)
+
+    options = [
+        ("single-repo", "Single git repository, single project"),
+        ("monorepo", "Single git repository, multiple packages (auto-detected)"),
+        ("workspace", "Multiple git repositories under one directory"),
+    ]
+    for i, (name, desc) in enumerate(options, 1):
+        console.print(f"    {i}. [cyan]{name}[/cyan] — {desc}")
+
+    choice = _check_back(str(_pt_int("Choice", default=1, min_val=1, max_val=3)))
+    idx = int(choice) - 1 if choice.strip().isdigit() else 0
+    workspace_type = [
+        WorkspaceType.SINGLE_REPO,
+        WorkspaceType.MONOREPO,
+        WorkspaceType.WORKSPACE,
+    ][idx]
+
+    return WorkspaceConfig(type=workspace_type)
 
 
 def _prompt_agents(
     mode: ProjectMode,
 ) -> tuple[AgentsConfig, AgentNamingConfig, CostConfig]:
-    """Step 5/8: Team configuration."""
-    console.print("\n  [bold]Step 5/8: Team Configuration[/bold]")
+    """Step 6/9: Team configuration."""
+    console.print("\n  [bold]Step 6/9: Team Configuration[/bold]")
     console.print("  " + "─" * 28)
 
-    profile_choice = _check_back(
-        _pt_choice("Team profile", ["auto", "lean", "full", "custom"], default="auto")
-    )
-    profile = TeamProfile(profile_choice)
+    # Mutable state shared across field closures
+    _state: dict = {}
 
-    include: list[str] = []
-    if profile == TeamProfile.CUSTOM:
-        available = [
-            "team-leader", "research-strategist", "architect",
-            "backend-developer", "frontend-engineer", "frontend-designer",
-            "frontend-developer", "qa-engineer", "devops-specialist",
-            "security-tester", "performance-engineer",
-            "documentation-specialist", "critic",
-        ]
-        console.print("  Available agents:")
-        for agent in available:
-            console.print(f"    - {agent}")
-        raw = _check_back(_pt_prompt("Include agents (comma-separated)"))
-        include = [s.strip() for s in raw.split(",") if s.strip()]
+    def _get_profile() -> TeamProfile:
+        choice = _check_back(
+            _pt_choice("Team profile", ["auto", "lean", "full", "custom"], default="auto")
+        )
+        profile = TeamProfile(choice)
+        _state["profile"] = profile
+        return profile
 
-    spawning = _pt_confirm("Allow sub-agent spawning?", default=True)
+    def _get_include() -> list[str]:
+        if _state.get("profile") == TeamProfile.CUSTOM:
+            available = [
+                "team-leader", "research-strategist", "architect",
+                "backend-developer", "frontend-engineer", "frontend-designer",
+                "frontend-developer", "qa-engineer", "devops-specialist",
+                "security-tester", "performance-engineer",
+                "documentation-specialist", "critic",
+            ]
+            console.print("  Available agents:")
+            for agent in available:
+                console.print(f"    - {agent}")
+            raw = _check_back(_pt_prompt("Include agents (comma-separated)"))
+            return [s.strip() for s in raw.split(",") if s.strip()]
+        return []
 
-    naming_choice = _check_back(
-        _pt_choice("Agent naming style", ["creative", "functional", "codename", "off"], default="creative")
-    )
-    naming_enabled = naming_choice != "off"
-    naming_style = naming_choice if naming_enabled else "creative"
+    def _get_spawning() -> bool:
+        val = _pt_confirm("Allow sub-agent spawning?", default=True)
+        _check_back(val)
+        return val
 
-    max_cost = _pt_int("Max development cost in USD", default=50, min_val=1, max_val=10000)
+    def _get_naming() -> tuple[bool, str]:
+        choice = _check_back(
+            _pt_choice("Agent naming style", ["creative", "functional", "codename", "off"], default="creative")
+        )
+        enabled = choice != "off"
+        style = choice if enabled else "creative"
+        return enabled, style
+
+    def _get_cost() -> int:
+        val = _pt_int("Max development cost in USD", default=50, min_val=1, max_val=10000)
+        _check_back(val)
+        return int(val)
+
+    results = _run_fields([
+        _get_profile,
+        _get_include,
+        _get_spawning,
+        _get_naming,
+        _get_cost,
+    ])
+
+    profile, include, spawning, (naming_enabled, naming_style), max_cost = results
 
     agents_cfg = AgentsConfig(
         team_profile=profile,
@@ -454,31 +562,42 @@ def _prompt_agents_wrapper() -> tuple[AgentsConfig, AgentNamingConfig, CostConfi
 
 
 def _prompt_atlassian() -> AtlassianConfig:
-    """Step 6/8: Atlassian integration."""
-    console.print("\n  [bold]Step 6/8: Atlassian Integration[/bold]")
+    """Step 7/9: Atlassian integration."""
+    console.print("\n  [bold]Step 7/9: Atlassian Integration[/bold]")
     console.print("  " + "─" * 31)
 
     enabled = _pt_confirm("Enable Jira/Confluence integration?", default=False)
+    if enabled == _BACK_SENTINEL:
+        raise _BackSignal()
     if not enabled:
         return AtlassianConfig(enabled=False)
 
-    jira_key = _check_back(_pt_prompt("Jira project key", default=""))
-    jira_url = _check_back(_pt_prompt("Jira base URL", default=""))
-    confluence_key = _check_back(_pt_prompt("Confluence space key", default=""))
-    confluence_url = _check_back(_pt_prompt("Confluence base URL", default=""))
+    def _jira_key() -> str:
+        return _check_back(_pt_prompt("Jira project key", default=""))
+
+    def _jira_url() -> str:
+        return _check_back(_pt_prompt("Jira base URL", default=""))
+
+    def _conf_key() -> str:
+        return _check_back(_pt_prompt("Confluence space key", default=""))
+
+    def _conf_url() -> str:
+        return _check_back(_pt_prompt("Confluence base URL", default=""))
+
+    results = _run_fields([_jira_key, _jira_url, _conf_key, _conf_url])
 
     return AtlassianConfig(
         enabled=True,
-        jira_project_key=jira_key,
-        jira_base_url=jira_url,
-        confluence_space_key=confluence_key,
-        confluence_base_url=confluence_url,
+        jira_project_key=results[0],
+        jira_base_url=results[1],
+        confluence_space_key=results[2],
+        confluence_base_url=results[3],
     )
 
 
 def _prompt_llm_gateway() -> LLMGatewayConfig:
-    """Step 7/8: LLM Gateway."""
-    console.print("\n  [bold]Step 7/8: LLM Gateway[/bold]")
+    """Step 8/9: LLM Gateway."""
+    console.print("\n  [bold]Step 8/9: LLM Gateway[/bold]")
     console.print("  " + "─" * 21)
 
     enabled = _pt_confirm("Enable llm-gateway mandate in generated files?", default=True)
@@ -486,8 +605,8 @@ def _prompt_llm_gateway() -> LLMGatewayConfig:
 
 
 def _prompt_non_negotiables() -> list[str]:
-    """Step 8/8: Non-negotiables."""
-    console.print("\n  [bold]Step 8/8: Non-Negotiables (optional)[/bold]")
+    """Step 9/9: Non-negotiables."""
+    console.print("\n  [bold]Step 9/9: Non-Negotiables (optional)[/bold]")
     console.print("  " + "─" * 35)
     console.print("  Enter absolute requirements (one per line, empty line to finish):")
 
@@ -525,6 +644,8 @@ def _show_summary(config: ForgeConfig) -> None:
     if config.tech_stack.databases:
         tech_parts.append(", ".join(config.tech_stack.databases))
     table.add_row("Tech Stack", " | ".join(tech_parts) if tech_parts else "not specified")
+
+    table.add_row("Workspace", config.workspace.type.value)
 
     table.add_row(
         "Atlassian", "enabled" if config.atlassian.enabled else "disabled"
@@ -578,4 +699,4 @@ def _confirm_and_save(config: ForgeConfig, output_path: str) -> None:
         console.print("  2. Start building:")
         console.print("     [cyan]forge start[/cyan]  — launches Claude with the team init prompt")
         console.print("     OR run [cyan]claude[/cyan] and tell it: \"Read team-init-plan.md and initialize the team\"")
-        console.print("  3. To improve generated file quality: [cyan]forge generate --refine[/cyan]")
+        console.print("  3. To improve generated file quality: [cyan]forge refine[/cyan]")

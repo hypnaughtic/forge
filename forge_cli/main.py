@@ -1,5 +1,6 @@
 """Forge CLI — Main entry point."""
 
+import logging
 from pathlib import Path
 
 import click
@@ -8,6 +9,26 @@ from rich.console import Console
 from forge_cli import __version__
 
 console = Console()
+
+
+def _configure_logging(verbose: bool = False) -> None:
+    """Configure logging for forge and its dependencies.
+
+    When verbose is False (default), suppresses all library logs so the user
+    only sees the Rich progress UI.  When verbose is True, shows DEBUG-level
+    output for forge internals and INFO for llm_gateway.
+    """
+    if verbose:
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format="%(asctime)s %(name)s %(levelname)s %(message)s",
+            datefmt="%H:%M:%S",
+        )
+        # llm_gateway can be noisy — keep at INFO even in verbose mode
+        logging.getLogger("llm_gateway").setLevel(logging.INFO)
+    else:
+        # Silence everything — the Rich progress display is the only UX
+        logging.disable(logging.CRITICAL)
 
 
 HELP_TEXT = f"""\n
@@ -21,7 +42,7 @@ HELP_TEXT = f"""\n
     forge init                                          Build config interactively
     forge generate                                      Generate (auto-detect config)
     forge generate --config .forge/forge.yaml           Generate from explicit config
-    forge generate --refine                             Generate + LLM refinement
+    forge refine                                        LLM scoring + iterative refinement
     forge start                                         Launch Claude with team init
     forge --config .forge/forge.yaml --validate-only    Validate config only
 
@@ -43,6 +64,9 @@ HELP_TEXT = f"""\n
     CLAUDE.md                  Team Leader context (project root)
     team-init-plan.md          Bootstrap plan for first Claude session
 
+  Lifecycle:
+    forge init → forge generate → forge refine → forge start
+
   Getting started:
     Option A — Interactive (recommended for new users):
       1. Run: forge init
@@ -60,16 +84,17 @@ HELP_TEXT = f"""\n
         Then tell Claude: "Read team-init-plan.md and initialize the team"
 
     To improve generated files with LLM scoring + refinement:
-      forge generate --refine
+      forge refine
 
   forge.yaml reference:
   ─────────────────────
     project:
       description: str             Project description
-      requirements: str            Detailed requirements
-      context_files: [str]         Paths to context files or directories
-                                   (directories are scanned for .md/.txt/.yaml)
+      context_files: [str]         Paths to spec/context files or directories
+                                   (directories scanned for .md/.txt/.yaml)
+                                   Forge derives detailed requirements from these
       plan_file: str               Path to implementation plan (followed exactly)
+      requirements: str            (deprecated — use context_files instead)
       type: new|existing           Project type (default: new)
       existing_project_path: str   Path if type=existing
       directory: str               Project directory (default: .)
@@ -230,9 +255,10 @@ def cli(ctx: click.Context) -> None:
 @click.option("--config", "config_path", type=click.Path(exists=True), required=False, default=None, help="Path to forge.yaml (auto-detected if omitted)")
 @click.option("--project-dir", type=click.Path(), default=".", help="Target project workspace directory")
 @click.option("--validate-only", is_flag=True, help="Validate config and print summary without generating files")
-@click.option("--refine/--no-refine", default=None, help="Override config refinement.enabled")
-def generate(config_path: str | None, project_dir: str, validate_only: bool, refine: bool | None) -> None:
+@click.option("--verbose", "-v", is_flag=True, default=False, help="Show detailed technical logs")
+def generate(config_path: str | None, project_dir: str, validate_only: bool, verbose: bool) -> None:
     """Generate agent files from a forge.yaml config."""
+    _configure_logging(verbose)
     from forge_cli.config_loader import load_config
 
     resolved = _resolve_config(config_path, project_dir)
@@ -242,10 +268,6 @@ def generate(config_path: str | None, project_dir: str, validate_only: bool, ref
     except Exception as e:
         console.print(f"[red]Configuration error: {e}[/red]")
         raise SystemExit(1)
-
-    # Override refinement from CLI flag
-    if refine is not None:
-        config.refinement.enabled = refine
 
     if validate_only:
         agents = config.get_active_agents()
@@ -276,7 +298,70 @@ def generate(config_path: str | None, project_dir: str, validate_only: bool, ref
     console.print("  2. Start building:")
     console.print("     [cyan]forge start[/cyan]  — launches Claude with the team init prompt")
     console.print("     OR run [cyan]claude[/cyan] and tell it: \"Read team-init-plan.md and initialize the team\"")
-    console.print("  3. To improve generated file quality: [cyan]forge generate --refine[/cyan]")
+    console.print("  3. To improve generated file quality: [cyan]forge refine[/cyan]")
+
+
+@cli.command()
+@click.option("--config", "config_path", type=click.Path(exists=True), required=False, default=None, help="Path to forge.yaml (auto-detected if omitted)")
+@click.option("--project-dir", type=click.Path(), default=".", help="Project directory")
+@click.option("--verbose", "-v", is_flag=True, default=False, help="Show detailed technical logs")
+def refine(config_path: str | None, project_dir: str, verbose: bool) -> None:
+    """Refine generated files using LLM scoring and iterative improvement.
+
+    Scores each generated file against quality criteria and iteratively
+    refines them until they meet the configured threshold (default 90%).
+    Requires llm-gateway to be installed: pip install forge-init[refinement]
+    """
+    _configure_logging(verbose)
+    from forge_cli.config_loader import load_config
+
+    resolved = _resolve_config(config_path, project_dir)
+
+    try:
+        config = load_config(resolved)
+    except Exception as e:
+        console.print(f"[red]Configuration error: {e}[/red]")
+        raise SystemExit(1)
+
+    config.project.directory = project_dir
+    project_path = Path(project_dir).resolve()
+
+    # Verify generated files exist
+    agents_dir = project_path / ".claude" / "agents"
+    if not agents_dir.exists() or not any(agents_dir.glob("*.md")):
+        console.print(
+            "[red]No generated files found. Run [bold]forge generate[/bold] first.[/red]"
+        )
+        raise SystemExit(1)
+
+    # Always enable refinement for this command
+    config.refinement.enabled = True
+
+    console.print()
+    console.print(f"[bold]Refining files in [cyan]{project_path}[/cyan][/bold]")
+    console.print(f"  [dim]Threshold: {config.refinement.score_threshold}% | "
+                  f"Max iterations: {config.refinement.max_iterations} | "
+                  f"Cost limit: ${config.refinement.cost_limit_usd}[/dim]")
+    console.print()
+
+    from forge_cli.generators.orchestrator import run_refinement
+
+    report = run_refinement(config, project_path)
+
+    if report:
+        console.print()
+        console.print("[bold green]Refinement complete![/bold green]")
+        console.print(f"  Files improved: {report.files_improved}")
+        console.print(f"  Total cost: ${report.total_cost_usd:.4f}")
+        if not report.all_passed:
+            console.print(
+                f"[yellow]  ⚠ Some files below "
+                f"{config.refinement.score_threshold}% threshold[/yellow]"
+            )
+        console.print()
+        console.print("[bold]Next steps:[/bold]")
+        console.print("  1. Review refinement report: [cyan].forge/refinement-report.md[/cyan]")
+        console.print("  2. Start building: [cyan]forge start[/cyan]")
 
 
 @cli.command()
@@ -296,15 +381,17 @@ def init(output: str | None) -> None:
 @cli.command()
 @click.option("--config", "config_path", type=click.Path(exists=True), required=False, default=None, help="Path to forge.yaml (auto-detected if omitted)")
 @click.option("--project-dir", type=click.Path(), default=".", help="Project directory")
-def start(config_path: str | None, project_dir: str) -> None:
+@click.option("--tmux/--no-tmux", default=None, help="Use tmux for split-pane agent monitoring (auto-detected)")
+def start(config_path: str | None, project_dir: str, tmux: bool | None) -> None:
     """Start an interactive Claude CLI session with the team init prompt.
 
     Launches `claude` in your project directory with the instruction to read
-    team-init-plan.md and initialize the team. The session is fully interactive —
-    forge sends the first prompt and hands control to you.
+    team-init-plan.md and initialize the team. When tmux is available, creates
+    a named session for monitoring agent activity in split panes.
     """
     import os
     import shutil
+    import subprocess
 
     _resolve_config(config_path, project_dir)
 
@@ -326,16 +413,62 @@ def start(config_path: str | None, project_dir: str) -> None:
         )
         raise SystemExit(1)
 
-    console.print(f"[bold]Starting Claude session in [cyan]{project_path}[/cyan][/bold]")
-    console.print()
+    # Determine tmux availability
+    tmux_bin = shutil.which("tmux")
+    use_tmux = tmux if tmux is not None else (tmux_bin is not None)
 
-    # Hand over to claude — replaces this process entirely
-    os.chdir(str(project_path))
-    os.execvp(claude_bin, [
-        claude_bin,
+    if use_tmux and not tmux_bin:
+        console.print("[yellow]tmux not found. Falling back to direct Claude session.[/yellow]")
+        use_tmux = False
+
+    init_prompt = (
         "Read team-init-plan.md and initialize the team. "
-        "Follow the startup sequence and begin Iteration 1.",
-    ])
+        "Follow the startup sequence and begin Iteration 1."
+    )
+
+    if use_tmux:
+        session_name = f"forge-{project_path.name}"
+
+        console.print(f"[bold]Starting forge session [cyan]{session_name}[/cyan] in tmux[/bold]")
+        console.print(f"  [dim]Project: {project_path}[/dim]")
+        console.print(f"  [dim]Attach: tmux attach -t {session_name}[/dim]")
+        console.print()
+
+        # Kill existing session if present
+        subprocess.run(
+            [tmux_bin, "kill-session", "-t", session_name],
+            capture_output=True,
+        )
+
+        # Create new tmux session with Claude as the main command
+        subprocess.run(
+            [
+                tmux_bin, "new-session",
+                "-d",  # detached
+                "-s", session_name,
+                "-c", str(project_path),
+                "-x", "200", "-y", "50",
+                claude_bin, init_prompt,
+            ],
+            check=True,
+        )
+
+        # Set session environment for agent teams
+        subprocess.run(
+            [tmux_bin, "set-environment", "-t", session_name,
+             "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", "1"],
+            capture_output=True,
+        )
+
+        # Attach to the session
+        os.execvp(tmux_bin, [tmux_bin, "attach", "-t", session_name])
+    else:
+        console.print(f"[bold]Starting Claude session in [cyan]{project_path}[/cyan][/bold]")
+        console.print()
+
+        # Hand over to claude — replaces this process entirely
+        os.chdir(str(project_path))
+        os.execvp(claude_bin, [claude_bin, init_prompt])
 
 
 def main() -> None:

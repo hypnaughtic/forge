@@ -9,6 +9,7 @@ from typing import Any
 from rich.console import Console
 
 from forge_cli.config_schema import ExecutionStrategy, ForgeConfig
+from forge_cli.progress import ForgeProgress
 from forge_cli.generators.agent_files import generate_agent_files
 from forge_cli.generators.claude_md import generate_claude_md
 from forge_cli.generators.mcp_config import generate_env_example, generate_mcp_config
@@ -58,6 +59,9 @@ def generate_all(
     project_dir = Path(config.project.directory).resolve()
     project_dir.mkdir(parents=True, exist_ok=True)
 
+    active_agents = config.get_active_agents()
+    progress = ForgeProgress(console)
+
     console.print()
     console.print(f"[bold]Generating files in [cyan]{project_dir}[/cyan][/bold]")
     console.print()
@@ -66,71 +70,123 @@ def generate_all(
     from forge_cli.config_loader import ensure_forge_dir
     ensure_forge_dir(project_dir)
 
-    # 0.5. Project context summarization (if context files or plan file provided)
-    # Only triggers LLM summarization when there are actual files to process.
-    # Requirements-only projects get a basic context without LLM calls.
-    _has_context_sources = config.project.context_files or config.project.plan_file
-    if _has_context_sources:
-        from forge_cli.generators.context_summarizer import summarize_context
-        summarize_context(config, project_dir, llm_provider=llm_provider)
-        console.print("[green]  ✓[/green] Project context summarization")
+    # Save original requirements so re-runs are idempotent — the
+    # summarizer always works from the user-authored text, not from
+    # a previously derived summary.  We store the original on the
+    # config object so it persists across calls.
+    if not hasattr(config.project, "_original_requirements"):
+        object.__setattr__(config.project, "_original_requirements", config.project.requirements)
+    _original_requirements: str = getattr(config.project, "_original_requirements")
 
-    # 1. Agent instruction files → .claude/agents/
-    agents_dir = project_dir / ".claude" / "agents"
-    agents_dir.mkdir(parents=True, exist_ok=True)
-    generate_agent_files(config, agents_dir)
-    console.print("[green]  ✓[/green] Agent instruction files")
-
-    # 2. CLAUDE.md → project root
-    generate_claude_md(config, project_dir)
-    console.print("[green]  ✓[/green] CLAUDE.md")
-
-    # 3. MCP configuration → .claude/mcp.json (Playwright always, Atlassian if enabled)
-    generate_mcp_config(config, project_dir / ".claude")
-    console.print("[green]  ✓[/green] MCP configuration")
-
-    # 3.1. .env.example → project root (GH_TOKEN, Atlassian vars)
-    generate_env_example(config, project_dir)
-    if (project_dir / ".env.example").exists():
-        console.print("[green]  ✓[/green] .env.example")
-
-    # 3.5. Claude Code settings → .claude/settings.json (strategy-based permissions)
-    generate_settings_config(config, project_dir / ".claude")
-    if config.strategy != ExecutionStrategy.MICRO_MANAGE:
-        console.print("[green]  ✓[/green] Claude Code settings (strategy permissions)")
-
-    # 4. Skills → .claude/skills/
-    skills_dir = project_dir / ".claude" / "skills"
-    skills_dir.mkdir(parents=True, exist_ok=True)
-    generate_skills(config, skills_dir)
-    console.print("[green]  ✓[/green] Reusable skills")
-
-    # 5. team-init-plan.md → project root
-    generate_team_init_plan(config, project_dir)
-    console.print("[green]  ✓[/green] team-init-plan.md")
-
-    # 6. Optional LLM refinement
-    refinement_report = None
-    if config.refinement.enabled:
-        from forge_cli.generators.refinement import refine_all
-
-        refinement_report = refine_all(config, project_dir, llm_provider=llm_provider)
-        console.print(
-            f"[green]  ✓[/green] LLM refinement "
-            f"({refinement_report.files_improved} files improved, "
-            f"${refinement_report.total_cost_usd:.4f})"
+    with progress.live():
+        # 0.5. Project context resolution — derive detailed requirements from
+        # user-provided files/directories.  The summarized context replaces
+        # config.project.requirements so all downstream generators use it.
+        _has_context_sources = (
+            config.project.context_files
+            or config.project.plan_file
+            or _original_requirements
         )
-        if not refinement_report.all_passed:
-            console.print(
-                f"[yellow]  ⚠[/yellow] Some files below "
-                f"{config.refinement.score_threshold}% threshold"
-            )
+        if _has_context_sources:
+            with progress.step("context", "Project context resolution"):
+                from forge_cli.generators.context_summarizer import summarize_context
+                # Reset to original so summarizer always gets user-authored input
+                config.project.requirements = _original_requirements
+                derived = summarize_context(
+                    config, project_dir, llm_provider=llm_provider,
+                    on_progress=progress.update,
+                )
+                # Strip the markdown header so generators get plain content
+                _header = "# Project Context\n\n"
+                if derived.startswith(_header):
+                    derived = derived[len(_header):]
+                config.project.requirements = derived
+        else:
+            progress.skip("context", "Project context resolution (no context sources)")
 
-        # Save refinement report to .forge/
-        _save_refinement_report(refinement_report, project_dir, config)
+        # 1. Agent instruction files → .claude/agents/
+        agents_dir = project_dir / ".claude" / "agents"
+        agents_dir.mkdir(parents=True, exist_ok=True)
+        with progress.step("agents", f"Agent instruction files ({len(active_agents)} agents)", total_files=len(active_agents)):
+            generate_agent_files(config, agents_dir, on_progress=progress.update)
+
+        # 2. CLAUDE.md → project root
+        with progress.step("claude_md", "CLAUDE.md"):
+            generate_claude_md(config, project_dir)
+
+        # 3. MCP configuration
+        with progress.step("mcp", "MCP configuration (Playwright + integrations)"):
+            generate_mcp_config(config, project_dir / ".claude")
+
+        # 3.1. .env.example
+        with progress.step("env", ".env.example"):
+            generate_env_example(config, project_dir)
+
+        # 3.5. Claude Code settings
+        if config.strategy != ExecutionStrategy.MICRO_MANAGE:
+            with progress.step("settings", "Claude Code settings (strategy permissions)"):
+                generate_settings_config(config, project_dir / ".claude")
+        else:
+            progress.skip("settings", "Claude Code settings (micro-manage: uses defaults)")
+
+        # 4. Skills
+        skills_dir = project_dir / ".claude" / "skills"
+        skills_dir.mkdir(parents=True, exist_ok=True)
+        skill_files = _count_skills(config)
+        with progress.step("skills", f"Reusable skills ({skill_files} skills)", total_files=skill_files):
+            generate_skills(config, skills_dir, on_progress=progress.update)
+
+        # 5. team-init-plan.md
+        with progress.step("init_plan", "team-init-plan.md"):
+            generate_team_init_plan(config, project_dir)
 
     console.print()
-    return refinement_report
+    return None
+
+
+def _count_skills(config: ForgeConfig) -> int:
+    """Count the number of skill files that will be generated."""
+    count = 8  # always: status, iteration-review, smoke-test, screenshot-review,
+    # create-pr, release, arch-review, code-review, excalidraw-diagram,
+    # dependency-audit, benchmark
+    count = 11  # base skills always generated
+    if config.agents.allow_sub_agent_spawning:
+        count += 1  # spawn-agent
+    if config.atlassian.enabled:
+        count += 2  # jira-update, sprint-report
+    if config.has_frontend_involvement():
+        count += 1  # playwright-test
+    return count
+
+
+def run_refinement(
+    config: ForgeConfig,
+    project_dir: Path,
+    llm_provider: Any | None = None,
+) -> Any:
+    """Run LLM refinement on previously generated files.
+
+    Args:
+        config: Forge configuration (refinement.enabled must be True).
+        project_dir: Project directory containing generated files.
+        llm_provider: Optional LLM provider instance.
+
+    Returns:
+        RefinementReport with per-file results.
+    """
+    if llm_provider is None:
+        llm_provider = _get_dry_run_provider()
+
+    from forge_cli.generators.refinement import refine_all
+    from forge_cli.progress import ForgeRefinementProgress
+
+    refinement_progress = ForgeRefinementProgress(console)
+    report = refine_all(
+        config, project_dir, llm_provider=llm_provider,
+        progress=refinement_progress,
+    )
+    _save_refinement_report(report, project_dir, config)
+    return report
 
 
 def _save_refinement_report(
@@ -196,14 +252,14 @@ def _save_refinement_report(
                 "",
                 f"File is at {file_result.final_score}/100, below the "
                 f"{config.refinement.score_threshold}% threshold. Running "
-                "`forge generate --refine` again may improve this file further.",
+                "`forge refine` again may improve this file further.",
                 "",
             ])
 
     md_lines.extend([
         "---",
         "",
-        "*Run `forge generate --refine` to continue improving files.*",
+        "*Run `forge refine` to continue improving files.*",
     ])
 
     md_path = forge_dir / "refinement-report.md"
