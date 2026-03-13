@@ -48,17 +48,10 @@ jobs:
           FORGE_TEST_DRY_RUN: "1"
         run: >-
           python -m pytest
-          tests/test_generators.py
-          tests/test_config_schema.py
-          tests/test_config_loader.py
-          tests/test_refinement.py
-          tests/test_init_wizard.py
-          tests/test_context_summarizer.py
-          tests/test_main.py
-          tests/test_progress.py
-          tests/test_integration.py
-          tests/test_co_planner.py
-          tests/test_context_quality.py
+          tests/
           --cov=forge_cli
+          --cov-report=json:coverage.json
           --cov-fail-under=90
           -v --tb=short
+      - name: Check per-file coverage
+        run: python scripts/check_per_file_coverage.py --min-coverage 90
