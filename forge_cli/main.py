@@ -43,6 +43,8 @@ HELP_TEXT = f"""\n
     forge generate                                      Generate (auto-detect config)
     forge generate --config .forge/forge.yaml           Generate from explicit config
     forge refine                                        LLM scoring + iterative refinement
+    forge eval                                          Evaluate generated files (350+ assertions)
+    forge eval --no-llm                                 Deterministic checks only (no LLM cost)
     forge start                                         Launch Claude with team init
     forge --config .forge/forge.yaml --validate-only    Validate config only
 
@@ -61,11 +63,13 @@ HELP_TEXT = f"""\n
                                 micro-manage: not generated, all tools prompt)
     .forge/project-context.md  Summarized project context (if context_files set)
     .forge/refinement-report   Refinement report (JSON + Markdown, if refined)
+    .forge/benchmark.json      Eval benchmark data (if eval was run)
+    .forge/benchmark.md        Eval benchmark report (human-readable)
     CLAUDE.md                  Team Leader context (project root)
     team-init-plan.md          Bootstrap plan for first Claude session
 
   Lifecycle:
-    forge init → forge generate → forge refine → forge start
+    forge init → forge generate → forge refine → forge eval → forge start
 
   Getting started:
     Option A — Interactive (recommended for new users):
@@ -85,6 +89,11 @@ HELP_TEXT = f"""\n
 
     To improve generated files with LLM scoring + refinement:
       forge refine
+
+    To evaluate generated files against 270+ quality assertions:
+      forge eval                  Full eval (deterministic + LLM grading)
+      forge eval --no-llm         Deterministic checks only (instant, free)
+      forge eval --optimize-descriptions   Also optimize skill trigger descriptions
 
   forge.yaml reference:
   ─────────────────────
@@ -358,10 +367,160 @@ def refine(config_path: str | None, project_dir: str, verbose: bool) -> None:
                 f"[yellow]  ⚠ Some files below "
                 f"{config.refinement.score_threshold}% threshold[/yellow]"
             )
+
+        # Run eval validation after refinement
+        console.print()
+        console.print("[dim]Running eval validation...[/dim]")
+        try:
+            from forge_cli.evals.eval_runner import run_eval
+            from forge_cli.evals.benchmark import aggregate_benchmark, save_benchmark
+
+            eval_report = run_eval(project_path, config, use_llm=False)
+            console.print(
+                f"  Eval pass rate: "
+                f"[{'green' if eval_report.overall_pass_rate >= 0.85 else 'yellow'}]"
+                f"{eval_report.overall_pass_rate:.1%}[/]"
+            )
+
+            benchmark = aggregate_benchmark(eval_report, config.project.description[:60])
+            forge_dir = project_path / ".forge"
+            forge_dir.mkdir(parents=True, exist_ok=True)
+            save_benchmark(benchmark, forge_dir)
+        except Exception as e:
+            console.print(f"  [dim]Eval validation skipped: {e}[/dim]")
+
         console.print()
         console.print("[bold]Next steps:[/bold]")
         console.print("  1. Review refinement report: [cyan].forge/refinement-report.md[/cyan]")
-        console.print("  2. Start building: [cyan]forge start[/cyan]")
+        console.print("  2. Run detailed eval: [cyan]forge eval[/cyan]")
+        console.print("  3. Start building: [cyan]forge start[/cyan]")
+
+
+@cli.command(name="eval")
+@click.option("--config", "config_path", type=click.Path(exists=True), required=False, default=None, help="Path to forge.yaml (auto-detected if omitted)")
+@click.option("--project-dir", type=click.Path(), default=".", help="Project directory")
+@click.option("--no-llm", is_flag=True, help="Deterministic checks only (no LLM cost)")
+@click.option("--optimize-descriptions", is_flag=True, help="Optimize skill descriptions for trigger accuracy")
+@click.option("--verbose", "-v", is_flag=True, default=False, help="Show detailed technical logs")
+def eval_cmd(config_path: str | None, project_dir: str, no_llm: bool, optimize_descriptions: bool, verbose: bool) -> None:
+    """Evaluate generated files against quality assertions.
+
+    Runs 350+ eval assertions (deterministic + LLM-judged) against
+    all generated files to assess quality. Results are saved as
+    benchmark.json and benchmark.md in .forge/.
+    """
+    _configure_logging(verbose)
+    from forge_cli.config_loader import load_config
+
+    resolved = _resolve_config(config_path, project_dir)
+
+    try:
+        config = load_config(resolved)
+    except Exception as e:
+        console.print(f"[red]Configuration error: {e}[/red]")
+        raise SystemExit(1)
+
+    config.project.directory = project_dir
+    project_path = Path(project_dir).resolve()
+
+    # Verify generated files exist
+    agents_dir = project_path / ".claude" / "agents"
+    if not agents_dir.exists() or not any(agents_dir.glob("*.md")):
+        console.print(
+            "[red]No generated files found. Run [bold]forge generate[/bold] first.[/red]"
+        )
+        raise SystemExit(1)
+
+    use_llm = not no_llm
+
+    console.print()
+    console.print(f"[bold]Evaluating files in [cyan]{project_path}[/cyan][/bold]")
+    console.print(f"  [dim]LLM grading: {'enabled' if use_llm else 'disabled (deterministic only)'}[/dim]")
+    console.print()
+
+    from forge_cli.evals.eval_runner import run_eval
+    from forge_cli.evals.benchmark import aggregate_benchmark, save_benchmark
+
+    report = run_eval(project_path, config, use_llm=use_llm)
+
+    # Display results
+    console.print(f"[bold]Eval Results:[/bold]")
+    console.print(f"  Overall pass rate: [{'green' if report.overall_pass_rate >= 0.85 else 'yellow' if report.overall_pass_rate >= 0.7 else 'red'}]{report.overall_pass_rate:.1%}[/]")
+    console.print(f"  Files evaluated: {len(report.files)}")
+    console.print(f"  Duration: {report.duration_seconds:.1f}s")
+    if report.total_cost_usd > 0:
+        console.print(f"  LLM cost: ${report.total_cost_usd:.4f}")
+    console.print()
+
+    # Show per-file results
+    for file_result in sorted(report.files, key=lambda f: f.pass_rate):
+        color = "green" if file_result.pass_rate >= 0.85 else "yellow" if file_result.pass_rate >= 0.7 else "red"
+        failed = [e for e in file_result.expectations if not e.passed]
+        console.print(f"  [{color}]{file_result.pass_rate:.0%}[/] {file_result.file_path}", end="")
+        if failed:
+            console.print(f" [dim]({len(failed)} failed)[/dim]")
+            if verbose:
+                for f in failed[:3]:
+                    console.print(f"       [dim]- {f.text}: {f.evidence[:60]}[/dim]")
+        else:
+            console.print()
+
+    # Save benchmark
+    benchmark = aggregate_benchmark(report, config_name=config.project.description[:60])
+    forge_dir = project_path / ".forge"
+    forge_dir.mkdir(parents=True, exist_ok=True)
+
+    # Check for previous benchmark for comparison
+    prev_path = forge_dir / "benchmark.json"
+    if prev_path.exists():
+        from forge_cli.evals.benchmark import compare_benchmarks
+        benchmark = compare_benchmarks(benchmark, prev_path)
+        if benchmark.comparison:
+            delta = benchmark.comparison.delta
+            console.print()
+            console.print(f"  [dim]vs previous: {delta:+.1%}[/dim]")
+
+    json_path, md_path = save_benchmark(benchmark, forge_dir)
+    console.print()
+    console.print(f"[bold green]Benchmark saved:[/bold green]")
+    console.print(f"  JSON: [cyan]{json_path}[/cyan]")
+    console.print(f"  Report: [cyan]{md_path}[/cyan]")
+
+    # Optional: optimize descriptions
+    if optimize_descriptions and use_llm:
+        import asyncio
+        from forge_cli.evals.description_optimizer import optimize_description
+        from forge_cli.evals.eval_runner import _create_llm_client
+
+        console.print()
+        console.print("[bold]Optimizing skill descriptions...[/bold]")
+        llm = _create_llm_client(config)
+
+        skills_dir = project_path / ".claude" / "skills"
+        if skills_dir.exists():
+            for skill_path in sorted(skills_dir.glob("*.md")):
+                try:
+                    opt_report = asyncio.run(
+                        optimize_description(skill_path, config, llm)
+                    )
+                    delta = opt_report.optimized_accuracy - opt_report.original_accuracy
+                    if delta > 0:
+                        # Update file with optimized description
+                        content = skill_path.read_text()
+                        from forge_cli.evals.description_optimizer import _update_description
+                        new_content = _update_description(content, opt_report.optimized_description)
+                        skill_path.write_text(new_content)
+                        console.print(
+                            f"  [green]+{delta:.0%}[/green] {skill_path.name}: "
+                            f"'{opt_report.original_description[:40]}' -> "
+                            f"'{opt_report.optimized_description[:40]}'"
+                        )
+                    else:
+                        console.print(f"  [dim]={opt_report.original_accuracy:.0%}[/dim] {skill_path.name}: no improvement")
+                except Exception as e:
+                    console.print(f"  [red]Error optimizing {skill_path.name}: {e}[/red]")
+
+            asyncio.run(llm.close())
 
 
 @cli.command()

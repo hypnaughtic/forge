@@ -50,6 +50,8 @@ class RefinementIteration:
     cost_usd: float
     suggestions: list[str] = field(default_factory=list)
     changes_made: list[str] = field(default_factory=list)
+    eval_pass_rate: float = 0.0
+    eval_expectations: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -59,6 +61,7 @@ class RefinementIteration:
             "suggestions": self.suggestions,
             "changes_made": self.changes_made,
             "cost_usd": self.cost_usd,
+            "eval_pass_rate": self.eval_pass_rate,
         }
 
 
@@ -70,6 +73,8 @@ class FileRefinementResult:
     final_score: int
     iterations: list[RefinementIteration] = field(default_factory=list)
     total_cost_usd: float = 0.0
+    baseline_eval_pass_rate: float = 0.0
+    final_eval_pass_rate: float = 0.0
 
     def to_dict(self) -> dict:
         return {
@@ -77,6 +82,8 @@ class FileRefinementResult:
             "file_type": self.file_type,
             "initial_score": self.initial_score,
             "final_score": self.final_score,
+            "baseline_eval_pass_rate": self.baseline_eval_pass_rate,
+            "final_eval_pass_rate": self.final_eval_pass_rate,
             "iterations": [it.to_dict() for it in self.iterations],
             "total_cost_usd": self.total_cost_usd,
         }
@@ -159,9 +166,25 @@ def _build_score_prompt(
     file_path: str,
     file_type: str,
     project_dir: Path | None = None,
+    eval_failures: list[str] | None = None,
 ) -> str:
-    """Build the scoring prompt for a file."""
+    """Build the scoring prompt for a file.
+
+    If eval_failures is provided, includes them to guide the scorer
+    toward concrete issues identified by automated assertions.
+    """
     context = _build_project_context(config, project_dir=project_dir)
+
+    eval_section = ""
+    if eval_failures:
+        failures_text = "\n".join(f"- {f}" for f in eval_failures[:15])
+        eval_section = f"""
+
+EVAL ASSERTION FAILURES (from automated quality checks — these are objective issues):
+{failures_text}
+
+Factor these failures into your score. Each unaddressed failure should reduce the score."""
+
     return f"""You are evaluating a generated agent instruction file for quality.
 
 PROJECT CONTEXT:
@@ -192,7 +215,7 @@ PENALTY RULES (apply these strictly):
 - DEDUCT 10-15 points if the file dumps the entire project requirements verbatim instead of distilling relevant details into actionable instructions.
 - DEDUCT 10 points if a section header exists but the section body is empty or contains only generic placeholders.
 - DEDUCT 5 points if the file says "Stack: Not specified" or "Tech: Not specified" despite the PROJECT CONTEXT listing specific technologies.
-
+{eval_section}
 Return a structured response with:
 - score: integer 0-100
 - reasoning: 2-3 sentences explaining the score
@@ -207,6 +230,7 @@ def _build_refine_prompt(
     score_feedback: FileScore,
     previous_iterations: list[RefinementIteration] | None = None,
     project_dir: Path | None = None,
+    eval_failures: list[str] | None = None,
 ) -> str:
     """Build the refinement prompt for a file.
 
@@ -232,6 +256,15 @@ PREVIOUS ITERATION HISTORY (do NOT re-introduce problems that were already ident
 
 """
 
+    eval_section = ""
+    if eval_failures:
+        failures_text = "\n".join(f"- {f}" for f in eval_failures[:15])
+        eval_section = f"""
+EVAL ASSERTION FAILURES (must address these — they are objective test results, not opinions):
+{failures_text}
+
+"""
+
     return f"""You are improving a generated agent instruction file to score above 90/100.
 
 PROJECT CONTEXT (use these details to make content project-specific):
@@ -244,7 +277,7 @@ FEEDBACK: {score_feedback.reasoning}
 
 SUGGESTIONS TO ADDRESS:
 {suggestions_text}
-{history_section}CURRENT CONTENT:
+{eval_section}{history_section}CURRENT CONTENT:
 {content}
 
 RULES:
@@ -287,10 +320,13 @@ async def score_file(
     file_path: str,
     file_type: str,
     project_dir: Path | None = None,
+    eval_failures: list[str] | None = None,
 ) -> tuple[FileScore, float]:
     """Score a file's quality. Returns (FileScore, cost_usd)."""
     prompt = _build_score_prompt(
-        content, config, file_path, file_type, project_dir=project_dir,
+        content, config, file_path, file_type,
+        project_dir=project_dir,
+        eval_failures=eval_failures,
     )
     resp = await llm.complete(
         messages=[{"role": "user", "content": prompt}],
@@ -310,12 +346,14 @@ async def refine_file(
     feedback: FileScore,
     previous_iterations: list[RefinementIteration] | None = None,
     project_dir: Path | None = None,
+    eval_failures: list[str] | None = None,
 ) -> tuple[RefinedContent, float]:
     """Refine a file based on scoring feedback. Returns (RefinedContent, cost_usd)."""
     prompt = _build_refine_prompt(
         content, config, file_path, file_type, feedback,
         previous_iterations=previous_iterations,
         project_dir=project_dir,
+        eval_failures=eval_failures,
     )
     resp = await llm.complete(
         messages=[{"role": "user", "content": prompt}],
@@ -514,6 +552,22 @@ async def _refine_single_file_with_progress(
     current_content = content
     cumulative_cost = 0.0
 
+    # Get eval failures for this file (deterministic only — free)
+    eval_failures: list[str] = []
+    try:
+        from forge_cli.evals.eval_runner import grade_file_for_refinement
+        baseline_grade = await grade_file_for_refinement(
+            content, file_path, file_type, config,
+        )
+        result.baseline_eval_pass_rate = baseline_grade.pass_rate
+        eval_failures = [
+            f"{e.text}: {e.evidence}"
+            for e in baseline_grade.expectations
+            if not e.passed
+        ]
+    except Exception:
+        pass  # Eval not available — continue without
+
     for i in range(max_iter):
         # Report scoring start
         if progress is not None:
@@ -523,10 +577,11 @@ async def _refine_single_file_with_progress(
                 detail=f"evaluating (iter {i + 1})",
             )
 
-        # Score current content
+        # Score current content (pass eval failures to guide scorer)
         file_score, score_cost = await score_file(
             llm, current_content, config, file_path, file_type,
             project_dir=project_dir,
+            eval_failures=eval_failures if i == 0 else None,
         )
         cumulative_cost += score_cost
 
@@ -572,11 +627,12 @@ async def _refine_single_file_with_progress(
                 detail="applying improvements",
             )
 
-        # Refine
+        # Refine (pass eval failures to guide improvements)
         refined, refine_cost = await refine_file(
             llm, current_content, config, file_path, file_type, file_score,
             previous_iterations=result.iterations,
             project_dir=project_dir,
+            eval_failures=eval_failures if eval_failures else None,
         )
         cumulative_cost += refine_cost
         iteration.cost_usd = score_cost + refine_cost
@@ -617,6 +673,17 @@ async def _refine_single_file_with_progress(
 
     result.final_score = best_score
     result.total_cost_usd = cumulative_cost
+
+    # Compute final eval pass rate on best content
+    try:
+        from forge_cli.evals.eval_runner import grade_file_for_refinement
+        final_grade = await grade_file_for_refinement(
+            best_content, file_path, file_type, config,
+        )
+        result.final_eval_pass_rate = final_grade.pass_rate
+    except Exception:
+        pass
+
     return best_content, result
 
 
