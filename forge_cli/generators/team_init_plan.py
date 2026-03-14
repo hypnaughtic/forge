@@ -5,7 +5,32 @@ from __future__ import annotations
 from pathlib import Path
 from textwrap import dedent
 
-from forge_cli.config_schema import ForgeConfig
+from forge_cli.config_schema import ForgeConfig, WorkspaceType
+
+
+def _plan_file_section(config: ForgeConfig) -> str:
+    """Generate plan file blueprint section for team-init-plan.md."""
+    if not config.project.plan_file:
+        return ""
+
+    return dedent(f"""\
+
+    ## Implementation Blueprint
+
+    A plan file has been provided: **`{config.project.plan_file}`**
+
+    This plan is the **AUTHORITATIVE implementation blueprint**. All agents MUST:
+    - Read this plan before starting any work
+    - Follow the plan's phases, milestones, and deliverables exactly as specified
+    - Use the agentic team structure to parallelize work defined in the plan
+    - NOT deviate from the plan's architecture or technology decisions unless the
+      user explicitly instructs otherwise during the session
+    - Treat this plan as the source of truth for scope, sequencing, and implementation details
+
+    The user has planned every detail. Forge's agent team executes this plan — it defines
+    **WHAT** to build and in what order. Agent instruction files define **HOW** the team
+    operates (roles, workflows, quality gates).
+    """)
 
 
 def _non_negotiables_init_section(config: ForgeConfig) -> str:
@@ -335,16 +360,62 @@ def generate_team_init_plan(config: ForgeConfig, project_dir: Path) -> None:
         {next_num + 1}. **Hierarchical Branches**: Sub-task branches PR into parent feature branches, feature branches into default
         """)
 
-    workspace_note = ""
-    if config.project.type == "new":
+    ws_type = config.workspace.type
+    is_new = config.project.type == "new"
+
+    if ws_type == WorkspaceType.WORKSPACE and is_new:
+        workspace_note = dedent("""\
+
+        ### Workspace Setup (workspace — new)
+
+        This is a **new multi-repo workspace**. The directory may be empty or contain only forge-generated files.
+        - Create individual git repositories per Architect design within the workspace directory
+        - Each repo gets its own README, .gitignore, and CI config
+        - Set up cross-repo documentation describing the overall system architecture
+        - Each repository is a bounded context with its own release cycle
+        """)
+    elif ws_type == WorkspaceType.WORKSPACE and not is_new:
+        workspace_note = dedent("""\
+
+        ### Workspace Setup (workspace — existing)
+
+        This is an **existing multi-repo workspace**. Multiple independent git repositories exist under this directory.
+        - Scan workspace for existing `.git/` directories to discover all repositories
+        - Read each repo's README and structure to understand the landscape
+        - Map inter-repo dependencies and communication patterns
+        - Respect each repo's independent conventions, branching strategy, and CI
+        """)
+    elif ws_type == WorkspaceType.MONOREPO and is_new:
+        workspace_note = dedent("""\
+
+        ### Workspace Setup (monorepo — new)
+
+        This is a **new monorepo**. The directory may be empty or contain only forge-generated files.
+        - Init a single git repo and create package directories per Architect design
+        - Set up root-level tooling: linting, formatting, CI, shared configs
+        - Each package gets its own manifest (`package.json`, `pyproject.toml`, etc.)
+        - Establish shared library conventions for cross-package contracts
+        """)
+    elif ws_type == WorkspaceType.MONOREPO and not is_new:
+        workspace_note = dedent("""\
+
+        ### Workspace Setup (monorepo — existing)
+
+        This is an **existing monorepo**. Respect existing conventions:
+        - Scan for existing packages by looking for manifests (`package.json`, `pyproject.toml`, `go.mod`, etc.)
+        - Understand inter-package dependencies and shared libraries
+        - Follow existing monorepo conventions (build system, CI, linting)
+        - Do not restructure existing packages unless explicitly required
+        """)
+    elif is_new:
         workspace_note = dedent("""\
 
         ### Workspace Setup
 
         This is a **new project**. The workspace directory may be empty or only contain forge-generated files.
-        - Check if `.git/` exists — if not, you may create one or multiple repositories as needed
-        - If the architecture calls for microservices, consider a polyrepo or monorepo structure
+        - Check if `.git/` exists — if not, initialize a git repository
         - Create README.md, .gitignore, and project configuration files as part of Iteration 1
+        - Scaffold project structure appropriate for the tech stack
         """)
     else:
         workspace_note = dedent("""\
@@ -357,6 +428,19 @@ def generate_team_init_plan(config: ForgeConfig, project_dir: Path) -> None:
         - Do not restructure existing code unless explicitly required
         - Treat the existing `.git/` repository as the single source of truth
         """)
+
+    pre_init_sections = [s for s in [
+        _plan_file_section(config), _non_negotiables_init_section(config),
+    ] if s.strip()]
+    pre_init_content = "\n".join(pre_init_sections)
+
+    post_spawn_sections = [s for s in [
+        naming_init, atlassian_init, spawning_init, workflow_init, workspace_note,
+    ] if s.strip()]
+    post_spawn_content = "\n".join(post_spawn_sections)
+
+    init_sequence_sections = [s for s in [git_auth_init] if s.strip()]
+    init_sequence_content = "\n".join(init_sequence_sections)
 
     content = dedent(f"""\
     # Team Initialization Plan
@@ -375,9 +459,9 @@ def generate_team_init_plan(config: ForgeConfig, project_dir: Path) -> None:
     ## Project Requirements
 
     {config.project.requirements or config.project.description}
-    {_non_negotiables_init_section(config)}
+    {pre_init_content}
     ## Initialization Sequence
-    {git_auth_init}
+    {init_sequence_content}
     ### Phase 1: Read and Internalize
 
     1. Read this file completely (you're doing that now)
@@ -397,7 +481,7 @@ def generate_team_init_plan(config: ForgeConfig, project_dir: Path) -> None:
     - Include the contents of their instruction file (`.claude/agents/{{agent}}.md`) as context
     - Give each agent a clear initial task based on Iteration 1 plan below
     - Wait for agents to acknowledge initialization and report their chosen names
-    {naming_init}{atlassian_init}{spawning_init}{workflow_init}{workspace_note}
+    {post_spawn_content}
     ### Phase 3: Iteration 1 — Bootstrap
 
     The first iteration should establish the project foundation:
@@ -406,6 +490,29 @@ def generate_team_init_plan(config: ForgeConfig, project_dir: Path) -> None:
 
     Before marking Iteration 1 complete:
     {_phase4_checklist(config)}
+
+    ### Phase 5: Continue Until Done (MANDATORY)
+
+    **Iteration 1 is the BEGINNING, not the end.** After verifying Iteration 1:
+
+    1. **Assess remaining work**: Compare what was delivered against ALL project requirements
+    2. **Plan the next iteration**: Decompose remaining requirements into Iteration 2 tasks
+    3. **Execute the full lifecycle again**: PLAN → EXECUTE → TEST → INTEGRATE → REVIEW → CRITIQUE → DECISION
+    4. **Repeat** until every single requirement is implemented, tested, and verified
+    5. **Final verification**: Run a comprehensive end-to-end smoke test of the ENTIRE application
+    6. **Commit everything**: `git status` must show a clean working tree — zero uncommitted files
+    7. **Tag the final release**: `git tag v1.0.0` (or appropriate version)
+
+    **You are NOT done until:**
+    - Every requirement from the project context is fully implemented
+    - All non-negotiable rules are met
+    - All code is committed and pushed
+    - All iterations are tagged (`iteration-N-verified`)
+    - The complete application passes end-to-end smoke tests
+    - The Critic has reviewed the final state and found no BLOCKERs
+
+    **Do NOT stop, pause, or ask if you should continue** — the answer is always YES until the
+    above conditions are met. If you hit the cost cap, report what remains unfinished.
 
     ## Agent File Locations
 

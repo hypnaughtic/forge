@@ -25,6 +25,7 @@ dependencies = [
     "rich>=13.0",
     "pyyaml>=6.0",
     "pydantic>=2.0",
+    "prompt_toolkit>=3.0",
 ]
 
 [project.scripts]
@@ -48,10 +49,12 @@ packages = ["forge_cli"]
 [project.optional-dependencies]
 test = [
     "pytest>=8.0",
-    "llm-gateway @ git+https://github.com/Rushabh1798/llm-gateway.git",
+    "pytest-cov>=5.0",
+    "pytest-timeout>=2.3",
+    "llm-gateway @ git+https://github.com/hypnaughtic/llm-gateway.git",
 ]
 refinement = [
-    "llm-gateway @ git+https://github.com/Rushabh1798/llm-gateway.git",
+    "llm-gateway @ git+https://github.com/hypnaughtic/llm-gateway.git",
 ]
 
 [tool.pytest.ini_options]
@@ -59,3 +62,16 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+
+[tool.coverage.run]
+source = ["forge_cli"]
+omit = ["forge_cli/__pycache__/*"]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__",
+]

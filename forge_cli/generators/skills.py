@@ -2,45 +2,94 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from textwrap import dedent
 
 from forge_cli.config_schema import ForgeConfig
 
 
-def generate_skills(config: ForgeConfig, skills_dir: Path) -> None:
-    """Generate reusable skill files based on project configuration."""
+def generate_skills(
+    config: ForgeConfig,
+    skills_dir: Path,
+    on_progress: object | None = None,
+) -> None:
+    """Generate reusable skill files based on project configuration.
+
+    Args:
+        config: Forge configuration.
+        skills_dir: Directory to write skill files to.
+        on_progress: Optional callback(detail=str, files_done=int) for progress updates.
+    """
     skills_dir.mkdir(parents=True, exist_ok=True)
+    files_done = 0
+
+    def _emit(name: str) -> None:
+        nonlocal files_done
+        files_done += 1
+        if on_progress and callable(on_progress):
+            on_progress(detail=name, files_done=files_done)
 
     # Always generate status skill
     _write_skill(skills_dir / "team-status.md", _status_skill(config))
+    _emit("team-status.md")
 
     # Always generate iteration skill
     _write_skill(skills_dir / "iteration-review.md", _iteration_review_skill(config))
+    _emit("iteration-review.md")
 
     # Spawn agent skill (if sub-agent spawning enabled)
     if config.agents.allow_sub_agent_spawning:
         _write_skill(skills_dir / "spawn-agent.md", _spawn_agent_skill(config))
+        _emit("spawn-agent.md")
 
     # Atlassian skills
     if config.atlassian.enabled:
         _write_skill(skills_dir / "jira-update.md", _jira_update_skill(config))
+        _emit("jira-update.md")
         _write_skill(skills_dir / "sprint-report.md", _sprint_report_skill(config))
+        _emit("sprint-report.md")
 
     # Smoke test skill
     _write_skill(skills_dir / "smoke-test.md", _smoke_test_skill(config))
+    _emit("smoke-test.md")
 
     # Screenshot review skill (visual verification)
     _write_skill(skills_dir / "screenshot-review.md", _screenshot_review_skill(config))
+    _emit("screenshot-review.md")
 
     # PR workflow skill
     _write_skill(skills_dir / "create-pr.md", _pr_workflow_skill(config))
+    _emit("create-pr.md")
 
     # Release management skill
     _write_skill(skills_dir / "release.md", _release_management_skill(config))
+    _emit("release.md")
 
     # Architecture review skill
     _write_skill(skills_dir / "arch-review.md", _arch_review_skill(config))
+    _emit("arch-review.md")
+
+    # Playwright testing skill (for frontend projects)
+    if config.has_frontend_involvement():
+        _write_skill(skills_dir / "playwright-test.md", _playwright_test_skill(config))
+        _emit("playwright-test.md")
+
+    # Excalidraw diagramming skill
+    _write_skill(skills_dir / "excalidraw-diagram.md", _excalidraw_diagram_skill(config))
+    _emit("excalidraw-diagram.md")
+
+    # Code review skill
+    _write_skill(skills_dir / "code-review.md", _code_review_skill(config))
+    _emit("code-review.md")
+
+    # Dependency audit skill
+    _write_skill(skills_dir / "dependency-audit.md", _dependency_audit_skill(config))
+    _emit("dependency-audit.md")
+
+    # Performance benchmark skill
+    _write_skill(skills_dir / "benchmark.md", _benchmark_skill(config))
+    _emit("benchmark.md")
 
 
 def _write_skill(path: Path, content: str) -> None:
@@ -60,6 +109,106 @@ def _indent(spaces: int, text: str) -> str:
     """Add leading spaces to each line of text."""
     prefix = " " * spaces
     return "\n".join(f"{prefix}{line}" for line in text.split("\n"))
+
+
+def _truncate_at_sentence(text: str, max_len: int) -> str:
+    """Truncate text at the last sentence boundary before max_len.
+
+    Avoids mid-sentence truncation that produces incomplete fragments.
+    Falls back to max_len truncation with '...' if no sentence boundary found.
+    """
+    if len(text) <= max_len:
+        return text
+    # Find last sentence-ending punctuation within max_len
+    truncated = text[:max_len]
+    last_period = truncated.rfind(". ")
+    if last_period > max_len // 3:
+        return truncated[: last_period + 1]
+    # Fallback: truncate at last space to avoid mid-word cut
+    last_space = truncated.rfind(" ")
+    if last_space > max_len // 3:
+        return truncated[:last_space] + "..."
+    return truncated + "..."
+
+
+def _detect_project_domains(config: ForgeConfig) -> set[str]:
+    """Detect project domain(s) from description (primary) and requirements (secondary).
+
+    Uses the short project DESCRIPTION as the primary signal to avoid
+    false positives from substring matching on large requirements text.
+    Returns a set of domain tags used to gate domain-specific content.
+    """
+    desc = config.project.description.lower()
+    # Only use first ~500 chars of requirements for secondary signal
+    req = (config.project.requirements[:500].lower()
+           if config.project.requirements else "")
+    domains: set[str] = set()
+
+    # --- E-commerce / Marketplace ---
+    ecom_keywords = ("e-commerce", "ecommerce", "marketplace", "online store",
+                     "storefront", "shopping cart", "shopping platform")
+    if any(k in desc for k in ecom_keywords):
+        domains.add("ecommerce")
+    elif re.search(r"\bproduct\s+catalog\b", desc):
+        domains.add("ecommerce")
+
+    # --- HR / Payroll ---
+    hr_keywords = ("human resources", "hrms", "hris", "payroll",
+                   "employee management", "employee portal", "hr platform",
+                   "hr system", "workforce management")
+    if any(k in desc for k in hr_keywords):
+        domains.add("hr")
+
+    # --- Financial / Fintech ---
+    fin_keywords = ("fintech", "banking", "ledger", "accounting",
+                    "bookkeeping", "financial platform", "payment gateway",
+                    "payment processing")
+    if any(k in desc for k in fin_keywords):
+        domains.add("financial")
+    elif "payment" in desc and any(k in desc for k in ("process", "gateway", "platform")):
+        domains.add("financial")
+
+    # --- Project / Task Management ---
+    pm_keywords = ("project management", "task management", "issue tracker",
+                   "kanban", "task board", "sprint planning")
+    if any(k in desc for k in pm_keywords):
+        domains.add("project_management")
+
+    # --- Data Pipeline / ETL ---
+    if any(k in desc for k in ("data pipeline", "etl", "data processing",
+                                "data ingestion", "data orchestration")):
+        domains.add("pipeline")
+    elif config.is_cli_project() and "pipeline" in desc:
+        domains.add("pipeline")
+
+    # --- Real-time / Chat / Collaboration ---
+    if any(k in desc for k in ("real-time chat", "messaging platform",
+                                "chat application", "collaboration tool")):
+        domains.add("realtime")
+
+    # --- Content / Blog / CMS ---
+    if any(k in desc for k in ("blog", "cms", "content management",
+                                "publishing platform")):
+        domains.add("content")
+
+    # --- Auth as primary domain (not incidental auth) ---
+    if any(k in desc for k in ("auth service", "identity provider",
+                                "sso platform", "single sign-on",
+                                "oauth provider", "authentication service")):
+        domains.add("auth")
+
+    # --- Vendor / Multi-vendor (sub-domain of ecommerce) ---
+    if "ecommerce" in domains and any(
+        k in desc for k in ("vendor", "multi-vendor", "marketplace")
+    ):
+        domains.add("vendor")
+
+    # --- PCI / Compliance (only when payments are primary domain) ---
+    if "financial" in domains or "ecommerce" in domains:
+        if any(k in f"{desc} {req}" for k in ("pci", "pci-dss")):
+            domains.add("pci")
+
+    return domains
 
 
 def _tech_stack_summary(config: ForgeConfig) -> str:
@@ -180,108 +329,71 @@ def _quality_gate_checks(config: ForgeConfig) -> str:
 
 
 def _functional_checks(config: ForgeConfig) -> str:
-    """Generate functional verification checks from project requirements."""
-    req = config.project.requirements.lower()
+    """Generate functional verification checks from project config.
+
+    Uses domain detection (description-primary) to avoid false positives
+    from substring matching on large requirements text.
+    """
+    domains = _detect_project_domains(config)
     desc = config.project.description.lower()
-    combined = f"{req} {desc}"
     has_frontend = config.has_frontend_involvement()
     is_cli = config.is_cli_project()
+    has_web = config.has_web_backend()
     checks: list[str] = []
 
-    # CLI-specific checks
+    # CLI-specific checks — use description for feature detection
     if is_cli:
-        if "pipeline" in combined or "etl" in combined:
+        if "pipeline" in domains or "pipeline" in desc or "etl" in desc:
             checks.append("- Pipeline definitions parse and validate correctly?")
             checks.append("- Sample pipeline executes end-to-end (extract → transform → load)?")
-        if "extractor" in combined or "csv" in combined or "json" in combined:
-            checks.append("- Built-in extractors read data correctly (CSV, JSON, API, DB)?")
-        if "transformer" in combined or "filter" in combined or "aggregate" in combined:
-            checks.append("- Transformers process data correctly (filter, map, aggregate)?")
-        if "loader" in combined:
-            checks.append("- Loaders write output correctly to target destinations?")
-        if "plugin" in combined:
+        if "plugin" in desc:
             checks.append("- Plugin loading and discovery works for custom extensions?")
-        if "dry-run" in combined or "dry_run" in combined:
+        if "dry-run" in desc or "dry_run" in desc:
             checks.append("- Dry-run mode shows planned operations without side effects?")
-        if "progress" in combined:
-            checks.append("- Progress reporting shows accurate status during execution?")
-        if "dead-letter" in combined or "dead_letter" in combined or "error" in combined:
-            checks.append("- Error handling captures failures in dead-letter queue?")
-        if "version" in combined and "migration" in combined:
-            checks.append("- Pipeline versioning and migration between versions works?")
-        if "concurrent" in combined or "parallel" in combined:
-            checks.append("- Parallel execution runs correctly with configured concurrency?")
 
-    # Web application checks
-    if "auth" in combined:
-        checks.append("- User authentication flows working (registration, login, logout)?")
-    if "transaction" in combined or "debit" in combined or "credit" in combined or "ledger" in combined:
-        checks.append("- Transaction processing works correctly (create, validate, record)?")
-    if "audit" in combined or "compliance" in combined:
-        checks.append("- Audit trail captures all operations with immutable records?")
-    if ("catalog" in combined or ("product" in combined and "production" not in combined)) and has_frontend:
+    # Domain-gated checks: only include when domain is confidently detected
+    if "ecommerce" in domains:
         checks.append("- Product catalog functionality complete (browse, search, filter)?")
-    if "cart" in combined or "shopping" in combined:
         checks.append("- Shopping cart operations functional (add, remove, update quantities)?")
-    if "checkout" in combined or "payment" in combined:
         checks.append("- Checkout/payment process works end-to-end?")
-    if ("api" in combined or "rest" in combined) and not is_cli:
-        checks.append("- API endpoints respond correctly with proper status codes?")
-    if "kanban" in combined or "drag-and-drop" in combined or "drag and drop" in combined:
-        checks.append("- Kanban board renders correctly with drag-and-drop between columns?")
-    if "task" in combined and ("assignment" in combined or "due date" in combined or "priorit" in combined):
-        checks.append("- Task creation, assignment, and priority/due-date setting works?")
-    if "real-time" in combined or "websocket" in combined or "chat" in combined:
-        checks.append("- Real-time features (WebSocket/chat) connect and deliver messages?")
-    if "@mention" in combined or "mention" in combined:
-        checks.append("- @mention notifications trigger and display correctly?")
-    if "activity" in combined and "feed" in combined:
-        checks.append("- Activity feed shows recent actions in chronological order?")
-    if ("dashboard" in combined or "admin" in combined) and has_frontend:
-        checks.append("- Dashboard/admin views render and display correct data?")
-    if "search" in combined:
-        checks.append("- Search functionality returns relevant results?")
-    if "notification" in combined or "email" in combined or "webhook" in combined:
-        checks.append("- Notification/webhook system delivers messages?")
-    if ("upload" in combined or "file" in combined or "image" in combined) and not is_cli:
-        checks.append("- File upload/media handling works correctly?")
-    if "rate" in combined and "limit" in combined:
-        checks.append("- Rate limiting enforced correctly on protected endpoints?")
-    if "rbac" in combined or ("role" in combined and "access" in combined):
-        checks.append("- Role-based access control enforces permissions correctly?")
-    # Static site specific
-    if "dark mode" in combined or "dark-mode" in combined:
-        checks.append("- Dark mode toggle works and persists preference?")
-    if "blog" in combined or "mdx" in combined:
-        checks.append("- Blog posts render correctly from MDX/markdown?")
-    if "portfolio" in combined or "showcase" in combined:
-        checks.append("- Project showcase displays with screenshots and descriptions?")
-    if "contact" in combined and "form" in combined:
-        checks.append("- Contact form validates input and submits successfully?")
-    if "responsive" in combined:
-        checks.append("- Responsive design works across desktop and mobile viewports?")
-    # Enterprise HR specific
-    if "payroll" in combined:
+        if "vendor" in domains:
+            checks.append("- Vendor onboarding and storefront creation works?")
+            checks.append("- Inventory management tracks stock correctly?")
+            checks.append("- Order management with status tracking works end-to-end?")
+
+    if "hr" in domains:
         checks.append("- Payroll processing calculates correctly (taxes, deductions)?")
-    if "leave" in combined and ("management" in combined or "tracking" in combined or "pto" in combined):
         checks.append("- Leave management workflow works (request, approve, reject)?")
-    if "org" in combined and ("chart" in combined or "hierarchy" in combined):
         checks.append("- Org chart displays hierarchy correctly?")
-    if "sso" in combined or "saml" in combined or "oidc" in combined:
         checks.append("- SSO integration authenticates via SAML/OIDC correctly?")
-    if "performance review" in combined:
-        checks.append("- Performance review workflow functions correctly?")
-    if "document" in combined and ("management" in combined or "upload" in combined or "offer" in combined or "contract" in combined):
-        checks.append("- Document management (upload, download, versioning) works correctly?")
-    # E-commerce specific
-    if "vendor" in combined and ("onboard" in combined or "storefront" in combined):
-        checks.append("- Vendor onboarding and storefront creation works?")
-    if "review" in combined and "rating" in combined:
-        checks.append("- Customer reviews and ratings system works?")
-    if "inventory" in combined:
-        checks.append("- Inventory management tracks stock correctly?")
-    if "order" in combined and ("status" in combined or "tracking" in combined or "management" in combined):
-        checks.append("- Order management with status tracking works end-to-end?")
+
+    if "financial" in domains:
+        checks.append("- Transaction processing works correctly (create, validate, record)?")
+        checks.append("- Audit trail captures all operations with immutable records?")
+
+    if "project_management" in domains:
+        checks.append("- Kanban board renders correctly with drag-and-drop between columns?")
+        checks.append("- Task creation, assignment, and priority/due-date setting works?")
+
+    if "content" in domains:
+        checks.append("- Blog posts render correctly from MDX/markdown?")
+
+    if "auth" in domains:
+        checks.append("- Authentication flows working (registration, login, logout)?")
+
+    # Generic checks based on description keywords (description is short/focused)
+    if has_web and not is_cli:
+        checks.append("- API endpoints respond correctly with proper status codes?")
+    if "real-time" in desc or "websocket" in desc:
+        checks.append("- Real-time features (WebSocket) connect and deliver messages?")
+    if "dashboard" in desc and has_frontend:
+        checks.append("- Dashboard views render and display correct data?")
+    if "search" in desc and not is_cli:
+        checks.append("- Search functionality returns relevant results?")
+    if ("dark mode" in desc or "dark-mode" in desc) and has_frontend:
+        checks.append("- Dark mode toggle works and persists preference?")
+    if "responsive" in desc and has_frontend:
+        checks.append("- Responsive design works across desktop and mobile viewports?")
 
     if not checks:
         checks.append("- Core feature requirements from project spec are functional?")
@@ -290,12 +402,99 @@ def _functional_checks(config: ForgeConfig) -> str:
 
 
 def _domain_context(config: ForgeConfig) -> str:
-    """Build a domain context block from project description and requirements."""
-    return (
-        f"**Project**: {config.project.description}\n"
-        f"    **Requirements**: {config.project.requirements}\n"
-        f"    **Mode**: {config.mode.value} | **Strategy**: {config.strategy.value}"
+    """Build a concise domain context block for skill headers.
+
+    Uses only the project description and a short requirements excerpt
+    to avoid embedding thousands of words of raw requirements text.
+    """
+    parts = [f"**Project**: {config.project.description}"]
+    if config.project.requirements:
+        # Truncate to keep skill files focused — full context is in CLAUDE.md
+        excerpt = config.project.requirements[:200]
+        if len(config.project.requirements) > 200:
+            excerpt += "..."
+        parts.append(f"**Requirements**: {excerpt}")
+    parts.append(
+        f"**Mode**: {config.mode.value} | **Strategy**: {config.strategy.value}"
     )
+    return "\n    ".join(parts)
+
+
+def _non_negotiables_section(config: ForgeConfig, context: str = "") -> str:
+    """Build non-negotiables verification section for skill templates.
+
+    Args:
+        config: Project configuration.
+        context: Optional context hint for filtering relevant non-negotiables
+                 (e.g., 'performance', 'security', 'release').
+    """
+    if not config.non_negotiables:
+        return ""
+    rules = config.non_negotiables
+    items = "\n".join(f"    - {rule}" for rule in rules)
+    return f"\n    ## Non-Negotiables Verification\n\n    Verify these project-level requirements are met:\n{items}\n"
+
+
+def _infra_section(config: ForgeConfig) -> str:
+    """Build infrastructure context from tech stack for skill templates."""
+    parts: list[str] = []
+    if config.tech_stack.infrastructure:
+        parts.append(f"Infrastructure: {', '.join(config.tech_stack.infrastructure)}")
+    if config.tech_stack.databases:
+        parts.append(f"Databases: {', '.join(config.tech_stack.databases)}")
+    return " | ".join(parts) if parts else ""
+
+
+def _domain_specific_scenarios(config: ForgeConfig) -> list[str]:
+    """Extract domain-specific test/verification scenarios from project config.
+
+    Uses domain detection to avoid false positives from keyword matching.
+    """
+    domains = _detect_project_domains(config)
+    scenarios: list[str] = []
+
+    if "ecommerce" in domains:
+        scenarios.extend([
+            "Product catalog browsing and search",
+            "Shopping cart operations (add, remove, update quantities)",
+            "Checkout flow with payment processing",
+            "Order status tracking and management",
+        ])
+        if "vendor" in domains:
+            scenarios.extend([
+                "Vendor registration and onboarding",
+                "Vendor storefront management",
+                "Commission calculation and payouts",
+            ])
+
+    if "financial" in domains:
+        scenarios.append("Transaction processing and audit trail verification")
+
+    if "hr" in domains:
+        scenarios.extend([
+            "Payroll processing verification",
+            "Leave management workflow testing",
+        ])
+
+    if "auth" in domains:
+        scenarios.append("Authentication flows (login, register, token refresh, logout)")
+
+    if "pci" in domains:
+        scenarios.append("PCI-DSS compliance (no card data in logs, encrypted storage)")
+
+    # Infrastructure checks use tech stack (not keyword matching)
+    desc = config.project.description.lower()
+    if any(nn.lower().find("wcag") >= 0 or nn.lower().find("a11y") >= 0
+           for nn in (config.non_negotiables or [])):
+        scenarios.append("WCAG 2.1 AA accessibility compliance checks")
+    if "redis" in [d.lower() for d in config.tech_stack.databases]:
+        scenarios.append("Redis caching behavior (hit/miss ratios, invalidation)")
+    if "aws" in [i.lower() for i in config.tech_stack.infrastructure]:
+        scenarios.append("AWS deployment verification (ECS/EKS health, RDS connectivity)")
+    if "docker" in [i.lower() for i in config.tech_stack.infrastructure]:
+        scenarios.append("Container health checks and resource limits")
+
+    return scenarios
 
 
 def _agent_use_cases(config: ForgeConfig) -> str:
@@ -384,28 +583,34 @@ def _pr_reviewer_routing(config: ForgeConfig) -> str:
 
 
 def _security_checks(config: ForgeConfig) -> str:
-    """Generate domain-specific security checks."""
-    req = config.project.requirements.lower()
-    desc = config.project.description.lower()
-    combined = f"{req} {desc}"
+    """Generate domain-specific security checks.
+
+    Uses domain detection for domain-specific checks, tech stack for infra checks.
+    """
+    domains = _detect_project_domains(config)
     is_cli = config.is_cli_project()
+    has_web = config.has_web_backend()
     checks: list[str] = []
 
-    if "auth" in combined:
+    if "auth" in domains or "hr" in domains:
         checks.append("- Authentication: JWT/session validation on protected endpoints")
         checks.append("- Password hashing uses bcrypt/argon2, never plaintext")
-    if "payment" in combined or "checkout" in combined:
+    elif has_web:
+        # Generic API security for any web backend
+        checks.append("- API authentication verified on protected endpoints")
+
+    if "ecommerce" in domains or "financial" in domains:
         checks.append("- Payment data: no card numbers stored in plain text")
-        checks.append("- Checkout flow: CSRF protection on state-changing operations")
-    if "pci" in combined:
+        checks.append("- CSRF protection on state-changing operations")
+    if "pci" in domains:
         checks.append("- PCI-DSS: sensitive data masked in logs and responses")
-    if "user" in combined and not is_cli:
-        checks.append("- User data: input validation on all user-facing forms")
+    if has_web and not is_cli:
+        checks.append("- Input validation on all user-facing endpoints")
         checks.append("- Authorization: users can only access their own resources")
-    if "sso" in combined or "saml" in combined or "oidc" in combined:
+    if "hr" in domains:
         checks.append("- SSO: SAML/OIDC token validation, secure session handling")
-    if "audit" in combined:
         checks.append("- Audit logs: immutable, no sensitive data in plain text")
+
     checks.append("- No API keys, passwords, or tokens in source code")
     if config.tech_stack.databases:
         checks.append("- SQL injection prevention: parameterized queries only")
@@ -453,6 +658,52 @@ def _status_skill(config: ForgeConfig) -> str:
 def _iteration_review_skill(config: ForgeConfig) -> str:
     agents = _agents_list(config)
     stack = _tech_stack_summary(config)
+    # Build domain-specific verification criteria
+    domains = _detect_project_domains(config)
+    domain_criteria: list[str] = []
+    if "financial" in domains:
+        domain_criteria.extend([
+            "- [ ] Transaction processing: debit/credit operations create balanced ledger entries",
+            "- [ ] Audit trail: all operations logged immutably (no UPDATE/DELETE on audit table)",
+            "- [ ] Financial calculations: use decimal precision, no floating-point currency math",
+        ])
+    if "pci" in domains:
+        domain_criteria.append("- [ ] PCI-DSS: no raw card data in logs, responses, or unencrypted storage")
+    if "ecommerce" in domains:
+        domain_criteria.extend([
+            "- [ ] Checkout flow: end-to-end purchase completes with payment integration",
+            "- [ ] Inventory: stock levels update correctly on purchase",
+        ])
+    if "hr" in domains:
+        domain_criteria.extend([
+            "- [ ] Payroll: tax/deduction calculations produce correct results",
+            "- [ ] PII: employee data access is role-gated and access is audited",
+        ])
+    if "auth" in domains:
+        domain_criteria.append("- [ ] Auth: register → login → protected access → token refresh → logout works")
+    desc_lower = config.project.description.lower()
+    req_lower = (config.project.requirements or "").lower()
+    if "webhook" in desc_lower or "webhook" in req_lower:
+        domain_criteria.append("- [ ] Webhooks: events trigger delivery to registered endpoints with retry")
+    if "rate limit" in desc_lower or "rate limit" in req_lower or "rate-limit" in req_lower:
+        domain_criteria.append("- [ ] Rate limiting: excessive requests return 429 with appropriate headers")
+    if config.is_cli_project():
+        if "pipeline" in desc_lower or "etl" in desc_lower:
+            domain_criteria.extend([
+                "- [ ] Pipeline execution: sample YAML pipeline runs end-to-end correctly",
+                "- [ ] Dry-run mode: shows planned operations without side effects",
+            ])
+        if "plugin" in desc_lower:
+            domain_criteria.append("- [ ] Plugin system: custom plugins discovered, loaded, and execute correctly")
+
+    domain_verify_section = ""
+    if domain_criteria:
+        dc_text = "\n".join(f"    {c}" for c in domain_criteria)
+        domain_verify_section = f"""
+    ## Domain-Specific Verification (MANDATORY)
+
+{dc_text}
+"""
     return dedent(f"""\
     ---
     name: iteration-review
@@ -474,13 +725,67 @@ def _iteration_review_skill(config: ForgeConfig) -> str:
     4. **Check functional deliverables**:
 {_indent(3, _functional_checks(config))}
     5. **Run smoke test** (use /smoke-test skill)
-    6. **Decision**: PROCEED | REWORK | ROLLBACK | ESCALATE
+    6. **Quality & UX verification** (see below)
+    7. **Performance verification** (see below)
+    8. **Send to Critic** for independent review — Critic findings are HARD REQUIREMENTS
+    9. **Decision**: PROCEED | REWORK | ROLLBACK | ESCALATE
+    {domain_verify_section}
+
+    ## Quality & User Experience Verification (MANDATORY)
+
+    {"**Launch the application** and test as a real user:" if not config.is_cli_project() else "**Run the CLI** with real inputs as a real user:"}
+    {"- Capture screenshots of all key pages/flows using Playwright" if config.has_frontend_involvement() else "- Capture CLI output for all key commands" if config.is_cli_project() else "- Hit every API endpoint with real HTTP requests"}
+    {"- Use `/screenshot-review` skill to verify visual quality" if config.has_frontend_involvement() else ""}
+    - Complete the primary user journey end-to-end
+    - Test error paths: what happens with invalid input? Empty data? Network errors?
+    - Verify error messages are helpful and actionable (not stack traces)
+    {"- Check responsive design: desktop and mobile viewports" if config.has_frontend_involvement() else ""}
+    {"- Run accessibility audit: `npx @axe-core/cli <url>`" if config.has_frontend_involvement() else ""}
+
+    ## Performance Verification (MANDATORY)
+
+    {"- **API benchmarks**: `hey -n 200 -c 20 <critical-endpoint>` — record p50/p95/p99 latency" if config.has_web_backend() else "- **CLI timing**: `time <command> <typical-args>` for all primary operations" if config.is_cli_project() else "- **Lighthouse**: `npx lighthouse <url> --output json` — Performance, Accessibility, Best Practices scores" if config.has_frontend_involvement() else "- **Benchmark key operations**: measure and record execution time"}
+    {"- **Load test**: `hey -n 1000 -c 50 <url>` — verify error rate < 1% under load" if config.has_web_backend() else ""}
+    {"- **Lighthouse audit**: Run on all key pages — scores must be > 80" if config.has_frontend_involvement() else ""}
+    {"- **Bundle analysis**: Check build output size — flag bloated bundles" if config.has_frontend_involvement() else ""}
+    - **Database queries**: Check for N+1 queries, slow queries, missing indexes
+    - Record ALL measurements with actual numbers — include in iteration summary
+
+    ## Critic Review (MANDATORY)
+
+    After collecting all evidence above:
+    - **Send everything to the Critic**: deliverables, screenshots/outputs, performance numbers, test results
+    - **Critic's BLOCKERs are non-negotiable** — they must be resolved before PROCEED
+    - **Critic's Improvement Tasks become tasks in the next iteration** — they are not optional
+    - The Critic must be satisfied across ALL quality dimensions before the project can be complete
+
+    ## Decision Outcomes
 
     If PROCEED: tag the iteration as verified, plan next iteration.
     If REWORK: route issues to specific agents:
 {_agent_routing(config)}
     If ROLLBACK: restore last verified tag, ensure rollback scripts are safe.
     If ESCALATE: present situation to human with trade-off options and timeline impact.
+
+    ## Pre-Decision Checklist (MANDATORY)
+
+    Before ANY decision, verify:
+    - [ ] `git status` shows clean working tree (no uncommitted/untracked files)
+    - [ ] All branches merged via PR
+    - [ ] Iteration tag applied (`iteration-N-verified`)
+    - [ ] Compare delivered features against FULL project requirements list
+    - [ ] List any requirements NOT yet implemented
+    - [ ] Performance benchmarks recorded with actual numbers
+    {"- [ ] Screenshots captured and reviewed" if config.has_frontend_involvement() else "- [ ] CLI outputs captured and reviewed" if config.is_cli_project() else "- [ ] API endpoints tested with real HTTP requests"}
+    - [ ] Critic review complete with no unresolved BLOCKERs
+    - [ ] Critic's quality scores meet threshold
+
+    ## After PROCEED: Are We Done?
+
+    After tagging the iteration, ask: **"Are ALL project requirements fully implemented?"**
+    AND: **"Has the Critic approved the overall product quality?"**
+    - If BOTH YES: Run a final comprehensive end-to-end smoke test, verify git is clean, then report project complete
+    - If EITHER NO: Immediately plan the next iteration targeting remaining requirements AND Critic improvement tasks. **Do NOT stop.**
 
     $ARGUMENTS
     """)
@@ -552,7 +857,7 @@ def _spawn_agent_skill(config: ForgeConfig) -> str:
 
     When spawning agents for this project, include this domain context:
     - **Project**: {config.project.description}
-    - **Requirements**: {config.project.requirements[:500] if config.project.requirements else config.project.description}
+    - **Requirements**: {_truncate_at_sentence(config.project.requirements, 500) if config.project.requirements else config.project.description}
     - **Strategy**: {config.strategy.value} — {"agents have full autonomy" if config.strategy.value == "auto-pilot" else "agents ask human only for architecture/scope/domain decisions" if config.strategy.value == "co-pilot" else "agents present significant decisions to human for approval"}
 
     ## Error Handling
@@ -570,14 +875,12 @@ def _jira_update_skill(config: ForgeConfig) -> str:
     stack = _tech_stack_summary(config)
     strategy = config.strategy.value
 
-    req = config.project.requirements.lower()
-    desc = config.project.description.lower()
-    combined = f"{req} {desc}"
+    domains = _detect_project_domains(config)
 
     # Domain-specific ticket examples and types
     examples: list[str] = []
     domain_ticket_types: list[str] = []
-    if "hr" in combined or "payroll" in combined:
+    if "hr" in domains:
         examples.append(f"- `{project_key}-42` \"In Progress\" \"Implementing payroll calculation engine with tax tables\"")
         examples.append(f"- `{project_key}-55` \"In Review\" \"Employee onboarding flow complete — SSO integration verified\"")
         examples.append(f"- `{project_key}-70` \"Testing\" \"Leave approval workflow ready for QA — edge cases covered\"")
@@ -587,7 +890,7 @@ def _jira_update_skill(config: ForgeConfig) -> str:
             "- **Employee Profiles**: onboarding, org hierarchy, document management",
             "- **Compliance**: audit logging, SSO integration, data protection",
         ])
-    elif "e-commerce" in combined or "marketplace" in combined:
+    elif "ecommerce" in domains:
         examples.append(f"- `{project_key}-42` \"In Progress\" \"Implementing Stripe checkout flow with webhook handling\"")
         examples.append(f"- `{project_key}-55` \"In Review\" \"Product catalog search with Elasticsearch — filters working\"")
         examples.append(f"- `{project_key}-70` \"Testing\" \"Vendor dashboard analytics ready for QA — revenue charts verified\"")
@@ -597,7 +900,7 @@ def _jira_update_skill(config: ForgeConfig) -> str:
             "- **Catalog**: product listing, search, filters, inventory management",
             "- **Orders**: status tracking, fulfillment, shipping notifications",
         ])
-    elif "api" in combined or "transaction" in combined or "financial" in combined:
+    elif "financial" in domains:
         examples.append(f"- `{project_key}-42` \"In Progress\" \"Implementing double-entry bookkeeping for debit/credit transactions\"")
         examples.append(f"- `{project_key}-55` \"In Review\" \"Audit trail logging complete — immutable log verified\"")
         domain_ticket_types.extend([
@@ -701,25 +1004,23 @@ def _sprint_report_skill(config: ForgeConfig) -> str:
     strategy = config.strategy.value
     mode = config.mode.value
 
-    req = config.project.requirements.lower()
-    desc = config.project.description.lower()
-    combined = f"{req} {desc}"
+    domains = _detect_project_domains(config)
 
     # Domain-specific metrics
     domain_metrics: list[str] = []
-    if "hr" in combined or "payroll" in combined:
+    if "hr" in domains:
         domain_metrics.extend([
             "- **HR Modules**: payroll processing status, leave management, org chart, performance reviews",
             "- **Compliance**: audit logging coverage, SSO integration progress, data protection measures",
             "- **Employee Features**: profile completeness, document management, onboarding flow status",
         ])
-    elif "e-commerce" in combined or "marketplace" in combined:
+    elif "ecommerce" in domains:
         domain_metrics.extend([
             "- **Commerce Features**: checkout flow, Stripe payment integration, order management status",
             "- **Vendor Pipeline**: vendor onboarding count, storefront status, dashboard features",
             "- **Catalog & Inventory**: product listing, search/filter, inventory tracking progress",
         ])
-    elif "api" in combined or "transaction" in combined or "financial" in combined:
+    elif "financial" in domains:
         domain_metrics.extend([
             "- **API Endpoints**: implemented vs. planned, integration test coverage",
             "- **Transaction Processing**: bookkeeping accuracy, audit trail completeness",
@@ -959,6 +1260,88 @@ def _smoke_test_skill(config: ForgeConfig) -> str:
         "the application actually works from a user perspective" if has_frontend else \
         "the application works end-to-end"
 
+    # Non-negotiables verification section
+    non_neg_checks: list[str] = []
+    if config.non_negotiables:
+        for rule in config.non_negotiables:
+            rule_lower = rule.lower()
+            if "p95" in rule_lower or "latency" in rule_lower or "response time" in rule_lower:
+                non_neg_checks.append(f"- **Performance**: {rule} — measure with `wrk` or `hey` against key endpoints")
+            elif "pci" in rule_lower or "payment" in rule_lower:
+                non_neg_checks.append(f"- **PCI-DSS**: {rule} — verify no card data in logs, encrypted storage")
+            elif "wcag" in rule_lower or "accessibility" in rule_lower or "a11y" in rule_lower:
+                non_neg_checks.append(f"- **Accessibility**: {rule} — run `npx @axe-core/cli` on key pages")
+            elif "openapi" in rule_lower or "api doc" in rule_lower or "swagger" in rule_lower:
+                non_neg_checks.append(f"- **API Docs**: {rule} — verify /docs endpoint is live and complete")
+            elif "secret" in rule_lower or "leak" in rule_lower:
+                non_neg_checks.append(f"- **Secrets**: {rule} — run `gitleaks detect` on the repo")
+            else:
+                non_neg_checks.append(f"- **Compliance**: {rule}")
+
+    non_neg_section = ""
+    if non_neg_checks:
+        section_num_nn = len(sections) + 1
+        nn_text = "\n".join(f"    {c}" for c in non_neg_checks)
+        non_neg_section = f"\n\n    ## {section_num_nn}. Non-Negotiables Verification\n\n{nn_text}"
+
+    # Domain-specific smoke test additions
+    domains = _detect_project_domains(config)
+    desc_lower = config.project.description.lower()
+    domain_checks: list[str] = []
+    if "financial" in domains:
+        domain_checks.extend([
+            "- Transaction processing: create debit/credit and verify ledger entries balance",
+            "- Audit trail: verify all operations create immutable, append-only log records",
+            "- Audit immutability: confirm UPDATE/DELETE on audit table is rejected",
+        ])
+        if "pci" in domains:
+            domain_checks.append("- PCI-DSS: verify no raw card/account numbers appear in logs or API responses")
+    if "ecommerce" in domains:
+        domain_checks.extend([
+            "- Product catalog: browse, search, filter return correct results",
+            "- Cart operations: add, remove, update quantities work correctly",
+            "- Checkout flow: complete purchase end-to-end (use test payment credentials)",
+        ])
+        if "vendor" in domains:
+            domain_checks.extend([
+                "- Vendor registration and storefront creation works end-to-end",
+                "- Multi-vendor product aggregation returns correct results",
+            ])
+    if "hr" in domains:
+        domain_checks.extend([
+            "- Payroll calculation: verify tax/deduction computation correctness",
+            "- Leave management: request → approval → balance update works",
+        ])
+    if "auth" in domains:
+        domain_checks.append("- Auth flows: register → login → access protected resource → logout")
+    if is_cli:
+        if "pipeline" in desc_lower or "etl" in desc_lower:
+            domain_checks.extend([
+                "- Pipeline execution: sample pipeline runs end-to-end (extract → transform → load)",
+                "- Dry-run mode: shows planned operations without side effects",
+            ])
+        if "plugin" in desc_lower:
+            domain_checks.append("- Plugin loading: built-in and custom plugins discovered and loaded correctly")
+    # Webhook verification if mentioned in requirements
+    req_lower = (config.project.requirements or "").lower()
+    if "webhook" in desc_lower or "webhook" in req_lower:
+        domain_checks.append("- Webhook delivery: events trigger notifications to registered endpoints")
+    # Rate limiting if mentioned
+    if "rate limit" in desc_lower or "rate limit" in req_lower or "rate-limit" in req_lower:
+        domain_checks.append("- Rate limiting: excessive requests are properly throttled (verify 429 response)")
+    # Infrastructure checks
+    if "redis" in [d.lower() for d in config.tech_stack.databases]:
+        domain_checks.append("- Redis: connection verified, caching/rate-limiting operational")
+    if config.tech_stack.databases:
+        dbs = ", ".join(config.tech_stack.databases)
+        domain_checks.append(f"- Database ({dbs}): migrations applied and seeded data accessible")
+
+    domain_section = ""
+    if domain_checks:
+        section_num_d = len(sections) + (2 if non_neg_checks else 1)
+        dc_text = "\n".join(f"    {c}" for c in domain_checks)
+        domain_section = f"\n\n    ## {section_num_d}. Domain-Specific Checks ({config.project.description})\n\n{dc_text}"
+
     body = "\n\n".join(sections)
 
     return dedent(f"""\
@@ -975,7 +1358,7 @@ def _smoke_test_skill(config: ForgeConfig) -> str:
 
     Verify {verify_text}.
 
-    {body}
+    {body}{non_neg_section}{domain_section}
 
     ## Verdict
 
@@ -991,20 +1374,19 @@ def _screenshot_review_skill(config: ForgeConfig) -> str:
     has_frontend = config.has_frontend_involvement()
     has_web = config.has_web_backend()
     is_cli = config.is_cli_project()
-    req = config.project.requirements.lower()
     desc = config.project.description.lower()
-    combined = f"{req} {desc}"
+    domains = _detect_project_domains(config)
     frameworks = [f.lower() for f in config.tech_stack.frameworks]
 
     # --- CLI projects: generate CLI output review skill ---
     if is_cli:
         # Build domain-specific CLI outputs to capture
         cli_outputs = ["- `<command> --help` — main help text and available subcommands"]
-        if "pipeline" in combined or "etl" in combined:
+        if "pipeline" in domains or "etl" in desc:
             cli_outputs.append("- `<command> run <sample>` — pipeline execution output with progress")
             cli_outputs.append("- `<command> validate <config>` — configuration validation output")
             cli_outputs.append("- `<command> run --dry-run <sample>` — dry-run output showing planned operations")
-        if "plugin" in combined:
+        if "plugin" in desc:
             cli_outputs.append("- `<command> plugins list` — installed plugins listing")
         cli_outputs.append("- Error output — invalid arguments, missing files, connection failures")
         cli_outputs.append("- Verbose/debug output — `--verbose` or `--debug` flag output")
@@ -1060,15 +1442,14 @@ def _screenshot_review_skill(config: ForgeConfig) -> str:
             docs_step = "1. **Verify API documentation** is generated and accessible (OpenAPI/Swagger if configured)"
             screenshot_cmd = "npx playwright screenshot --full-page http://localhost:{port}/docs api-docs.png"
 
-        # Domain-specific documentation areas
+        # Domain-specific documentation areas — use domain detection
+        domains = _detect_project_domains(config)
         doc_areas = []
-        if "auth" in combined:
+        if "auth" in domains:
             doc_areas.append("- Authentication: login/register flows, token refresh, permission levels")
-        if "transaction" in combined or "payment" in combined:
+        if "financial" in domains or "ecommerce" in domains:
             doc_areas.append("- Transaction/payment: request schemas, idempotency keys, error codes")
-        if "audit" in combined or "compliance" in combined:
-            doc_areas.append("- Audit/compliance: logging endpoints, data retention policies")
-        if "webhook" in combined:
+        if "webhook" in desc:
             doc_areas.append("- Webhooks: event types, payload schemas, retry policies")
         doc_areas_text = "\n".join(f"   {d}" for d in doc_areas)
         domain_section = f"\n\n    ## Domain-Specific Documentation\n\n{doc_areas_text}" if doc_areas else ""
@@ -1116,93 +1497,67 @@ def _screenshot_review_skill(config: ForgeConfig) -> str:
         $ARGUMENTS
         """)
 
-    # Build domain-specific pages to capture
+    # Build domain-specific pages to capture — use domain detection
+    domains = _detect_project_domains(config)
+    desc = config.project.description.lower()
     pages = []
     pages.append("- Home / Landing page")
-    if "auth" in combined or "login" in combined:
+
+    if "auth" in domains:
         pages.append("- Login page")
         pages.append("- Registration page")
         pages.append("- User profile / account settings")
-    if "catalog" in combined or ("product" in combined and "production" not in combined):
+    if "ecommerce" in domains:
         pages.append("- Product listing / catalog page")
         pages.append("- Product detail page")
-    if "cart" in combined or "shopping" in combined:
         pages.append("- Shopping cart (empty and populated states)")
-    if "checkout" in combined or "payment" in combined:
         pages.append("- Checkout flow (each step)")
-    if "dashboard" in combined or "admin" in combined:
+        if "vendor" in domains:
+            pages.append("- Vendor dashboard (sales analytics, orders, payouts)")
+            pages.append("- Vendor storefront / onboarding flow")
+            pages.append("- Order management / order detail page")
+            pages.append("- Inventory management view")
+    if "dashboard" in desc:
         pages.append("- Dashboard / admin panel")
-    if "search" in combined:
+    if "search" in desc:
         pages.append("- Search results page")
-    if "chat" in combined or "message" in combined:
-        pages.append("- Chat / messaging interface (with messages and @mentions)")
-    if "kanban" in combined or "board" in combined or "task" in combined:
+    if "realtime" in domains:
+        pages.append("- Chat / messaging interface")
+    if "project_management" in domains:
         pages.append("- Kanban / task board (empty board, board with cards across columns)")
         pages.append("- Task detail / edit view (with assignments, due dates, priority)")
-    if "notification" in combined:
-        pages.append("- Notification dropdown / notification settings")
-    if "activity" in combined or "feed" in combined:
-        pages.append("- Activity feed / timeline view")
-    if "upload" in combined or "file" in combined or "attachment" in combined:
-        pages.append("- File attachment views (upload interface, attachment preview)")
-    if "team" in combined and ("member" in combined or "roster" in combined or "manage" in combined):
-        pages.append("- Team management / member list page")
-    # HR-specific pages
-    if "employee" in combined or "hr" in combined:
+    if "hr" in domains:
         pages.append("- Employee directory / profile page")
-    if "payroll" in combined:
         pages.append("- Payroll dashboard (salary, deductions, tax breakdown)")
-    if "leave" in combined and ("management" in combined or "tracking" in combined or "pto" in combined):
         pages.append("- Leave management (request form, approval queue, balance view)")
-    if "org" in combined and ("chart" in combined or "hierarchy" in combined):
         pages.append("- Org chart visualization (hierarchy, reporting structure)")
-    if "performance review" in combined:
-        pages.append("- Performance review interface (form, rating, feedback)")
-    if "document" in combined and ("management" in combined or "upload" in combined):
-        pages.append("- Document management (upload, listing, preview)")
-    if "sso" in combined or "saml" in combined:
         pages.append("- SSO login page / IdP selection")
-    # E-commerce vendor pages
-    if "vendor" in combined and ("onboard" in combined or "storefront" in combined or "dashboard" in combined):
-        pages.append("- Vendor dashboard (sales analytics, orders, payouts)")
-        pages.append("- Vendor storefront / onboarding flow")
-    if "order" in combined and ("management" in combined or "tracking" in combined):
-        pages.append("- Order management / order detail page")
-    if "inventory" in combined:
-        pages.append("- Inventory management view")
-    if "review" in combined and "rating" in combined:
-        pages.append("- Product reviews / ratings display")
-    if "reporting" in combined or ("report" in combined and "chart" in combined):
-        pages.append("- Reporting dashboard with charts and metrics")
-    if not any(k in combined for k in ("auth", "product", "cart", "dashboard", "chat", "kanban", "task", "board", "employee", "payroll", "vendor", "order")):
+    if "content" in domains:
+        pages.append("- Blog post / content pages")
+    if not domains:
         pages.append("- All user-facing pages identified from the project")
 
     pages_text = "\n".join(f"   {p}" for p in pages)
 
-    # Domain-specific state variants
+    # Domain-specific state variants — use domain detection
     states = ["- Default/loaded state (with representative data)", "- Empty state (no data)"]
-    if "auth" in combined:
+    if "auth" in domains:
         states.append("- Authenticated vs. anonymous user views")
-    if "cart" in combined:
+    if "ecommerce" in domains:
         states.append("- Empty cart vs. populated cart")
-    if "error" in combined or "payment" in combined:
         states.append("- Error state (validation errors, failed operations)")
-    if "real-time" in combined or "websocket" in combined or "chat" in combined:
-        states.append("- Real-time update in progress (live data arriving, typing indicators)")
-    if "kanban" in combined or "board" in combined or "drag" in combined:
+        if "vendor" in domains:
+            states.append("- Vendor vs. customer vs. admin views")
+    if "real-time" in desc or "websocket" in desc:
+        states.append("- Real-time update in progress (live data arriving)")
+    if "project_management" in domains:
         states.append("- Drag-and-drop in progress (card being moved between columns)")
-    if "notification" in combined:
-        states.append("- Notification states (unread badge, notification list, empty notifications)")
-    if "payroll" in combined or "financial" in combined:
-        states.append("- Currency/number formatting (salary figures, tax calculations, decimal precision)")
-    if "employee" in combined or "hr" in combined:
+    if "hr" in domains:
+        states.append("- Currency/number formatting (salary figures, tax calculations)")
         states.append("- Different role views (admin vs. manager vs. employee)")
-    if "leave" in combined and ("approval" in combined or "workflow" in combined):
         states.append("- Approval workflow states (pending, approved, rejected)")
-    if "vendor" in combined:
-        states.append("- Vendor vs. customer vs. admin views")
-    if "inventory" in combined:
-        states.append("- Low stock / out of stock states")
+    if "financial" in domains:
+        states.append("- Currency/number formatting (transaction amounts, decimal precision)")
     states.append("- Loading state (if capturable)")
 
     states_text = "\n".join(f"       {s}" for s in states)
@@ -1271,52 +1626,36 @@ def _pr_workflow_skill(config: ForgeConfig) -> str:
     4. **Reference task ID** in the PR description
     5. **Verify branch name** follows convention: `<type>/<agent-name>/<task-id>-<description>`"""
 
-    # Domain-specific PR testing guidance
-    req = config.project.requirements.lower()
+    # Domain-specific PR testing guidance — use domain detection
+    domains = _detect_project_domains(config)
     desc = config.project.description.lower()
-    pr_combined = f"{req} {desc}"
     is_cli = config.is_cli_project()
     domain_test_lines: list[str] = []
-    if "auth" in pr_combined:
+
+    if "auth" in domains:
         domain_test_lines.append("- Auth changes: verify login/logout and user sessions work")
-    if "cart" in pr_combined or "checkout" in pr_combined:
+    if "ecommerce" in domains:
         domain_test_lines.append("- Cart/checkout changes: test full purchase flow end-to-end")
-    if "catalog" in pr_combined or ("product" in pr_combined and "production" not in pr_combined):
         domain_test_lines.append("- Product changes: verify product display and search")
-    if "real-time" in pr_combined or "websocket" in pr_combined or "chat" in pr_combined:
+        if "vendor" in domains:
+            domain_test_lines.append("- Vendor changes: verify onboarding and storefront creation")
+            domain_test_lines.append("- Inventory changes: verify stock tracking and alerts")
+    if "real-time" in desc or "websocket" in desc:
         domain_test_lines.append("- Real-time changes: verify WebSocket connectivity and live updates")
-    if "kanban" in pr_combined or "drag" in pr_combined or ("board" in pr_combined and "task" in pr_combined):
+    if "project_management" in domains:
         domain_test_lines.append("- Board/task changes: verify drag-and-drop, task state transitions")
-    if "notification" in pr_combined or ("email" in pr_combined and "notification" in pr_combined):
-        domain_test_lines.append("- Notification changes: verify delivery and rendering")
-    if ("upload" in pr_combined or "attachment" in pr_combined) and not is_cli:
-        domain_test_lines.append("- File changes: verify upload, validation, and retrieval")
-    # Financial domain
-    if "transaction" in pr_combined or "ledger" in pr_combined or "financial" in pr_combined:
+    if "financial" in domains:
         domain_test_lines.append("- Transaction changes: verify bookkeeping accuracy and audit trail")
-    if "pci" in pr_combined:
+    if "pci" in domains:
         domain_test_lines.append("- Security: verify no raw card numbers in logs or responses")
-    if "rate" in pr_combined and "limit" in pr_combined:
-        domain_test_lines.append("- Rate limiting: verify throttling works correctly")
-    if "webhook" in pr_combined:
-        domain_test_lines.append("- Webhook changes: verify payload delivery and retry logic")
-    # HR domain
-    if "payroll" in pr_combined:
+    if "hr" in domains:
         domain_test_lines.append("- Payroll changes: verify tax calculations and deduction accuracy")
-    if "leave" in pr_combined and ("approval" in pr_combined or "management" in pr_combined):
         domain_test_lines.append("- Leave changes: verify approval workflow state transitions")
-    if "sso" in pr_combined or "saml" in pr_combined:
         domain_test_lines.append("- SSO changes: verify SAML/OIDC login flow end-to-end")
-    # Pipeline / CLI domain
-    if "pipeline" in pr_combined or "etl" in pr_combined:
+    if "pipeline" in domains:
         domain_test_lines.append("- Pipeline changes: verify end-to-end extract → transform → load")
-    if "plugin" in pr_combined and is_cli:
-        domain_test_lines.append("- Plugin changes: verify plugin loading and execution")
-    # E-commerce
-    if "vendor" in pr_combined and ("onboard" in pr_combined or "storefront" in pr_combined):
-        domain_test_lines.append("- Vendor changes: verify onboarding and storefront creation")
-    if "inventory" in pr_combined:
-        domain_test_lines.append("- Inventory changes: verify stock tracking and alerts")
+        if is_cli and "plugin" in desc:
+            domain_test_lines.append("- Plugin changes: verify plugin loading and execution")
     domain_test_text = "\n".join(f"   {l}" for l in domain_test_lines)
     domain_section = f"\n\n    **Domain-specific testing** (run if your changes touch these areas):\n{domain_test_text}" if domain_test_lines else ""
 
@@ -1398,22 +1737,20 @@ def _release_management_skill(config: ForgeConfig) -> str:
     5. **Update Confluence** release notes page with the release summary
     6. **Update Jira** — mark the release version as released, move remaining tickets to next version"""
 
-    # Domain-specific pre-release checks
-    req = config.project.requirements.lower()
+    # Domain-specific pre-release checks — use domain detection
+    domains = _detect_project_domains(config)
     desc = config.project.description.lower()
-    combined = f"{req} {desc}"
     domain_checks: list[str] = []
-    if "auth" in combined:
+    if "auth" in domains:
         domain_checks.append("- Authentication flows verified (login, register, logout, token refresh)")
-    if "payment" in combined or "checkout" in combined:
+    if "ecommerce" in domains:
         domain_checks.append("- Payment/checkout flow tested end-to-end")
-    if "cart" in combined or "shopping" in combined:
         domain_checks.append("- Cart operations verified (add, remove, update, persist)")
-    if "transaction" in combined or "ledger" in combined:
+    if "financial" in domains:
         domain_checks.append("- Transaction processing verified (create, validate, reconcile)")
-    if "audit" in combined or "compliance" in combined:
         domain_checks.append("- Audit trail integrity verified (immutable records, no data leakage)")
-    if "payroll" in combined or ("hr" in combined and "management" in combined):
+        domain_checks.append("- Financial calculations use decimal precision (no floating-point errors)")
+    if "hr" in domains:
         domain_checks.append("- Payroll calculations verified (salary, taxes, deductions produce correct totals)")
         domain_checks.append("- Leave management workflows tested (request, approve, reject, balance updates)")
         domain_checks.append("- SSO/SAML authentication flow verified end-to-end")
@@ -1423,23 +1760,55 @@ def _release_management_skill(config: ForgeConfig) -> str:
         dbs = ", ".join(config.tech_stack.databases)
         domain_checks.append(f"- Database ({dbs}) migrations verified (up and down)")
 
+    # Webhook/rate-limiting checks from requirements
+    req_lower = (config.project.requirements or "").lower()
+    if "webhook" in desc or "webhook" in req_lower:
+        domain_checks.append("- Webhook delivery verified (events trigger, retry on failure)")
+    if "rate limit" in desc or "rate limit" in req_lower or "rate-limit" in req_lower:
+        domain_checks.append("- Rate limiting verified (excessive requests return 429)")
+
     # Project-type-specific checks
     if is_cli:
         domain_checks.append("- CLI installs cleanly and `--help` / `--version` work")
         domain_checks.append("- All subcommands execute successfully with sample inputs")
-        if "plugin" in combined:
+        if "plugin" in desc:
             domain_checks.append("- Plugin loading and discovery works correctly")
+        if "pipeline" in desc or "etl" in desc:
+            domain_checks.append("- Pipeline definitions backward-compatible with previous version")
+            domain_checks.append("- Sample pipeline executes end-to-end correctly")
     elif has_frontend and not has_web:
         # Static site
         domain_checks.append("- Build output is complete and deployable")
         if "astro" in frameworks:
             domain_checks.append("- `npm run build` succeeds with no warnings")
-        if "vercel" in combined:
+        if "vercel" in desc:
             domain_checks.append("- Vercel deployment preview is healthy and all pages load")
     elif has_web:
         domain_checks.append("- API health endpoint responds after deployment")
         if "go" in [l.lower() for l in config.tech_stack.languages]:
             domain_checks.append("- Go services build and start successfully")
+
+    # Add non-negotiables to pre-release checks
+    if config.non_negotiables:
+        for rule in config.non_negotiables:
+            rule_lower = rule.lower()
+            if "pci" in rule_lower:
+                domain_checks.append(f"- PCI-DSS compliance verified: {rule}")
+            elif "wcag" in rule_lower or "accessibility" in rule_lower or "a11y" in rule_lower:
+                domain_checks.append(f"- Accessibility verified: {rule}")
+            elif "p95" in rule_lower or "latency" in rule_lower or "response time" in rule_lower:
+                domain_checks.append(f"- Performance target met: {rule}")
+            elif "openapi" in rule_lower or "api doc" in rule_lower:
+                domain_checks.append(f"- API documentation verified: {rule}")
+            elif "secret" in rule_lower or "leak" in rule_lower:
+                domain_checks.append(f"- Secrets scan passed: {rule}")
+
+    # Infrastructure-specific pre-release checks
+    infra_items = [i.lower() for i in config.tech_stack.infrastructure]
+    if "aws" in infra_items or "ecs" in infra_items or "eks" in infra_items:
+        domain_checks.append("- AWS deployment verified (ECS/EKS service stable, health checks passing)")
+    if "docker" in infra_items:
+        domain_checks.append("- Docker images built and scanned (no Critical vulnerabilities)")
 
     domain_checks_text = "\n".join(f"    {c}" for c in domain_checks) if domain_checks else ""
     domain_section = f"\n{domain_checks_text}" if domain_checks_text else ""
@@ -1515,9 +1884,7 @@ def _arch_review_skill(config: ForgeConfig) -> str:
     is_cli = config.is_cli_project()
     has_frontend = config.has_frontend_involvement()
     has_web = config.has_web_backend()
-    req = config.project.requirements.lower()
     desc = config.project.description.lower()
-    combined = f"{req} {desc}"
 
     # Build tech-specific review points
     review_points: list[str] = []
@@ -1628,7 +1995,7 @@ def _arch_review_skill(config: ForgeConfig) -> str:
     point_num += 1
 
     # 5. Security (domain-specific, skip for pure static sites with no forms)
-    if has_web or is_cli or "form" in combined or "auth" in combined:
+    if has_web or is_cli or "form" in desc or "auth" in desc:
         security_checks = _security_checks(config)
         review_points.append(f"""\
     {point_num}. **Security** (domain-specific):
@@ -1654,33 +2021,34 @@ def _arch_review_skill(config: ForgeConfig) -> str:
        - No circular dependencies"""))
     point_num += 1
 
-    # 8. Domain-specific architecture
+    # 8. Domain-specific architecture — use domain detection
+    domains = _detect_project_domains(config)
+    desc = config.project.description.lower()
     domain_checks: list[str] = []
-    if "cart" in combined or "checkout" in combined or "e-commerce" in combined or "ecommerce" in combined:
+    if "ecommerce" in domains:
         domain_checks.append("- Cart state management (persistence across sessions)")
         domain_checks.append("- Order processing workflow (state machine pattern)")
         domain_checks.append("- Inventory management (race condition prevention)")
-    if "real-time" in combined or "websocket" in combined:
+    if "real-time" in desc or "websocket" in desc:
         domain_checks.append("- WebSocket connection lifecycle management")
         domain_checks.append("- Real-time state synchronization strategy")
-    if "auth" in combined:
+    if "auth" in domains:
         domain_checks.append("- Authentication flow architecture (token refresh, session management)")
-    if "pipeline" in combined or "etl" in combined:
+    if "pipeline" in domains:
         domain_checks.append("- Pipeline execution model (streaming vs batch, error recovery)")
         domain_checks.append("- Plugin loading and discovery mechanism")
         domain_checks.append("- Data validation between pipeline stages")
-    if "microservice" in combined:
+    if "microservice" in desc:
         domain_checks.append("- Service communication patterns (sync vs async, retries)")
         domain_checks.append("- Data consistency across services (saga, eventual consistency)")
-    if "payroll" in combined or "hr" in combined:
+    if "hr" in domains:
         domain_checks.append("- Sensitive data handling (PII encryption, audit trails)")
         domain_checks.append("- Calculation engine architecture (payroll, tax)")
-    if "sso" in combined or "saml" in combined or "oidc" in combined:
         domain_checks.append("- SSO integration architecture (SAML/OIDC flow)")
-    if "static" in combined and "site" in combined:
+    if not has_web and has_frontend:
         domain_checks.append("- Build-time vs runtime content strategy")
         domain_checks.append("- Asset optimization pipeline (images, fonts, CSS)")
-    if "blog" in combined or "mdx" in combined or "markdown" in combined:
+    if "content" in domains:
         domain_checks.append("- Content management architecture (MDX/markdown processing)")
     if domain_checks:
         domain_text = "\n".join(f"   {c}" for c in domain_checks)
@@ -1718,3 +2086,927 @@ def _arch_review_skill(config: ForgeConfig) -> str:
 
     $ARGUMENTS
     """)
+
+
+def _playwright_test_skill(config: ForgeConfig) -> str:
+    """Generate Playwright testing skill for frontend verification."""
+    tech = _tech_stack_summary(config)
+    frameworks = [f.lower() for f in config.tech_stack.frameworks]
+    agents = set(config.get_active_agents())
+    desc = config.project.description.lower()
+
+    # Detect frontend framework for specific guidance
+    if any(f in frameworks for f in ("react", "next", "nextjs", "next.js")):
+        framework_note = "React/Next.js — test components, pages, and client-side routing"
+    elif any(f in frameworks for f in ("vue", "nuxt", "nuxtjs")):
+        framework_note = "Vue/Nuxt — test components, pages, and Vue Router navigation"
+    elif any(f in frameworks for f in ("angular",)):
+        framework_note = "Angular — test components, services, and Angular Router"
+    elif any(f in frameworks for f in ("svelte",)):
+        framework_note = "Svelte — test components and SvelteKit routing"
+    else:
+        framework_note = "Test all UI components, pages, and user workflows"
+
+    # Domain-specific test scenarios — use domain detection
+    domains = _detect_project_domains(config)
+    domain_tests: list[str] = []
+    if "ecommerce" in domains:
+        domain_tests.extend([
+            "### E-Commerce Test Scenarios",
+            "- **Product catalog**: Browse, search, filter products, verify product detail pages",
+            "- **Shopping cart**: Add/remove items, update quantities, verify cart persistence across pages",
+            "- **Checkout flow**: Complete checkout end-to-end (address → shipping → payment → confirmation)",
+            "- **Stripe payment**: Use Stripe test cards (`4242424242424242`), verify payment success/failure states",
+        ])
+        if "vendor" in domains:
+            domain_tests.extend([
+                "- **Vendor flows**: Vendor registration, storefront setup, product listing, order management",
+                "- **Multi-vendor**: Product aggregation from multiple vendors, vendor-specific filtering",
+            ])
+    if "auth" in domains:
+        domain_tests.extend([
+            "### Authentication Test Scenarios",
+            "- **Login**: Valid credentials, invalid credentials, locked account, remember me",
+            "- **Registration**: Valid registration, duplicate email, password validation rules",
+            "- **Session**: Token refresh, session expiry, logout, concurrent sessions",
+        ])
+    if "dashboard" in config.project.description.lower():
+        domain_tests.append("- **Dashboard**: Data loading, chart rendering, filter interactions, export functions")
+
+    domain_section = ""
+    if domain_tests:
+        dt_text = "\n".join(f"    {t}" for t in domain_tests)
+        domain_section = f"\n{dt_text}\n"
+
+    # Accessibility section — enhanced if WCAG in non-negotiables
+    a11y_section = """
+    ## Accessibility Testing (WCAG 2.1 AA)
+
+    ```typescript
+    import {{ test, expect }} from '@playwright/test';
+    import AxeBuilder from '@axe-core/playwright';
+
+    test('should have no accessibility violations', async ({{ page }}) => {{
+      await page.goto('/');
+      const results = await new AxeBuilder({{ page }}).analyze();
+      expect(results.violations).toEqual([]);
+    }});
+    ```
+
+    Key accessibility checks:
+    - Color contrast ratios meet AA standards (4.5:1 for text, 3:1 for large text)
+    - All interactive elements are keyboard navigable
+    - Form inputs have associated labels
+    - Images have alt text
+    - ARIA roles and properties are correct"""
+
+    wcag_in_non_neg = config.non_negotiables and any("wcag" in nn.lower() or "accessibility" in nn.lower() or "a11y" in nn.lower() for nn in config.non_negotiables)
+    if wcag_in_non_neg:
+        a11y_section += """
+    - **Non-negotiable**: Every page MUST pass axe-core with zero violations before merge
+    - Run `npx playwright test --grep @a11y` as part of pre-merge checks"""
+
+    # Agent coordination
+    agent_roles: list[str] = []
+    if "frontend-developer" in agents or "frontend-engineer" in agents:
+        fe_agent = "frontend-developer" if "frontend-developer" in agents else "frontend-engineer"
+        agent_roles.append(f"- **{fe_agent}**: Write and maintain Playwright tests alongside UI code")
+    if "qa-engineer" in agents:
+        agent_roles.append("- **qa-engineer**: Run full E2E suite during iteration review, report failures")
+    if "frontend-designer" in agents:
+        agent_roles.append("- **frontend-designer**: Verify visual accuracy against design specs using screenshots")
+    if "critic" in agents:
+        agent_roles.append("- **critic**: Review screenshot evidence for visual quality and UX consistency")
+    agent_section = ""
+    if agent_roles:
+        ar_text = "\n".join(f"    {r}" for r in agent_roles)
+        agent_section = f"\n    ## Agent Responsibilities\n\n{ar_text}\n"
+
+    non_neg = _non_negotiables_section(config)
+
+    return f"""\
+    ---
+    name: playwright-test
+    description: "Run Playwright tests for visual verification and E2E testing"
+    argument-hint: "<test-file-or-pattern>"
+    ---
+
+    # Playwright Testing
+
+    > {_domain_context(config)}
+    > Stack: {tech}
+    > Framework: {framework_note}
+
+    ## When to Use
+
+    - After implementing or modifying any UI component or page
+    - Before marking frontend tasks as complete
+    - During iteration review for visual regression checks
+    - When verifying responsive design across viewports
+
+    ## Playwright CLI Commands
+
+    ### Run all tests
+    ```bash
+    npx playwright test
+    ```
+
+    ### Run specific test file
+    ```bash
+    npx playwright test tests/e2e/specific-test.spec.ts
+    ```
+
+    ### Run with UI mode (debugging)
+    ```bash
+    npx playwright test --ui
+    ```
+
+    ### Generate test from user actions
+    ```bash
+    npx playwright codegen http://localhost:3000
+    ```
+
+    ### Screenshot comparison
+    ```bash
+    npx playwright test --update-snapshots  # Update baseline
+    npx playwright test                     # Compare against baseline
+    ```
+    {domain_section}
+    ## Test Structure
+
+    ```typescript
+    import {{ test, expect }} from '@playwright/test';
+
+    test.describe('Feature Name', () => {{
+      test('should render correctly', async ({{ page }}) => {{
+        await page.goto('/feature');
+        await expect(page.getByRole('heading')).toHaveText('Feature');
+        await expect(page).toHaveScreenshot('feature-default.png');
+      }});
+
+      test('should handle user interaction', async ({{ page }}) => {{
+        await page.goto('/feature');
+        await page.getByRole('button', {{ name: 'Submit' }}).click();
+        await expect(page.getByText('Success')).toBeVisible();
+      }});
+    }});
+    ```
+
+    ## Visual Regression Workflow
+
+    1. Capture baseline screenshots: `npx playwright test --update-snapshots`
+    2. Make UI changes
+    3. Run tests: `npx playwright test`
+    4. Review diffs in `test-results/` directory
+    5. If changes are intentional, update baselines
+
+    ## Viewport Testing
+
+    Test across standard viewports:
+    - Mobile: 375x667 (iPhone SE)
+    - Tablet: 768x1024 (iPad)
+    - Desktop: 1280x720 (standard)
+    - Wide: 1920x1080 (full HD)
+    {a11y_section}
+    {non_neg}{agent_section}
+    ## Forge Workflow Integration
+
+    - Save screenshots to `docs/screenshots/` for human review
+    - Include screenshot evidence in PR descriptions
+    - Run Playwright tests in CI before merge
+
+    $ARGUMENTS
+    """
+
+
+def _excalidraw_diagram_skill(config: ForgeConfig) -> str:
+    """Generate Excalidraw diagramming skill."""
+    tech = _tech_stack_summary(config)
+    agents_set = set(config.get_active_agents())
+    agents = _agents_list(config)
+    desc = config.project.description.lower()
+
+    # Domain-specific diagram types — use domain detection
+    domains = _detect_project_domains(config)
+    domain_diagrams: list[str] = []
+    if "ecommerce" in domains:
+        domain_diagrams.extend([
+            "### Checkout / Payment Flow",
+            "- Sequence diagram: Browse → Cart → Checkout → Stripe Payment → Order Confirmation",
+            "- Include: Stripe webhook handling, payment failure retry, inventory reservation",
+            "- Save as: `docs/diagrams/sequences/checkout-flow.excalidraw`",
+            "",
+        ])
+        if "vendor" in domains:
+            domain_diagrams.extend([
+                "### Multi-Vendor Marketplace Topology",
+                "- Vendor onboarding flow (registration → approval → storefront creation)",
+                "- Commission calculation and payout pipeline",
+                "- Save as: `docs/diagrams/marketplace-topology.excalidraw`",
+                "",
+            ])
+    if "financial" in domains:
+        domain_diagrams.extend([
+            "### Transaction Processing Flow",
+            "- Sequence: Request → Validation → Ledger Entry (debit+credit) → Audit Log → Response",
+            "- Include: transaction rollback paths, webhook notification triggers",
+            "- Save as: `docs/diagrams/sequences/transaction-flow.excalidraw`",
+            "",
+            "### Audit Trail Architecture",
+            "- Immutable append-only audit log data flow",
+            "- Audit query paths for compliance reporting",
+            "- Save as: `docs/diagrams/audit-trail-architecture.excalidraw`",
+            "",
+        ])
+    if "pci" in domains:
+        domain_diagrams.extend([
+            "### PCI-DSS Compliance Zones",
+            "- Network boundaries between PCI scope and non-PCI services",
+            "- Data flow showing where card data is handled/tokenized",
+            "- Trust boundaries with data classification zones",
+            "- Save as: `docs/diagrams/pci-compliance-zones.excalidraw`",
+            "",
+        ])
+    if "hr" in domains:
+        domain_diagrams.extend([
+            "### Payroll Processing Pipeline",
+            "- Sequence: Time tracking → Tax calculation → Deductions → Disbursement",
+            "- Include: compliance checkpoints, audit trail",
+            "- Save as: `docs/diagrams/sequences/payroll-flow.excalidraw`",
+            "",
+        ])
+    if "auth" in domains:
+        domain_diagrams.extend([
+            "### Authentication Flow",
+            "- Login/register sequence with token lifecycle",
+            "- Token refresh and session management",
+            "- Save as: `docs/diagrams/sequences/auth-flow.excalidraw`",
+            "",
+        ])
+    if "pipeline" in domains:
+        domain_diagrams.extend([
+            "### Data Pipeline Architecture",
+            "- Extract → Transform → Load stages with data flow",
+            "- Error handling and dead-letter queue paths",
+            "- Plugin/extension points",
+            "- Save as: `docs/diagrams/pipeline-architecture.excalidraw`",
+            "",
+        ])
+    if "microservice" in desc:
+        domain_diagrams.extend([
+            "### Service Mesh / Communication",
+            "- Inter-service communication patterns (sync/async)",
+            "- Event bus / message queue topology",
+            "- Service discovery and load balancing",
+            "- Save as: `docs/diagrams/service-mesh.excalidraw`",
+            "",
+        ])
+
+    domain_section = ""
+    if domain_diagrams:
+        dd_text = "\n".join(f"    {d}" for d in domain_diagrams)
+        domain_section = f"\n    ## Domain-Specific Diagrams ({config.project.description})\n\n{dd_text}"
+
+    # Infrastructure diagrams based on tech stack
+    infra_diagrams: list[str] = []
+    infra_items = [i.lower() for i in config.tech_stack.infrastructure]
+    if "aws" in infra_items or "ecs" in infra_items or "eks" in infra_items:
+        infra_diagrams.extend([
+            "### AWS Infrastructure",
+            "- ECS/EKS cluster layout with service placement",
+            "- RDS/ElastiCache connectivity and VPC subnets",
+            "- Load balancer → service → database data flow",
+            "- Save as: `docs/diagrams/aws-infrastructure.excalidraw`",
+        ])
+    elif "docker" in infra_items or "kubernetes" in infra_items:
+        infra_diagrams.extend([
+            "### Container Infrastructure",
+            "- Container orchestration layout",
+            "- Service networking and port mapping",
+            "- Save as: `docs/diagrams/container-infrastructure.excalidraw`",
+        ])
+    if config.tech_stack.databases:
+        dbs = ", ".join(config.tech_stack.databases)
+        infra_diagrams.extend([
+            f"### Database Topology ({dbs})",
+            "- Primary/replica configuration",
+            "- Connection pooling and caching layers",
+            f"- Save as: `docs/diagrams/database-topology.excalidraw`",
+        ])
+
+    infra_section = ""
+    if infra_diagrams:
+        it_text = "\n".join(f"    {d}" for d in infra_diagrams)
+        infra_section = f"\n\n{it_text}\n"
+
+    # Agent-specific roles
+    agent_roles: list[str] = []
+    if "architect" in agents_set:
+        agent_roles.append("- **architect**: Create and own system architecture, data model, and deployment diagrams")
+    if "documentation-specialist" in agents_set:
+        agent_roles.append("- **documentation-specialist**: Maintain diagrams, ensure they stay current with code")
+    if "devops-specialist" in agents_set:
+        agent_roles.append("- **devops-specialist**: Create and maintain deployment topology and infrastructure diagrams")
+    if "security-tester" in agents_set:
+        agent_roles.append("- **security-tester**: Diagram security zones, trust boundaries, and data flow for threat modeling")
+    if "team-leader" in agents_set:
+        agent_roles.append("- **team-leader**: Reference diagrams in sprint planning, use in architecture decision records")
+    agent_roles_text = "\n".join(f"    {r}" for r in agent_roles) if agent_roles else "    - All agents: Reference diagrams when discussing architecture decisions"
+
+    return f"""\
+    ---
+    name: excalidraw-diagram
+    description: "Create and maintain architecture diagrams using Excalidraw"
+    argument-hint: "<diagram-type>"
+    ---
+
+    # Excalidraw Architecture Diagrams
+
+    > {_domain_context(config)}
+    > Stack: {tech}
+
+    ## When to Use
+
+    - During architecture design and review
+    - When documenting system topology or data flows
+    - Before major refactoring to visualize current vs target state
+    - Sprint planning to illustrate feature scope
+    - Onboarding documentation for new team members
+
+    ## Excalidraw CLI Usage
+
+    ### Install
+    ```bash
+    npm install -g @excalidraw/cli
+    ```
+
+    ### Convert Excalidraw JSON to PNG/SVG
+    ```bash
+    npx @excalidraw/cli export --format png docs/diagrams/architecture.excalidraw
+    npx @excalidraw/cli export --format svg docs/diagrams/architecture.excalidraw
+    ```
+
+    ## Core Diagram Types
+
+    ### 1. System Architecture
+    - High-level component diagram showing services, databases, external APIs
+    - Data flow arrows with protocol labels (HTTP, gRPC, WebSocket, etc.)
+    - Save as: `docs/diagrams/system-architecture.excalidraw`
+
+    ### 2. Data Model / ER Diagram
+    - Entity relationships with cardinality
+    - Key fields and indexes
+    - Save as: `docs/diagrams/data-model.excalidraw`
+
+    ### 3. Sequence Diagrams
+    - Critical user flows for this project
+    - Error handling and retry flows
+    - Save as: `docs/diagrams/sequences/<flow-name>.excalidraw`
+
+    ### 4. Deployment Topology
+    - Infrastructure layout ({', '.join(config.tech_stack.infrastructure) if config.tech_stack.infrastructure else 'containers, servers, CDN'})
+    - Network boundaries and security zones
+    - Save as: `docs/diagrams/deployment.excalidraw`
+    {domain_section}{infra_section}
+    ## Excalidraw File Format
+
+    `.excalidraw` files are JSON with this structure:
+    ```json
+    {{
+      "type": "excalidraw",
+      "version": 2,
+      "elements": [
+        {{
+          "type": "rectangle",           // rectangle, ellipse, diamond, text, arrow, line
+          "x": 100, "y": 200,           // position
+          "width": 200, "height": 80,   // dimensions
+          "strokeColor": "#1e1e1e",
+          "backgroundColor": "#a5d8ff", // fill color
+          "fillStyle": "solid",
+          "strokeWidth": 2,
+          "roundness": {{ "type": 3 }},  // rounded corners
+          "boundElements": [{{ "type": "text", "id": "..." }}]  // linked text
+        }},
+        {{
+          "type": "text",
+          "text": "API Server",          // label content
+          "fontSize": 16,
+          "textAlign": "center",
+          "containerId": "..."           // parent shape ID
+        }},
+        {{
+          "type": "arrow",
+          "startBinding": {{ "elementId": "...", "focus": 0, "gap": 1 }},
+          "endBinding": {{ "elementId": "...", "focus": 0, "gap": 1 }},
+          "points": [[0,0], [200,100]]   // arrow path
+        }}
+      ]
+    }}
+    ```
+
+    **Tips**: Use `backgroundColor` to color-code components (blue=services, green=databases, orange=external APIs). Arrows with `startBinding`/`endBinding` auto-attach to shapes.
+
+    ## Workflow
+
+    1. Create/update `.excalidraw` files in `docs/diagrams/`
+    2. Export to PNG for embedding in docs: `npx @excalidraw/cli export --format png <file>`
+    3. Reference exported images in README, Confluence, or PR descriptions
+    4. Keep diagrams in git — they are JSON files and diff cleanly
+    5. Update diagrams when architecture changes
+
+    ## Agent Responsibilities
+
+{agent_roles_text}
+
+    $ARGUMENTS
+    """
+
+
+def _code_review_skill(config: ForgeConfig) -> str:
+    """Generate structured code review skill."""
+    tech = _tech_stack_summary(config)
+    mode = config.mode.value
+    quality_bar = "70%" if mode == "mvp" else "90%" if mode == "production-ready" else "100%"
+
+    non_neg_checks = ""
+    if config.non_negotiables:
+        rules = "\n".join(f"    - [ ] {rule}" for rule in config.non_negotiables)
+        non_neg_checks = f"""
+    ### Non-Negotiable Compliance
+    {rules}
+    """
+
+    # Domain-specific code review sections
+    domains = _detect_project_domains(config)
+    is_cli = config.is_cli_project()
+    domain_review: list[str] = []
+    if "financial" in domains:
+        domain_review.extend([
+            "- [ ] Double-entry bookkeeping: every transaction creates balanced debit/credit entries",
+            "- [ ] Audit trail: all financial operations create immutable, append-only log records",
+            "- [ ] Transaction atomicity: financial operations use DB transactions with proper rollback",
+            "- [ ] No raw card/account numbers in logs, error messages, or API responses",
+        ])
+    if "pci" in domains:
+        domain_review.extend([
+            "- [ ] PCI-DSS: sensitive data encrypted at rest and in transit",
+            "- [ ] PCI-DSS: no cardholder data stored beyond what's necessary",
+        ])
+    if "ecommerce" in domains:
+        domain_review.extend([
+            "- [ ] Cart/checkout: race conditions handled for concurrent cart updates",
+            "- [ ] Payment flow: idempotency keys prevent duplicate charges",
+            "- [ ] Price calculations: use decimal types, not floating point",
+        ])
+    if "hr" in domains:
+        domain_review.extend([
+            "- [ ] Payroll calculations: tax and deduction logic uses precise arithmetic",
+            "- [ ] PII handling: employee data access is role-gated and audited",
+        ])
+    if is_cli:
+        desc = config.project.description.lower()
+        domain_review.extend([
+            "- [ ] CLI interface: command help text is clear and complete",
+            "- [ ] Error messages: user-facing (no stack traces), suggest fixes",
+            "- [ ] Exit codes: correct non-zero codes for different failure modes",
+        ])
+        if "pipeline" in desc or "etl" in desc:
+            domain_review.extend([
+                "- [ ] Pipeline definitions: YAML/config schema validated before execution",
+                "- [ ] Data flow: transformers properly handle edge cases (empty, malformed)",
+                "- [ ] Plugin interfaces: contracts enforced, isolation maintained",
+            ])
+    if "pipeline" in domains and not is_cli:
+        domain_review.append("- [ ] Data pipeline: stage boundaries handle backpressure and errors")
+    if "auth" in domains:
+        domain_review.append("- [ ] Auth flows: tokens properly validated, expired tokens rejected")
+
+    domain_section = ""
+    if domain_review:
+        items = "\n".join(f"    {item}" for item in domain_review)
+        domain_section = f"""
+    ### Domain-Specific
+{items}
+    """
+
+    return f"""\
+    ---
+    name: code-review
+    description: "Structured code review checklist with project-specific quality gates"
+    argument-hint: "<pr-number-or-branch>"
+    ---
+
+    # Code Review
+
+    **Tech Stack**: {tech}
+    **Quality Bar**: {quality_bar} ({mode} mode)
+
+    ## Review Checklist
+
+    ### Correctness
+    - [ ] Code does what the ticket/task describes
+    - [ ] Edge cases handled (null, empty, boundary values)
+    - [ ] Error handling is appropriate (not swallowed, not over-caught)
+    - [ ] No regressions in existing functionality
+
+    ### Security (OWASP Top 10)
+    - [ ] No SQL injection (parameterized queries)
+    - [ ] No XSS (output encoding, CSP headers)
+    - [ ] No hardcoded secrets (env vars, SecretStr)
+    - [ ] Input validation at system boundaries
+    - [ ] Authentication/authorization checks present
+    - [ ] No sensitive data in logs or error messages
+
+    ### Architecture
+    - [ ] Follows existing patterns and conventions
+    - [ ] External dependencies behind abstractions
+    - [ ] No circular dependencies introduced
+    - [ ] Single responsibility — functions/classes do one thing
+    - [ ] No function body > 50 lines, no file > 300 lines
+
+    ### Testing
+    - [ ] New code has tests (unit at minimum)
+    - [ ] Tests cover happy path AND error cases
+    - [ ] No flaky tests introduced
+    - [ ] Mocks are realistic (named mocks, not bare MagicMock)
+
+    ### Performance
+    - [ ] No N+1 queries
+    - [ ] No unbounded loops or memory allocations
+    - [ ] Async I/O used for network calls (no sync in async)
+    - [ ] Database indexes for new query patterns
+    {domain_section}{non_neg_checks}
+    ## Review Verdicts
+
+    - **BLOCKER**: Must fix before merge. Re-review required.
+    - **WARNING**: Should fix. Team Leader decides if it blocks.
+    - **NOTE**: Optional improvement. Can merge without fixing.
+
+    ## Process
+
+    1. Read the PR description and linked ticket
+    2. Review diff file-by-file using the checklist
+    3. Run the tests locally if changes are non-trivial
+    4. For big PRs: exercise the feature manually
+    5. Leave review with verdict, specific feedback, and confidence level
+    """
+
+
+def _dependency_audit_skill(config: ForgeConfig) -> str:
+    """Generate dependency audit skill."""
+    tech = _tech_stack_summary(config)
+    langs = [l.lower() for l in config.tech_stack.languages]
+    agents = set(config.get_active_agents())
+
+    python_section = ""
+    if "python" in langs or any(
+        f.lower() in ("fastapi", "django", "flask", "click", "typer")
+        for f in config.tech_stack.frameworks
+    ):
+        python_section = """
+    ### Python
+    ```bash
+    # Vulnerability scan
+    pip-audit
+
+    # License check
+    pip-licenses --format=table --with-urls
+
+    # Outdated packages
+    pip list --outdated
+
+    # Dependency tree
+    pipdeptree
+    ```
+    """
+
+    node_section = ""
+    if "javascript" in langs or "typescript" in langs or any(
+        f.lower() in ("react", "vue", "angular", "next", "nextjs", "express")
+        for f in config.tech_stack.frameworks
+    ):
+        node_section = """
+    ### Node.js
+    ```bash
+    # Vulnerability scan
+    npm audit
+
+    # Fix auto-fixable vulnerabilities
+    npm audit fix
+
+    # License check
+    npx license-checker --summary
+
+    # Outdated packages
+    npm outdated
+    ```
+    """
+
+    # Container image scanning
+    container_section = ""
+    infra_items = [i.lower() for i in config.tech_stack.infrastructure]
+    if "docker" in infra_items or "aws" in infra_items or "ecs" in infra_items or "eks" in infra_items:
+        container_section = """
+    ### Container Images
+    ```bash
+    # Scan container images for vulnerabilities
+    docker scout cves <image-name>
+
+    # Alternative: Trivy scanner
+    trivy image <image-name>
+
+    # Check base image freshness
+    docker scout recommendations <image-name>
+    ```
+    """
+
+    # Domain-specific dependency priorities — use domain detection
+    domains = _detect_project_domains(config)
+    domain_deps: list[str] = []
+    if "pci" in domains or "financial" in domains:
+        domain_deps.extend([
+            "- **Payment/PCI-DSS dependencies**: Prioritize payment SDK, cryptography libraries, and TLS libraries. Any vulnerability in these is automatically Critical severity.",
+            "- **Crypto libraries**: Verify no deprecated algorithms (MD5, SHA1 for signing, RSA < 2048-bit).",
+        ])
+    if "auth" in domains:
+        domain_deps.append("- **Auth dependencies**: JWT libraries, OAuth/OIDC clients, bcrypt/argon2 — vulnerabilities here are Critical.")
+    if "ecommerce" in domains:
+        domain_deps.append("- **E-commerce deps**: Payment SDKs, session management, CSRF protection libraries — audit with extra scrutiny.")
+    if "redis" in [d.lower() for d in config.tech_stack.databases]:
+        domain_deps.append("- **Redis client**: Check for connection security (TLS), command injection vulnerabilities.")
+    if config.tech_stack.databases:
+        dbs = ", ".join(config.tech_stack.databases)
+        domain_deps.append(f"- **Database drivers ({dbs})**: SQL injection vectors, connection handling, TLS support.")
+
+    domain_section = ""
+    if domain_deps:
+        dd_text = "\n".join(f"    {d}" for d in domain_deps)
+        domain_section = f"\n    ## Domain-Specific Dependency Priorities\n\n{dd_text}\n"
+
+    # Agent coordination
+    agent_section = ""
+    coord_agents: list[str] = []
+    if "security-tester" in agents:
+        coord_agents.append("- **security-tester**: Review Critical/High findings, validate fixes, check for transitive vulnerabilities")
+    if "performance-engineer" in agents:
+        coord_agents.append("- **performance-engineer**: Evaluate performance impact of dependency updates (bundle size, startup time)")
+    if "devops-specialist" in agents:
+        coord_agents.append("- **devops-specialist**: Update container base images, CI pipeline dependencies")
+    if "backend-developer" in agents:
+        coord_agents.append("- **backend-developer**: Apply dependency patches, test for regressions")
+    if coord_agents:
+        coord_text = "\n".join(f"    {a}" for a in coord_agents)
+        agent_section = f"\n    ## Agent Coordination\n\n{coord_text}\n"
+
+    non_neg = _non_negotiables_section(config)
+
+    return f"""\
+    ---
+    name: dependency-audit
+    description: "Audit project dependencies for vulnerabilities, licenses, and updates"
+    argument-hint: ""
+    ---
+
+    # Dependency Audit
+
+    > {_domain_context(config)}
+    > Stack: {tech}
+
+    ## When to Run
+
+    - Before every release
+    - Weekly during active development
+    - When adding new dependencies
+    - After Dependabot/Renovate PRs
+
+    ## Audit Commands
+    {python_section}{node_section}{container_section}
+    ## Vulnerability Triage
+
+    | Severity | Action | SLA |
+    |----------|--------|-----|
+    | Critical | Fix immediately, block release | Same day |
+    | High | Fix before next release | 3 days |
+    | Medium | Schedule fix | Next sprint |
+    | Low | Track, fix when convenient | Backlog |
+    {domain_section}
+    ## License Compliance
+
+    **Allowed**: MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0
+    **Review Required**: LGPL, AGPL, GPL (check compatibility with project license)
+    **Blocked**: Proprietary, unlicensed, unknown
+    {non_neg}{agent_section}
+    ## Process
+
+    1. Run vulnerability scan for all package ecosystems
+    2. Triage findings by severity
+    3. Update/patch critical and high vulnerabilities
+    4. Review licenses of new dependencies
+    5. Document exceptions in `SECURITY.md` if any vulnerabilities are accepted
+    6. Report findings to Team Leader
+
+    $ARGUMENTS
+    """
+
+
+def _benchmark_skill(config: ForgeConfig) -> str:
+    """Generate performance benchmark skill."""
+    tech = _tech_stack_summary(config)
+    is_cli = config.is_cli_project()
+    has_web = config.has_web_backend()
+    has_frontend = config.has_frontend_involvement()
+    agents = set(config.get_active_agents())
+
+    # Extract p95 target from non-negotiables if present
+    p95_target = "< 500ms"
+    p50_target = "< 100ms"
+    p99_target = "< 1000ms"
+    if config.non_negotiables:
+        for rule in config.non_negotiables:
+            rule_lower = rule.lower()
+            if "p95" in rule_lower:
+                # Extract the target value from rules like "p95 API response time < 200ms"
+                import re
+                match = re.search(r"<\s*(\d+)\s*ms", rule_lower)
+                if match:
+                    p95_val = int(match.group(1))
+                    p95_target = f"< {p95_val}ms"
+                    p50_target = f"< {p95_val // 2}ms"
+                    p99_target = f"< {p95_val * 2}ms"
+
+    if is_cli:
+        kpi_section = """
+    ## Key Performance Indicators
+
+    | Metric | Target | How to Measure |
+    |--------|--------|----------------|
+    | Command startup time | < 500ms | `time <command> --help` |
+    | Throughput (items/sec) | Baseline + 10% | Custom benchmark script |
+    | Memory usage (peak) | < 256MB | `mprof run <command>` |
+    | File I/O throughput | > 100MB/s | `pv` or custom benchmark |
+    """
+    elif has_web:
+        kpi_section = f"""
+    ## Key Performance Indicators
+
+    | Metric | Target | How to Measure |
+    |--------|--------|----------------|
+    | API response time (p50) | {p50_target} | `wrk` / `hey` / `k6` |
+    | API response time (p95) | {p95_target} | `wrk` / `hey` / `k6` |
+    | API response time (p99) | {p99_target} | `wrk` / `hey` / `k6` |
+    | Throughput (req/sec) | > 1000 | `wrk -t4 -c100 -d30s` |
+    | Error rate under load | < 0.1% | `k6` with checks |
+    | DB query time (p95) | < 50ms | Query logging / APM |
+    | Memory usage (steady) | < 512MB | Container metrics |
+    """
+    elif has_frontend:
+        kpi_section = """
+    ## Key Performance Indicators
+
+    | Metric | Target | How to Measure |
+    |--------|--------|----------------|
+    | First Contentful Paint | < 1.5s | Lighthouse |
+    | Largest Contentful Paint | < 2.5s | Lighthouse |
+    | Cumulative Layout Shift | < 0.1 | Lighthouse |
+    | Time to Interactive | < 3.5s | Lighthouse |
+    | Bundle size (gzipped) | < 200KB | `next build` / `vite build` |
+    | Lighthouse Performance | > 90 | `npx lighthouse` |
+    """
+    else:
+        kpi_section = f"""
+    ## Key Performance Indicators
+
+    | Metric | Target | How to Measure |
+    |--------|--------|----------------|
+    | Operation latency (p50) | {p50_target} | Custom profiling |
+    | Operation latency (p95) | {p95_target} | Custom profiling |
+    | Memory usage (peak) | < 512MB | Memory profiler |
+    | Throughput | Baseline + 10% | Benchmark suite |
+    """
+
+    # Domain-specific benchmark scenarios — use domain detection
+    domains = _detect_project_domains(config)
+    domain_benchmarks: list[str] = []
+    if "ecommerce" in domains:
+        domain_benchmarks.extend([
+            "- **Checkout flow**: End-to-end checkout latency (browse → cart → payment → confirmation)",
+            "- **Product search**: Search response time with 10k+ products, filtered queries",
+            "- **Shopping cart**: Concurrent cart operations (add/remove/update) under load",
+        ])
+        if "vendor" in domains:
+            domain_benchmarks.extend([
+                "- **Multi-vendor load**: Aggregated product listing with 100+ vendors",
+                "- **Commission calculation**: Batch payout processing throughput",
+            ])
+    if "financial" in domains:
+        domain_benchmarks.append("- **Payment processing**: Payment API round-trip time, webhook processing latency")
+    if "auth" in domains:
+        domain_benchmarks.append("- **Auth endpoints**: Login/register throughput under concurrent load")
+    if config.tech_stack.databases:
+        dbs = ", ".join(config.tech_stack.databases)
+        domain_benchmarks.append(f"- **Database ({dbs})**: Query performance for critical paths, connection pool saturation")
+    if "redis" in [d.lower() for d in config.tech_stack.databases]:
+        domain_benchmarks.append("- **Redis caching**: Cache hit/miss ratio impact on response times")
+    if "docker" in [i.lower() for i in config.tech_stack.infrastructure] or "aws" in [i.lower() for i in config.tech_stack.infrastructure]:
+        infra = ", ".join(config.tech_stack.infrastructure) if config.tech_stack.infrastructure else "cloud"
+        domain_benchmarks.append(f"- **Infrastructure ({infra})**: Container resource utilization, auto-scaling triggers")
+
+    domain_section = ""
+    if domain_benchmarks:
+        dm_text = "\n".join(f"    {b}" for b in domain_benchmarks)
+        domain_section = f"\n    ## Domain-Specific Benchmarks\n\n{dm_text}\n"
+
+    # Agent coordination
+    agent_section = ""
+    coord_agents: list[str] = []
+    if "qa-engineer" in agents:
+        coord_agents.append("- **qa-engineer**: Validate benchmark tests cover acceptance criteria")
+    if "devops-specialist" in agents:
+        coord_agents.append("- **devops-specialist**: Infrastructure provisioning for load tests")
+    if "backend-developer" in agents:
+        coord_agents.append("- **backend-developer**: Implement performance fixes identified by benchmarks")
+    if "architect" in agents:
+        coord_agents.append("- **architect**: Review architecture implications of performance findings")
+    if coord_agents:
+        coord_text = "\n".join(f"    {a}" for a in coord_agents)
+        agent_section = f"\n    ## Agent Coordination\n\n{coord_text}\n"
+
+    non_neg = _non_negotiables_section(config)
+
+    # Build benchmark commands section based on project type
+    bench_commands: list[str] = []
+    if has_web and not is_cli:
+        bench_commands.append(
+            "### Load Testing (API)\n"
+            "    ```bash\n"
+            "    # Quick benchmark with hey\n"
+            "    hey -n 1000 -c 50 http://localhost:8000/api/endpoint\n"
+            "\n"
+            "    # Extended benchmark with wrk\n"
+            "    wrk -t4 -c100 -d30s http://localhost:8000/api/endpoint\n"
+            "\n"
+            "    # Scripted scenarios with k6\n"
+            "    k6 run benchmarks/load-test.js\n"
+            "    ```"
+        )
+    lang_label = "Python" if "python" in [l.lower() for l in config.tech_stack.languages] else "Application"
+    bench_commands.append(
+        f"### Profiling ({lang_label})\n"
+        "    ```bash\n"
+        "    # CPU profiling\n"
+        "    python -m cProfile -o profile.out -m <module>\n"
+        "    snakeviz profile.out\n"
+        "\n"
+        "    # Memory profiling\n"
+        "    mprof run python -m <module>\n"
+        "    mprof plot\n"
+        "    ```"
+    )
+    if has_frontend:
+        bench_commands.append(
+            "### Frontend Performance\n"
+            "    ```bash\n"
+            "    # Lighthouse CI\n"
+            "    npx lighthouse http://localhost:3000 --output=json --output-path=./benchmark-results.json\n"
+            "\n"
+            "    # Bundle analysis\n"
+            "    npx webpack-bundle-analyzer stats.json\n"
+            "    ```"
+        )
+    bench_cmd_text = "\n\n    ".join(bench_commands)
+
+    return f"""\
+    ---
+    name: benchmark
+    description: "Run performance benchmarks and track KPIs against targets"
+    argument-hint: "[benchmark-suite]"
+    ---
+
+    # Performance Benchmark
+
+    > {_domain_context(config)}
+    > Stack: {tech}
+    {kpi_section}{domain_section}
+    ## Benchmark Workflow
+
+    1. **Establish baseline**: Run benchmarks on current main branch
+    2. **Implement changes**: Make performance improvements
+    3. **Re-measure**: Run the same benchmarks on the feature branch
+    4. **Compare**: Calculate percentage change for each KPI
+    5. **Report**: Include before/after numbers in PR description
+
+    ## Benchmark Commands
+
+    {bench_cmd_text}
+    {non_neg}{agent_section}
+    ## Reporting
+
+    Include in PR description:
+    | Metric | Before | After | Change |
+    |--------|--------|-------|--------|
+    | p50 latency | 45ms | 32ms | -29% |
+    | p95 latency | 120ms | 85ms | -29% |
+    | Memory | 256MB | 248MB | -3% |
+
+    $ARGUMENTS
+    """

@@ -2,7 +2,7 @@
 
 > Config-driven project initializer for Claude Code CLI agent teams.
 
-Forge reads a `forge-config.yaml` and generates customized agent instruction files,
+Forge reads a `forge.yaml` and generates customized agent instruction files,
 CLAUDE.md, skills, team-init-plan.md, and strategy-enforced permissions for your
 project workspace. Configure once, then let Claude Code agents build your project
 with precision.
@@ -41,47 +41,51 @@ pip install -e ".[test]"
 
 ```bash
 forge init
-# Follow the 8-step wizard → confirm → generate
-cd my-project
-claude
-# Tell Claude: "Read team-init-plan.md and initialize the team"
+# Follow the 8-step wizard (use Up/Down arrows to navigate between steps)
+# Confirm and generate
+
+forge start
+# Launches Claude with the team init prompt — fully interactive session
 ```
 
 ### Option B — Config file
 
 ```bash
 # 1. Start from the example config
-cp examples/forge-config.yaml forge-config.yaml
-# Edit forge-config.yaml with your project details
+cp examples/forge-config.yaml .forge/forge.yaml
+# Edit .forge/forge.yaml with your project details
 
 # 2. Generate files
-forge --config forge-config.yaml --project-dir ./my-project
+forge generate --project-dir ./my-project
 
 # 3. Start building
-cd my-project
-claude
-# Tell Claude: "Read team-init-plan.md and initialize the team"
-```
-
-### Other commands
-
-```bash
-# Validate config without generating files
-forge --config forge-config.yaml --validate-only
-
-# Generate with LLM-powered refinement
-forge --config forge-config.yaml --project-dir ./my-project --refine
+forge start
+# OR: cd my-project && claude
+# Then tell Claude: "Read team-init-plan.md and initialize the team"
 ```
 
 ---
 
-## Interactive Setup (`forge init`)
+## CLI Commands
 
-`forge init` walks you through building a `forge-config.yaml` interactively:
+Forge provides four commands that form a complete lifecycle:
+
+```text
+forge init → forge generate → forge refine → forge start
+```
+
+### `forge init`
+
+Interactively build a `forge.yaml` configuration through an 8-step wizard.
+
+```bash
+forge init                         # Save to .forge/forge.yaml (default)
+forge init --output my-config.yaml # Custom output path
+```
 
 | Step | What it configures |
 |------|--------------------|
-| 1 | Project description, requirements, type (new/existing) |
+| 1 | Project description, requirements, plan file, context files, type |
 | 2 | Quality mode (mvp / production-ready / no-compromise) |
 | 3 | Execution strategy (auto-pilot / co-pilot / micro-manage) |
 | 4 | Tech stack (languages, frameworks, databases, infrastructure) |
@@ -90,20 +94,69 @@ forge --config forge-config.yaml --project-dir ./my-project --refine
 | 7 | LLM Gateway |
 | 8 | Non-negotiables (absolute requirements) |
 
+**Navigation:** Use Up arrow to go back to the previous step, Down arrow or Enter
+to proceed. Full cursor editing (Home, End, arrow keys) in all text prompts.
+
 After all steps, Forge shows a summary for confirmation, saves the config file,
-and optionally runs generation immediately. No YAML editing required.
+and optionally runs generation immediately.
+
+### `forge generate`
+
+Generate agent instruction files from a `forge.yaml` config.
 
 ```bash
-forge init
-forge init --output my-config.yaml   # custom output path
+forge generate                                # Auto-detect config
+forge generate --config .forge/forge.yaml     # Explicit config path
+forge generate --project-dir ./my-project     # Custom output directory
+forge generate --validate-only                # Validate config without generating
+forge generate -v                             # Verbose logging
 ```
+
+Config auto-detection order:
+
+1. `.forge/forge.yaml` (canonical)
+2. `forge.yaml` (project root)
+3. `.forge/forge-config.yaml` (legacy)
+4. `forge-config.yaml` (legacy)
+
+Backward compatibility: `forge --config .forge/forge.yaml` routes to `generate`.
+
+### `forge refine`
+
+Refine generated files using LLM scoring and iterative improvement. Each `.md`
+file is scored against weighted quality criteria and iteratively improved until
+it meets a configurable threshold (default 90%).
+
+```bash
+forge refine                                  # Auto-detect config
+forge refine --config .forge/forge.yaml       # Explicit config path
+forge refine --project-dir ./my-project       # Custom project directory
+forge refine -v                               # Verbose logging
+```
+
+Requires `llm-gateway`: `pip install -e ".[refinement]"`
+
+### `forge start`
+
+Launch an interactive Claude CLI session with the team init prompt.
+
+```bash
+forge start                                   # Auto-detect, auto-detect tmux
+forge start --config .forge/forge.yaml        # Explicit config path
+forge start --project-dir ./my-project        # Custom project directory
+forge start --tmux                            # Force tmux split-pane session
+forge start --no-tmux                         # Force direct Claude session
+```
+
+When tmux is available, creates a named session (`forge-<project-name>`) for
+monitoring agent activity in split panes. Falls back to direct Claude session
+if tmux is not installed.
 
 ---
 
 ## Configuration
 
-All configuration lives in a single `forge-config.yaml` file.
-
+All configuration lives in a single `forge.yaml` file, stored in `.forge/` by default.
 See [`examples/forge-config.yaml`](examples/forge-config.yaml) for a comprehensive
 annotated example covering every option.
 
@@ -124,7 +177,11 @@ strategy: co-pilot
 ```yaml
 project:
   description: "E-commerce platform"
-  requirements: "Build a full-stack e-commerce platform with auth, product catalog, cart, and checkout"
+  requirements: "Build a full-stack e-commerce platform"
+  context_files:                 # Files or directories for project context
+    - PLAN.md                    # Scanned for .md, .txt, .yaml files
+    - specs/
+  plan_file: PLAN.md             # Authoritative implementation blueprint
   type: new                      # new | existing
 
 mode: production-ready           # mvp | production-ready | no-compromise
@@ -180,16 +237,31 @@ refinement:
   score_threshold: 90            # 0-100, files must score >= this
   max_iterations: 5              # max refine loops per file
   max_concurrency: 0             # 0 = all files in parallel (default)
-  timeout_seconds: 180           # per-LLM-call timeout
+  timeout_seconds: 300           # per-LLM-call timeout
   cost_limit_usd: 10.0           # stop if cumulative cost exceeds this
 ```
+
+### Plan file vs context files
+
+- **`plan_file`**: An authoritative implementation blueprint. When set, generated files
+  instruct agents to follow the plan exactly — phases, milestones, architecture, and
+  sequencing. The agent team executes the plan using parallel agentic collaboration.
+
+- **`context_files`**: Reference material (specs, previous discussions, architecture docs).
+  Forge summarizes these into `.forge/project-context.md` and uses the context to generate
+  more tailored agent instructions. Accepts individual files or directories (scanned
+  recursively for `.md`, `.txt`, `.yaml`, `.yml`, `.rst` files).
 
 ### Refinement (LLM-powered)
 
 After generating files, Forge can optionally refine them using an LLM to improve
 quality. Each `.md` file is scored against weighted quality criteria and iteratively
 improved until it meets a configurable threshold (default 90%). All files are refined
-in parallel for fast turnaround (~4–7 minutes for 18 files with `local_claude`).
+in parallel for fast turnaround (~4-7 minutes for 18 files with `local_claude`).
+
+Refinement reports are saved to `.forge/refinement-report.json` and
+`.forge/refinement-report.md` with per-file iteration details, suggestions,
+changes, scores, and next scope of improvement.
 
 **Scoring criteria** (weighted):
 
@@ -200,22 +272,6 @@ in parallel for fast turnaround (~4–7 minutes for 18 files with `local_claude`
 | Specificity | 20% | Uses project-specific details, not generic placeholders |
 | Clarity | 20% | Clear, actionable instructions an AI agent can follow |
 | Consistency | 10% | Internally consistent, no contradictions |
-
-CLI override:
-
-```bash
-# Force refinement on (overrides config)
-forge --config forge-config.yaml --project-dir ./my-project --refine
-
-# Force refinement off
-forge --config forge-config.yaml --project-dir ./my-project --no-refine
-```
-
-Install the refinement dependency:
-
-```bash
-pip install -e ".[refinement]"
-```
 
 ### `non_negotiables`
 
@@ -282,45 +338,100 @@ my-project/
       sprint-report.md               # When Atlassian enabled
     mcp.json                         # MCP server configuration
     settings.json                    # Strategy-enforced permissions (auto-pilot/co-pilot)
+  .forge/
+    forge.yaml                       # Project configuration
+    project-context.md               # Summarized project context (if context_files set)
+    refinement-report.json           # Refinement report (if refinement ran)
+    refinement-report.md             # Human-readable refinement report
   .env.example                       # Required environment variables
 ```
 
 ---
 
+## Architecture
+
+### Source modules
+
+```text
+forge_cli/
+  __init__.py                  # Package version
+  main.py                     # CLI entry point (click commands: init, generate, refine, start)
+  config_schema.py             # Pydantic config models, project-type detection, team resolution
+  config_loader.py             # YAML loading, config auto-detection, round-trip support
+  init_wizard.py               # Interactive 8-step wizard using prompt_toolkit
+  progress.py                  # Rich progress displays (generation + refinement)
+  generators/
+    orchestrator.py            # Top-level generate_all() and run_refinement() coordination
+    agent_files.py             # Agent instruction templates (project-type + domain-aware)
+    skills.py                  # Skill templates (project-type + domain-aware)
+    claude_md.py               # CLAUDE.md generation
+    team_init_plan.py          # team-init-plan.md generation
+    settings_config.py         # .claude/settings.json generation
+    mcp_config.py              # .claude/mcp.json + .env.example generation
+    context_summarizer.py      # Context file collection + LLM summarization
+    refinement.py              # LLM scoring + iterative refinement loop
+```
+
+### Key design patterns
+
+- **Config-driven**: All output is derived from `ForgeConfig` (Pydantic model)
+- **Project-type detection**: `has_frontend_involvement()`, `has_web_backend()`, `is_cli_project()` tailor templates
+- **Domain-aware templates**: Agent and skill generators produce context-specific content based on tech stack, team roster, and project description
+- **Strategy enforcement**: `settings_config.py` generates tool permissions; agent templates include strategy-specific behavioral guidance
+- **Dependency injection**: `generate_all(config, llm_provider=...)` supports `FakeLLMProvider` for testing
+
+---
+
 ## Development & Testing
 
-```bash
-# Run all tests (dry-run mode, no LLM needed)
-make test
+### Running tests
 
-# Run unit tests only
+```bash
+# Run full test suite (dry-run mode, no LLM needed)
+FORGE_TEST_DRY_RUN=1 python -m pytest tests/ --cov=forge_cli -v
+
+# Run unit tests only (fast, ~2s)
 python -m pytest tests/test_generators.py tests/test_config_schema.py \
-  tests/test_config_loader.py tests/test_refinement.py -v
+  tests/test_config_loader.py tests/test_refinement.py \
+  tests/test_main.py tests/test_progress.py -v
 
 # Run integration tests (dry-run, uses FakeLLMProvider)
 FORGE_TEST_DRY_RUN=1 python -m pytest tests/test_integration.py -v
 
-# Run refinement tests with real LLM (requires local_claude)
+# Run context quality tests
+FORGE_TEST_DRY_RUN=1 python -m pytest tests/test_context_quality.py -v
+
+# Run refinement tests with real LLM (requires local_claude or ANTHROPIC_API_KEY)
 FORGE_TEST_DRY_RUN=0 python -m pytest tests/test_integration.py -v \
   -k "Refinement" --timeout=1200
 
-# Full CI mirror
-make ci-local
+# Run context quality LLM-scored tests (requires real LLM)
+FORGE_TEST_DRY_RUN=0 python -m pytest tests/test_context_quality.py -v \
+  -k "LLM" --timeout=300
 ```
 
 ### Test structure
 
 | File | Scope | Count | LLM? |
 |------|-------|-------|------|
-| `test_generators.py` | Generator unit tests (agents, CLAUDE.md, skills, settings, etc.) | ~73 | No |
-| `test_config_schema.py` | Config schema validation | ~15 | No |
-| `test_config_loader.py` | YAML loading/round-trip | ~9 | No |
-| `test_refinement.py` | Refinement unit tests (FakeLLMProvider) | ~20 | No |
-| `test_integration.py` | Full pipeline, CLI, strategy enforcement, live Claude CLI tests | ~195 | Dry-run default |
+| `test_generators.py` | Generator unit tests (agents, CLAUDE.md, skills, settings) | 89 | No |
+| `test_config_schema.py` | Config schema validation and project-type detection | 33 | No |
+| `test_config_loader.py` | YAML loading, round-trip, auto-detection | 10 | No |
+| `test_refinement.py` | Refinement unit tests (scoring, pipeline, FakeLLMProvider) | 34 | No |
+| `test_init_wizard.py` | Init wizard steps, validation, CLI routing | 79 | No |
+| `test_context_summarizer.py` | Context file collection and summarization | 19 | No |
+| `test_main.py` | CLI commands (generate, refine, start, init), helpers | 24 | No |
+| `test_progress.py` | Rich progress displays (generation + refinement) | 27 | No |
+| `test_integration.py` | Full pipeline, CLI end-to-end, strategy enforcement | 204 | Dry-run default |
+| `test_co_planner.py` | Co-planner quality cases (generation, refinement, content) | 54 | Dry-run default |
+| `test_context_quality.py` | Context derivation quality and passthrough | 18 | Partial (8 LLM-scored) |
+| **Total** | | **591** | |
 
-The `FORGE_TEST_DRY_RUN` environment variable controls whether integration tests
-use a `FakeLLMProvider` (instant, default) or real `local_claude` (requires
+The `FORGE_TEST_DRY_RUN` environment variable controls whether tests use a
+`FakeLLMProvider` (instant, default) or real `local_claude` (requires
 `llm-gateway` and Claude CLI). CI always runs in dry-run mode.
+
+Coverage threshold: **90%** (enforced in `pyproject.toml`, CI, and pre-commit).
 
 ### Pre-commit hooks
 
@@ -329,7 +440,18 @@ pip install pre-commit
 pre-commit install
 ```
 
-Hooks run yamllint, markdownlint, and pytest unit tests before every commit.
+Hooks run before every commit (identical test suite to CI, dry-run mode):
+
+1. **yamllint** — YAML syntax and style
+2. **markdownlint** — Markdown formatting
+3. **pytest** — All 11 test files with `--cov-fail-under=90` (FORGE_TEST_DRY_RUN=1)
+
+### CI pipeline
+
+GitHub Actions runs on every push and PR:
+
+- YAML lint, Markdown lint
+- Full test suite with 90% coverage gate (Python 3.11 + 3.12, Ubuntu + macOS)
 
 ---
 

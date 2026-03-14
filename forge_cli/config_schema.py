@@ -27,9 +27,22 @@ class TeamProfile(str, Enum):
     CUSTOM = "custom"
 
 
+class WorkspaceType(str, Enum):
+    SINGLE_REPO = "single-repo"
+    MONOREPO = "monorepo"
+    WORKSPACE = "workspace"
+
+
+class WorkspaceConfig(BaseModel):
+    """Workspace structure configuration."""
+    type: WorkspaceType = WorkspaceType.SINGLE_REPO
+
+
 class ProjectConfig(BaseModel):
     description: str = ""
     requirements: str = ""
+    context_files: list[str] = Field(default_factory=list)
+    plan_file: str = ""  # Authoritative implementation blueprint (followed exactly)
     type: str = "new"  # new | existing
     existing_project_path: str = ""
     directory: str = "."
@@ -96,7 +109,7 @@ class RefinementConfig(BaseModel):
     score_threshold: int = 90
     max_iterations: int = 5
     max_concurrency: int = 0  # 0 = unlimited (all files in parallel)
-    timeout_seconds: int = 180
+    timeout_seconds: int = 300
     cost_limit_usd: float = 10.0
 
 
@@ -113,8 +126,21 @@ class ForgeConfig(BaseModel):
     agent_naming: AgentNamingConfig = Field(default_factory=AgentNamingConfig)
     llm_gateway: LLMGatewayConfig = Field(default_factory=LLMGatewayConfig)
     git: GitConfig = Field(default_factory=GitConfig)
+    workspace: WorkspaceConfig = Field(default_factory=WorkspaceConfig)
     refinement: RefinementConfig = Field(default_factory=RefinementConfig)
     non_negotiables: list[str] = Field(default_factory=list)
+
+    def is_multi_project(self) -> bool:
+        """Check if workspace has multiple projects/packages (monorepo or workspace)."""
+        return self.workspace.type in (WorkspaceType.MONOREPO, WorkspaceType.WORKSPACE)
+
+    def is_monorepo(self) -> bool:
+        """Check if this is a monorepo workspace."""
+        return self.workspace.type == WorkspaceType.MONOREPO
+
+    def is_workspace_mode(self) -> bool:
+        """Check if this is a multi-repo workspace (multiple independent git repos)."""
+        return self.workspace.type == WorkspaceType.WORKSPACE
 
     def has_ssh_auth(self) -> bool:
         """Check if SSH-based git authentication is configured."""

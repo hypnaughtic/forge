@@ -22,6 +22,7 @@ build/
 .pytest_cache/
 .ruff_cache/
 *.egg
+.coverage
 
 # IDE
 .idea/
@@ -35,6 +36,14 @@ build/
 tests/quality_cases/*/project/
 tests/quality_cases/*/outputs/
 tests/quality_cases/*/refinement-report.json
+
+# Forge generated outputs (from running forge generate/init locally)
+.forge/
+/CLAUDE.md
+/team-init-plan.md
+
+# Session artifacts
+test-checkpoint.md
 
 # Virtual environments
 .venv/

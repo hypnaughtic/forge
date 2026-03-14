@@ -117,7 +117,7 @@ class TestConfigLoader:
         assert config.refinement.score_threshold == 85
         assert config.refinement.max_iterations == 3
         # Defaults for unspecified fields
-        assert config.refinement.timeout_seconds == 180
+        assert config.refinement.timeout_seconds == 300
         assert config.refinement.cost_limit_usd == 10.0
 
     def test_round_trip_refinement(self, tmp_path):

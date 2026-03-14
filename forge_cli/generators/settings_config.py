@@ -61,6 +61,11 @@ def generate_settings_config(config: ForgeConfig, claude_dir: Path) -> None:
 
     existing["permissions"] = permissions
 
+    # Enable experimental agent teams for split-pane multi-agent sessions
+    if config.agents.allow_sub_agent_spawning:
+        existing.setdefault("env", {})
+        existing["env"]["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"] = "1"
+
     with open(settings_path, "w") as f:
         json.dump(existing, f, indent=2)
         f.write("\n")
