@@ -68,10 +68,11 @@ forge start
 
 ## CLI Commands
 
-Forge provides four commands that form a complete lifecycle:
+Forge provides seven commands that form a complete lifecycle:
 
 ```text
-forge init → forge generate → forge refine → forge start
+forge init → forge generate → forge refine → forge eval → forge start
+forge stop → (edit config, refine, etc.) → forge resume
 ```
 
 ### `forge init`
@@ -152,6 +153,52 @@ When tmux is available, creates a named session (`forge-<project-name>`) for
 monitoring agent activity in split panes. Falls back to direct Claude session
 if tmux is not installed.
 
+### `forge eval`
+
+Evaluate generated files against 350+ quality assertions (deterministic + LLM-judged).
+Results are saved as benchmark reports in `.forge/`.
+
+```bash
+forge eval                                        # Full eval (deterministic + LLM grading)
+forge eval --config .forge/forge.yaml             # Explicit config path
+forge eval --project-dir ./my-project             # Custom project directory
+forge eval --no-llm                               # Deterministic checks only (no LLM cost)
+forge eval --optimize-descriptions                # Also optimize skill trigger descriptions
+forge eval -v                                     # Verbose logging
+```
+
+Eval checks include: `contains`, `not_contains`, `regex`, `section_present`,
+`frontmatter_field`, `config_fidelity`, and `llm_judge`. Cases have applicability
+predicates (`is_cli_project`, `has_web_backend`, `atlassian_enabled`, etc.) so only
+relevant assertions run for each project type.
+
+### `forge stop`
+
+Signal all running agents to gracefully stop and checkpoint their state.
+
+```bash
+forge stop                                        # Gracefully stop all agents
+forge stop --project-dir ./my-project             # Custom project directory
+forge stop --timeout 120                          # Wait up to 120s for agents to checkpoint
+```
+
+Agent checkpoints are saved to `.forge/checkpoints/` and can be resumed later.
+
+### `forge resume`
+
+Resume a previously stopped session from checkpoints.
+
+```bash
+forge resume                                      # Resume from last checkpoint
+forge resume --config .forge/forge.yaml           # Explicit config path
+forge resume --project-dir ./my-project           # Custom project directory
+forge resume --tmux                               # Resume in a tmux session
+forge resume --no-tmux                            # Force direct Claude session
+```
+
+On resume, Forge detects file changes since the last stop and re-reads the latest
+instruction files from `.claude/agents/`.
+
 ---
 
 ## Configuration
@@ -165,7 +212,8 @@ annotated example covering every option.
 ```yaml
 project:
   description: "E-commerce platform"
-  requirements: "Build a full-stack e-commerce platform with auth, product catalog, cart, and checkout"
+  context_files:
+    - PLAN.md                    # Forge derives requirements from these files
   type: new
 
 mode: production-ready
@@ -177,12 +225,13 @@ strategy: co-pilot
 ```yaml
 project:
   description: "E-commerce platform"
-  requirements: "Build a full-stack e-commerce platform"
   context_files:                 # Files or directories for project context
     - PLAN.md                    # Scanned for .md, .txt, .yaml files
     - specs/
   plan_file: PLAN.md             # Authoritative implementation blueprint
   type: new                      # new | existing
+  existing_project_path: ./app   # Path if type=existing
+  directory: .                   # Project directory (default: .)
 
 mode: production-ready           # mvp | production-ready | no-compromise
 strategy: co-pilot               # auto-pilot | co-pilot | micro-manage
@@ -211,6 +260,9 @@ atlassian:
   jira_base_url: "https://your-domain.atlassian.net"
   confluence_space_key: ECOM
   confluence_base_url: "https://your-domain.atlassian.net/wiki"
+  create_sprint_board: true      # Auto-create Jira sprint board
+  create_confluence_space: true  # Auto-create Confluence space
+  scrum_ceremonies: true         # Enable sprint ceremonies tracking
 
 agent_naming:
   enabled: true
@@ -234,6 +286,7 @@ refinement:
   enabled: false                 # default: false
   provider: local_claude         # local_claude | anthropic
   model: claude-opus-4-6
+  max_tokens: 8192               # max tokens per LLM call
   score_threshold: 90            # 0-100, files must score >= this
   max_iterations: 5              # max refine loops per file
   max_concurrency: 0             # 0 = all files in parallel (default)
@@ -333,6 +386,7 @@ my-project/
       screenshot-review.md
       iteration-review.md
       team-status.md
+      checkpoint.md                  # Checkpoint/resume skill
       spawn-agent.md                 # When sub-agent spawning enabled
       jira-update.md                 # When Atlassian enabled
       sprint-report.md               # When Atlassian enabled
@@ -340,9 +394,16 @@ my-project/
     settings.json                    # Strategy-enforced permissions (auto-pilot/co-pilot)
   .forge/
     forge.yaml                       # Project configuration
+    session.json                     # Session state (created by forge start)
     project-context.md               # Summarized project context (if context_files set)
     refinement-report.json           # Refinement report (if refinement ran)
     refinement-report.md             # Human-readable refinement report
+    benchmark.json                   # Eval benchmark data (if eval was run)
+    benchmark.md                     # Eval benchmark report (human-readable)
+    checkpoints/                     # Agent checkpoint files (for stop/resume)
+      *.json
+    hooks/                           # Hook scripts for automatic checkpoint enforcement
+      *.sh
   .env.example                       # Required environment variables
 ```
 
@@ -355,11 +416,12 @@ my-project/
 ```text
 forge_cli/
   __init__.py                  # Package version
-  main.py                     # CLI entry point (click commands: init, generate, refine, start)
+  main.py                     # CLI entry point (click commands: init, generate, refine, eval, start, stop, resume)
   config_schema.py             # Pydantic config models, project-type detection, team resolution
   config_loader.py             # YAML loading, config auto-detection, round-trip support
   init_wizard.py               # Interactive 8-step wizard using prompt_toolkit
   progress.py                  # Rich progress displays (generation + refinement)
+  checkpoint.py                # Checkpoint/resume system for multi-agent sessions
   generators/
     orchestrator.py            # Top-level generate_all() and run_refinement() coordination
     agent_files.py             # Agent instruction templates (project-type + domain-aware)
@@ -370,6 +432,14 @@ forge_cli/
     mcp_config.py              # .claude/mcp.json + .env.example generation
     context_summarizer.py      # Context file collection + LLM summarization
     refinement.py              # LLM scoring + iterative refinement loop
+    hooks.py                   # Hook scripts for checkpoint enforcement
+  evals/
+    __init__.py
+    eval_cases.py              # 350+ eval case definitions with applicability predicates
+    eval_runner.py             # Eval execution engine (deterministic + LLM-judged)
+    grading.py                 # LLM grading logic
+    benchmark.py               # Benchmark aggregation and reporting
+    description_optimizer.py   # Skill description optimization via trigger/non-trigger queries
 ```
 
 ### Key design patterns
@@ -398,8 +468,18 @@ python -m pytest tests/test_generators.py tests/test_config_schema.py \
 # Run integration tests (dry-run, uses FakeLLMProvider)
 FORGE_TEST_DRY_RUN=1 python -m pytest tests/test_integration.py -v
 
+# Run eval tests
+FORGE_TEST_DRY_RUN=1 python -m pytest tests/test_eval_runner.py tests/test_eval_benchmark.py -v
+
+# Run checkpoint/resume tests
+python -m pytest tests/test_checkpoint.py tests/test_checkpoint_skill.py \
+  tests/test_cli_checkpoint_commands.py -v
+
 # Run context quality tests
 FORGE_TEST_DRY_RUN=1 python -m pytest tests/test_context_quality.py -v
+
+# Run e2e tests (checkpoint scenarios)
+python -m pytest tests/e2e/ -v
 
 # Run refinement tests with real LLM (requires local_claude or ANTHROPIC_API_KEY)
 FORGE_TEST_DRY_RUN=0 python -m pytest tests/test_integration.py -v \
@@ -417,15 +497,21 @@ FORGE_TEST_DRY_RUN=0 python -m pytest tests/test_context_quality.py -v \
 | `test_generators.py` | Generator unit tests (agents, CLAUDE.md, skills, settings) | 89 | No |
 | `test_config_schema.py` | Config schema validation and project-type detection | 33 | No |
 | `test_config_loader.py` | YAML loading, round-trip, auto-detection | 10 | No |
-| `test_refinement.py` | Refinement unit tests (scoring, pipeline, FakeLLMProvider) | 34 | No |
-| `test_init_wizard.py` | Init wizard steps, validation, CLI routing | 79 | No |
-| `test_context_summarizer.py` | Context file collection and summarization | 19 | No |
-| `test_main.py` | CLI commands (generate, refine, start, init), helpers | 24 | No |
+| `test_refinement.py` | Refinement unit tests (scoring, pipeline, FakeLLMProvider) | 50 | No |
+| `test_init_wizard.py` | Init wizard steps, validation, CLI routing | 96 | No |
+| `test_context_summarizer.py` | Context file collection and summarization | 31 | No |
+| `test_main.py` | CLI commands (generate, refine, eval, start, stop, resume) | 24 | No |
 | `test_progress.py` | Rich progress displays (generation + refinement) | 27 | No |
+| `test_eval_runner.py` | Eval framework (cases, runner, grading, FakeLLMProvider) | 108 | No |
+| `test_eval_benchmark.py` | Eval benchmark across 7 quality cases | 28 | Dry-run default |
+| `test_checkpoint.py` | Checkpoint/resume system | 51 | No |
+| `test_checkpoint_skill.py` | Checkpoint skill generation | 16 | No |
+| `test_cli_checkpoint_commands.py` | CLI stop/resume commands | 31 | No |
 | `test_integration.py` | Full pipeline, CLI end-to-end, strategy enforcement | 204 | Dry-run default |
-| `test_co_planner.py` | Co-planner quality cases (generation, refinement, content) | 54 | Dry-run default |
+| `test_co_planner.py` | Co-planner quality cases (generation, refinement, content) | 55 | Dry-run default |
 | `test_context_quality.py` | Context derivation quality and passthrough | 18 | Partial (8 LLM-scored) |
-| **Total** | | **591** | |
+| `e2e/test_scenario_*.py` | End-to-end checkpoint scenarios (11 files) | 14 | No |
+| **Total** | | **885** | |
 
 The `FORGE_TEST_DRY_RUN` environment variable controls whether tests use a
 `FakeLLMProvider` (instant, default) or real `local_claude` (requires
@@ -444,7 +530,7 @@ Hooks run before every commit (identical test suite to CI, dry-run mode):
 
 1. **yamllint** — YAML syntax and style
 2. **markdownlint** — Markdown formatting
-3. **pytest** — All 11 test files with `--cov-fail-under=90` (FORGE_TEST_DRY_RUN=1)
+3. **pytest** — All 16 test files + e2e suite with `--cov-fail-under=90` (FORGE_TEST_DRY_RUN=1)
 
 ### CI pipeline
 
