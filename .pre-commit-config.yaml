@@ -18,22 +18,16 @@ repos:
       - id: pytest-full
         name: Full test suite with coverage (dry-run)
         entry: >-
-          env FORGE_TEST_DRY_RUN=1 COVERAGE_FILE=/tmp/.forge-coverage
+          bash -c '
+          FORGE_TEST_DRY_RUN=1 COVERAGE_FILE=/tmp/.forge-coverage
           python -m pytest
-          tests/test_generators.py
-          tests/test_config_schema.py
-          tests/test_config_loader.py
-          tests/test_refinement.py
-          tests/test_init_wizard.py
-          tests/test_context_summarizer.py
-          tests/test_main.py
-          tests/test_progress.py
-          tests/test_integration.py
-          tests/test_co_planner.py
-          tests/test_context_quality.py
+          tests/
           --cov=forge_cli
+          --cov-report=json:coverage.json
           --cov-fail-under=90
           -x -q --tb=short
+          && python scripts/check_per_file_coverage.py --min-coverage 90
+          '
         language: system
         pass_filenames: false
         files: (^forge_cli/|^tests/)

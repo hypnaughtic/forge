@@ -406,7 +406,41 @@ def _base_protocol_section(config: ForgeConfig) -> str:
     - **NOTE**: optional suggestion
     Max 2 review rounds — unresolved after 2 rounds, Team Leader decides.
 
-    """) + _git_auth_section(config) + _strategy_behavior_section(config)
+    """) + _checkpoint_protocol_section(config) + _git_auth_section(config) + _strategy_behavior_section(config)
+
+
+def _checkpoint_protocol_section(config: ForgeConfig) -> str:
+    """Generate checkpoint protocol section — injected into ALL agent files."""
+    return dedent("""\
+
+    ### Checkpoint Protocol (NON-NEGOTIABLE)
+
+    You MUST maintain your checkpoint state. This is not optional.
+
+    #### On Startup (FIRST THING YOU DO)
+    1. Check if `.forge/checkpoints/{your-agent-type}.json` exists
+    2. If yes: you are RESUMING. Run `/checkpoint load` IMMEDIATELY before doing anything else
+    3. If no: this is a fresh start. Within your FIRST 5 tool calls, run `/checkpoint save` to establish your initial checkpoint. Do not delay — checkpoint BEFORE you start any real work. Include your chosen agent_name, your initial context_summary, and handoff_notes describing your plan.
+
+    #### During Work
+    - Run `/checkpoint save` after EVERY: task completion, phase transition, major decision, sub-agent spawn
+    - Run `/checkpoint check-stop` BEFORE starting any new major task
+    - Your hooks will remind you if your checkpoint is stale — HEED these reminders immediately
+    - Maximum interval between checkpoints: 10 minutes. If you haven't checkpointed in 10 minutes, do it NOW.
+
+    #### On Stop
+    When told to stop (by human, parent agent, or stop signal):
+    1. Run `/checkpoint save` with detailed `handoff_notes`
+    2. Commit all work to a WIP branch
+    3. Report completion to parent
+    4. Stop all work
+
+    #### On Completion
+    When ALL your work is done and verified:
+    1. Run `/checkpoint save` with `status: "complete"`
+    2. Report to parent agent
+
+    """)
 
 
 def _git_auth_section(config: ForgeConfig) -> str:
@@ -1432,7 +1466,41 @@ def _team_leader_template(config: ForgeConfig) -> str:
     - **Tag only clean state**: `git tag iteration-{{N}}-verified` is only valid when the working
       tree is clean and all branches have been merged.
     - **Final state**: When the project is complete, a fresh `git clone` of the repo must yield a
-      fully working application with all features. If it doesn't, you're not done.""")
+      fully working application with all features. If it doesn't, you're not done.
+
+    ## Session Management (Team Leader Only)
+
+    You are responsible for the entire team's checkpoint state.
+
+    ### Starting a Session
+    1. Read `.forge/session.json` — if it exists and status is "stopped" or "running" (crash recovery), this is a RESUME
+    2. On resume: read all checkpoints in `.forge/checkpoints/`, reconstruct agent hierarchy, re-spawn agents with checkpoint context
+    3. On fresh start: proceed with team-init-plan.md normally, run `/checkpoint save` after initialization
+
+    ### Stopping a Session
+    When the human says "stop", "stop for the day", "save and stop", or similar:
+    1. Write `.forge/STOP_REQUESTED` sentinel file
+    2. Message each active agent: "Stop signal received. Run /checkpoint save and stop."
+    3. Wait for all agent checkpoints to show status="stopped"
+    4. Update `.forge/session.json` with status="stopped"
+    5. Delete `.forge/STOP_REQUESTED`
+    6. Report to human: session saved, N agents checkpointed, resume with `forge resume`
+
+    ### Resuming Agents
+    When resuming from checkpoints:
+    1. Read each agent's checkpoint from `.forge/checkpoints/`
+    2. Spawn agent with BOTH the latest instruction file from `.claude/agents/{{type}}.md` AND checkpoint context:
+       "You are RESUMING. Your name is {{agent_name}}. You were on iteration {{N}}, phase {{phase}}.
+        Your previous context: {{context_summary}}. Your decisions: {{decisions_made}}.
+        Your handoff notes: {{handoff_notes}}.
+        Resume from: {{current_task.step_description}}.
+        Run /checkpoint load for full state."
+    3. Spawn in dependency order: parent agents before child agents
+    4. Do NOT generate new agent names — use the names from checkpoints
+
+    ### Cleaning Up
+    - After an iteration is tagged `iteration-N-verified`, delete checkpoints of completed agents
+    - Never delete checkpoints of active agents""")
 
 
 def _scrum_master_template(config: ForgeConfig) -> str:

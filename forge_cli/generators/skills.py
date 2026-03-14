@@ -91,6 +91,10 @@ def generate_skills(
     _write_skill(skills_dir / "benchmark.md", _benchmark_skill(config))
     _emit("benchmark.md")
 
+    # Checkpoint skill (always generated — session persistence)
+    _write_skill(skills_dir / "checkpoint.md", _checkpoint_skill(config))
+    _emit("checkpoint.md")
+
 
 def _write_skill(path: Path, content: str) -> None:
     # Strip the template indentation (from Python source nesting) while
@@ -3008,5 +3012,178 @@ def _benchmark_skill(config: ForgeConfig) -> str:
     | p95 latency | 120ms | 85ms | -29% |
     | Memory | 256MB | 248MB | -3% |
 
+    $ARGUMENTS
+    """
+
+
+def _checkpoint_skill(config: ForgeConfig) -> str:
+    """Generate the checkpoint skill for session persistence."""
+    domain = _domain_context(config)
+    non_neg = _non_negotiables_section(config, context="checkpoint")
+
+    # Project-type-specific checkpoint frequency guidance
+    if config.is_cli_project():
+        checkpoint_freq = dedent("""\
+        ### Checkpoint Frequency (CLI Project)
+
+        - After each command/subcommand implementation is verified working
+        - After each subcommand group is complete
+        - After test suite passes for a command group
+        - After CLI help text and error messages are finalized
+        - After plugin/extension system milestone (if applicable)
+        """)
+    elif config.has_frontend_involvement() and config.has_web_backend():
+        checkpoint_freq = dedent("""\
+        ### Checkpoint Frequency (Full-Stack Project)
+
+        - After each feature (API endpoint + UI component) is verified working
+        - After visual verification / screenshot capture
+        - After E2E test passes for a user flow
+        - After API contract change is implemented on both sides
+        - After authentication/authorization flow milestone
+        """)
+    elif config.has_web_backend():
+        checkpoint_freq = dedent("""\
+        ### Checkpoint Frequency (Web Backend Project)
+
+        - After each API endpoint is implemented and tested
+        - After database migration is applied and verified
+        - After authentication/authorization flow milestone
+        - After service integration is verified (external APIs, queues, etc.)
+        - After load/performance test results are captured
+        """)
+    elif config.has_frontend_involvement():
+        checkpoint_freq = dedent("""\
+        ### Checkpoint Frequency (Frontend / Static Site)
+
+        - After each page/component is implemented and visually verified
+        - After build verification passes (SSG build, lighthouse audit)
+        - After responsive design verification at key breakpoints
+        - After accessibility audit milestone
+        """)
+    else:
+        checkpoint_freq = dedent("""\
+        ### Checkpoint Frequency
+
+        - After each significant feature or module is complete
+        - After test suite passes for a module
+        - After integration milestone with external systems
+        - Before starting any task expected to take >5 minutes
+        """)
+
+    # Strategy-specific behavior
+    strategy = config.strategy.value
+    if strategy == "auto-pilot":
+        strategy_note = "Save checkpoints silently. No human notification needed."
+    elif strategy == "micro-manage":
+        strategy_note = "Announce each checkpoint save to the human with a brief summary of what was captured."
+    else:
+        strategy_note = "Save checkpoints silently. Mention checkpoint saves in status reports only."
+
+    return f"""\
+    ---
+    name: checkpoint
+    description: "Save, load, or manage agent checkpoint for session persistence and cross-session resume"
+    argument-hint: "[save|load|check-stop|status]"
+    ---
+
+    # Agent Checkpoint Protocol
+
+    > {domain}
+
+    **Strategy**: {strategy_note}
+
+    ## Commands
+
+    ### `save` — Write Rich Checkpoint
+
+    1. Determine your agent type from your instruction file (e.g., `backend-developer`, `team-leader`)
+    2. Build the checkpoint JSON object with ALL of the following fields:
+       - `version`: "1"
+       - `agent_type`: your agent type
+       - `agent_name`: your chosen name (MUST be consistent across ALL checkpoints — never change it)
+       - `parent_agent`: agent type of your parent (null if you are Team Leader)
+       - `spawned_at`: ISO timestamp of when you were first spawned
+       - `updated_at`: current ISO timestamp
+       - `status`: "active" (normal), "stopping" (stop signal received), "stopped" (work halted), "complete" (all tasks done)
+       - `iteration`: current iteration number (integer)
+       - `phase`: current phase — one of PLAN, EXECUTE, TEST, INTEGRATE, REVIEW, CRITIQUE, DECISION
+       - `phase_progress_pct`: estimated progress within current phase (0-100)
+       - `current_task`: object with {{id, description, jira_ticket, started_at, step_index, total_steps, step_description}} or null
+       - `completed_tasks`: list of completed task objects (same schema as current_task)
+       - `pending_tasks`: list of task description strings queued for later
+       - `context_summary`: 2-5 sentences summarizing your current mental model, key state, and what you understand about the project so far
+       - `decisions_made`: list of {{decision, reasoning, timestamp}} objects for every architectural/technical decision
+       - `blockers`: list of current blockers or open questions
+       - `recent_conversation`: last 30 significant conversation entries (skip routine file reads) — each as {{role, content (truncated to 500 chars), timestamp, tool_name}}
+       - `conversation_summary`: summary of older conversation not in recent_conversation
+       - `files_modified`: list of file paths you have modified
+       - `files_created`: list of file paths you have created
+       - `branches`: list of git branches you work on
+       - `commits`: list of recent commit hashes by you
+       - `sub_agents`: list of {{agent_type, agent_name, task, status}} for agents you've spawned
+       - `cost_usd`: your estimated cost so far
+       - `tool_call_count`: total tool calls this session
+       - `error`: last error message if any, otherwise null
+       - `handoff_notes`: detailed instructions for your future self — what to do next, what's in progress, what to watch out for
+    3. Write atomically: write to `.forge/checkpoints/{{your-agent-type}}.json.tmp` first, then rename to `.forge/checkpoints/{{your-agent-type}}.json`
+    4. Verify the write succeeded by reading back the file
+
+    ### `load` — Resume from Checkpoint
+
+    1. Read `.forge/checkpoints/{{your-agent-type}}.json`
+    2. ADOPT the `agent_name` from the checkpoint — do NOT generate a new name
+    3. Resume from `current_task.step_index` — do NOT restart completed work
+    4. Re-read your instruction file from `.claude/agents/{{your-agent-type}}.md` (it may have been updated between sessions)
+    5. Review `context_summary` and `decisions_made` to restore your mental model
+    6. Review `handoff_notes` for specific next actions
+    7. Check `sub_agents` — re-spawn any that were `active` with their checkpoint context injected into the spawn prompt
+    8. Verify `files_modified` still exist and haven't been reverted (check git status)
+    9. Verify `branches` still exist in git
+    10. If your instruction file has changed since last session, adapt to new guidance while preserving your task state and decisions
+
+    ### `check-stop` — Check for Stop Signal
+
+    1. Check: does `.forge/STOP_REQUESTED` exist?
+    2. If YES:
+       a. Run `/checkpoint save` with `status: "stopping"`
+       b. Commit all work-in-progress: `git add -A && git commit -m "wip({{your-agent-name}}): checkpoint before stop"`
+       c. Update checkpoint `status` to `"stopped"` and save again
+       d. Write detailed `handoff_notes` explaining exactly what to do when you resume
+       e. If you have sub-agents, message each to stop and checkpoint
+       f. Report to parent agent: "Checkpoint saved, stopping gracefully"
+       g. STOP ALL WORK immediately
+    3. If NO: Continue working normally
+
+    ### `status` — Show Checkpoint State
+
+    1. Read all checkpoint files in `.forge/checkpoints/`
+    2. For each checkpoint, display:
+       - Agent name and type
+       - Status (active/stopping/stopped/complete)
+       - Iteration and phase
+       - Last updated timestamp and staleness
+       - Current task description (if any)
+       - Cost accumulated
+
+    ## Checkpoint Discipline
+
+    ### First Checkpoint (CRITICAL)
+
+    Your FIRST action after reading your instruction file and choosing your name must be to run `/checkpoint save`. Do this BEFORE starting any real work. This initial checkpoint establishes your identity and makes crash recovery possible from the very start. If the session is interrupted before your first checkpoint, all context is lost.
+
+    {checkpoint_freq}
+    ### Universal Rules (NON-NEGOTIABLE)
+
+    - Save your FIRST checkpoint within the first 5 tool calls after initialization
+    - Save IMMEDIATELY after: task completion, phase transition, sub-agent spawn/complete, any significant decision
+    - Save BEFORE: starting any task that will take >5 minutes
+    - Maximum interval between checkpoints: 10 minutes — if you haven't saved in 10 minutes, save NOW
+    - Check stop signal BEFORE: starting any new major task
+    - ALWAYS include accurate `handoff_notes` — your future self depends on them
+    - ALWAYS include a meaningful `context_summary` — this is the most critical field for resume quality
+    - Your `agent_name` MUST be identical across every checkpoint you save — never change it
+    - Checkpoint files live in `.forge/checkpoints/` — never write them elsewhere
+    {non_neg}
     $ARGUMENTS
     """
