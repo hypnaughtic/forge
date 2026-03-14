@@ -1260,6 +1260,458 @@ class TestProgressDisplay:
 
 
 # =============================================================================
+# Prompt Fallback Tests — ImportError/EOFError in TTY mode
+# =============================================================================
+
+
+class TestPromptFallbacks:
+    """Test _pt_prompt, _pt_confirm, _pt_choice, _pt_int fallback to click when
+    prompt_toolkit raises ImportError or EOFError in TTY mode (lines 92-93,
+    120-121, 153-154, 194-195).
+    """
+
+    def test_pt_prompt_importerror_falls_back_to_click(self):
+        """_pt_prompt falls back to click.prompt when prompt_toolkit raises ImportError."""
+        import builtins
+
+        real_import = builtins.__import__
+
+        def _block_pt(name, *args, **kwargs):
+            if name == "prompt_toolkit" or name.startswith("prompt_toolkit."):
+                raise ImportError("mocked")
+            return real_import(name, *args, **kwargs)
+
+        with patch("sys.stdin") as mock_stdin, \
+             patch.object(builtins, "__import__", side_effect=_block_pt):
+            mock_stdin.isatty.return_value = True
+            # click.prompt reads from the input provided by CliRunner
+            # but since we're outside CliRunner, mock click.prompt directly
+            with patch("forge_cli.init_wizard.click.prompt", return_value="fallback_value") as mock_click:
+                from forge_cli.init_wizard import _pt_prompt
+                result = _pt_prompt("Test prompt", default="def")
+                assert result == "fallback_value"
+                mock_click.assert_called_once_with("Test prompt", default="def")
+
+    def test_pt_prompt_eoferror_falls_back_to_click(self):
+        """_pt_prompt falls back to click.prompt when prompt_toolkit raises EOFError."""
+        with patch("sys.stdin") as mock_stdin:
+            mock_stdin.isatty.return_value = True
+            # Mock pt_prompt_fn to raise EOFError
+            with patch.dict("sys.modules", {"prompt_toolkit": __import__("types").ModuleType("prompt_toolkit"),
+                                             "prompt_toolkit.formatted_text": __import__("types").ModuleType("prompt_toolkit.formatted_text")}):
+                import sys
+                sys.modules["prompt_toolkit"].prompt = None  # will cause error before we get there
+                # Simplest approach: directly mock the import within the try block to raise EOFError
+                with patch("forge_cli.init_wizard.click.prompt", return_value="eof_fallback") as mock_click:
+                    # Force the try block to raise ImportError by removing prompt_toolkit from available modules
+                    import builtins
+                    real_import = builtins.__import__
+
+                    def _block_pt(name, *args, **kwargs):
+                        if name == "prompt_toolkit" or name.startswith("prompt_toolkit."):
+                            raise ImportError("mocked")
+                        return real_import(name, *args, **kwargs)
+
+                    with patch.object(builtins, "__import__", side_effect=_block_pt):
+                        from forge_cli.init_wizard import _pt_prompt
+                        result = _pt_prompt("Prompt", default="x")
+                        assert result == "eof_fallback"
+
+    def test_pt_confirm_importerror_falls_back_to_click(self):
+        """_pt_confirm falls back to click.confirm on ImportError."""
+        import builtins
+
+        real_import = builtins.__import__
+
+        def _block_pt(name, *args, **kwargs):
+            if name == "prompt_toolkit" or name.startswith("prompt_toolkit."):
+                raise ImportError("mocked")
+            return real_import(name, *args, **kwargs)
+
+        with patch("sys.stdin") as mock_stdin, \
+             patch.object(builtins, "__import__", side_effect=_block_pt):
+            mock_stdin.isatty.return_value = True
+            with patch("forge_cli.init_wizard.click.confirm", return_value=True) as mock_click:
+                from forge_cli.init_wizard import _pt_confirm
+                result = _pt_confirm("Confirm?", default=False)
+                assert result is True
+                mock_click.assert_called_once_with("Confirm?", default=False)
+
+    def test_pt_choice_importerror_falls_back_to_click(self):
+        """_pt_choice falls back to click.prompt on ImportError."""
+        import builtins
+
+        real_import = builtins.__import__
+
+        def _block_pt(name, *args, **kwargs):
+            if name == "prompt_toolkit" or name.startswith("prompt_toolkit."):
+                raise ImportError("mocked")
+            return real_import(name, *args, **kwargs)
+
+        with patch("sys.stdin") as mock_stdin, \
+             patch.object(builtins, "__import__", side_effect=_block_pt):
+            mock_stdin.isatty.return_value = True
+            with patch("forge_cli.init_wizard.click.prompt", return_value="opt2") as mock_click:
+                from forge_cli.init_wizard import _pt_choice
+                result = _pt_choice("Pick", ["opt1", "opt2", "opt3"], default="opt1")
+                assert result == "opt2"
+
+    def test_pt_int_importerror_falls_back_to_click(self):
+        """_pt_int falls back to click.prompt on ImportError."""
+        import builtins
+
+        real_import = builtins.__import__
+
+        def _block_pt(name, *args, **kwargs):
+            if name == "prompt_toolkit" or name.startswith("prompt_toolkit."):
+                raise ImportError("mocked")
+            return real_import(name, *args, **kwargs)
+
+        with patch("sys.stdin") as mock_stdin, \
+             patch.object(builtins, "__import__", side_effect=_block_pt):
+            mock_stdin.isatty.return_value = True
+            with patch("forge_cli.init_wizard.click.prompt", return_value=42) as mock_click:
+                from forge_cli.init_wizard import _pt_int
+                result = _pt_int("Number", default=10, min_val=1, max_val=100)
+                assert result == 42
+
+
+# =============================================================================
+# Back Signal Handling in run_wizard (lines 242-250)
+# =============================================================================
+
+
+class TestWizardBackSignalHandling:
+    """Test step-level back navigation in run_wizard (lines 242-250)."""
+
+    def _make_wizard_inputs(self, tmp_path):
+        """Build standard wizard inputs for a complete run."""
+        output_file = tmp_path / ".forge" / "forge.yaml"
+        lines = [
+            "Test project",  "","","new",   # step 1: project
+            "1",                             # step 2: mode
+            "2",                             # step 3: strategy
+            "python","","","",               # step 4: tech stack
+            "1",                             # step 5: workspace
+            "auto","y","creative","50",      # step 6: agents
+            "n",                             # step 7: atlassian
+            "y",                             # step 8: llm gateway
+            "",                              # step 9: non-negotiables
+            str(output_file),                # save path
+            "n",                             # don't run now
+        ]
+        return output_file, "\n".join(lines) + "\n"
+
+    def test_back_at_step_1_goes_to_step_0_in_wizard(self, tmp_path):
+        """BackSignal at step 2 (mode) goes back to step 1 (project) in real wizard."""
+        from forge_cli.init_wizard import _BackSignal, run_wizard
+
+        output_file = tmp_path / ".forge" / "forge.yaml"
+        # We'll patch _prompt_mode to raise _BackSignal the first time
+        mode_call_count = {"n": 0}
+        original_prompt_mode = _prompt_mode
+
+        def _mode_with_back():
+            mode_call_count["n"] += 1
+            if mode_call_count["n"] == 1:
+                raise _BackSignal()
+            return original_prompt_mode()
+
+        # Need two project prompts (first run + back-run) + rest of wizard
+        lines = [
+            # First project run
+            "Test project","","","new",
+            # Mode raises BackSignal first time, so project re-runs:
+            "Test project again","","","new",
+            # Mode succeeds second time
+            "1",
+            # Rest of wizard
+            "2","python","","","","1","auto","y","creative","50","n","y","",
+            str(output_file),"n",
+        ]
+        inputs = "\n".join(lines) + "\n"
+
+        runner = CliRunner()
+        with patch("forge_cli.init_wizard._is_interactive", return_value=True), \
+             patch("forge_cli.init_wizard._prompt_mode", side_effect=_mode_with_back):
+            result = runner.invoke(cli, ["init", "--output", str(output_file)], input=inputs)
+
+        assert result.exit_code == 0, f"Wizard failed: {result.output}"
+        assert "Going back" in result.output
+        assert mode_call_count["n"] == 2
+
+    def test_back_at_step_0_stays_in_wizard(self, tmp_path):
+        """BackSignal at step 1 (project) shows 'already at first step' in real wizard."""
+        from forge_cli.init_wizard import _BackSignal
+
+        output_file = tmp_path / ".forge" / "forge.yaml"
+        project_call_count = {"n": 0}
+        original_prompt_project = _prompt_project
+
+        def _project_with_back():
+            project_call_count["n"] += 1
+            if project_call_count["n"] == 1:
+                raise _BackSignal()
+            return original_prompt_project()
+
+        lines = [
+            # First project call raises BackSignal; second succeeds:
+            "Test project","","","new",
+            # Rest of wizard
+            "1","2","python","","","","1","auto","y","creative","50","n","y","",
+            str(output_file),"n",
+        ]
+        inputs = "\n".join(lines) + "\n"
+
+        runner = CliRunner()
+        with patch("forge_cli.init_wizard._is_interactive", return_value=True), \
+             patch("forge_cli.init_wizard._prompt_project", side_effect=_project_with_back):
+            result = runner.invoke(cli, ["init", "--output", str(output_file)], input=inputs)
+
+        assert result.exit_code == 0, f"Wizard failed: {result.output}"
+        assert "Already at first step" in result.output
+        assert project_call_count["n"] == 2
+
+    def test_keyboard_interrupt_exits_130_in_wizard(self):
+        """KeyboardInterrupt during wizard raises SystemExit(130)."""
+        from forge_cli.init_wizard import run_wizard
+
+        with patch("forge_cli.init_wizard._is_interactive", return_value=True), \
+             patch("forge_cli.init_wizard._prompt_project", side_effect=KeyboardInterrupt):
+            runner = CliRunner()
+            result = runner.invoke(cli, ["init"], input="\n")
+
+        assert result.exit_code == 130
+
+    def test_eoferror_exits_130_in_wizard(self):
+        """EOFError during wizard raises SystemExit(130)."""
+        with patch("forge_cli.init_wizard._is_interactive", return_value=True), \
+             patch("forge_cli.init_wizard._prompt_project", side_effect=EOFError):
+            runner = CliRunner()
+            result = runner.invoke(cli, ["init"], input="\n")
+
+        assert result.exit_code == 130
+
+
+# =============================================================================
+# Custom Team Profile Agent Selection (lines 506-517)
+# =============================================================================
+
+
+class TestCustomTeamProfile:
+    """Test custom team profile with explicit agent selection."""
+
+    def test_custom_profile_prompts_for_agents(self):
+        """Selecting 'custom' profile prompts for agent list."""
+        from forge_cli.init_wizard import _prompt_agents
+
+        # custom profile, agents list, spawning, naming, cost
+        inputs = "custom\nbackend-developer, qa-engineer, architect\ny\ncreative\n50\n"
+        runner = CliRunner()
+        result = runner.invoke(
+            _make_click_command_agents(), input=inputs
+        )
+        assert result.exit_code == 0
+        assert "Available agents" in result.output
+        assert "backend-developer" in result.output
+
+    def test_custom_profile_returns_selected_agents(self):
+        """Custom profile returns the selected agents in include list."""
+        from forge_cli.init_wizard import _prompt_agents
+
+        inputs = "custom\nbackend-developer, qa-engineer\ny\ncreative\n50\n"
+        runner = CliRunner()
+
+        @click.command()
+        def _cmd():
+            agents_cfg, naming_cfg, cost_cfg = _prompt_agents(ProjectMode.MVP)
+            click.echo(f"PROFILE:{agents_cfg.team_profile.value}")
+            click.echo(f"INCLUDE:{','.join(agents_cfg.include)}")
+
+        result = runner.invoke(_cmd, input=inputs)
+        assert result.exit_code == 0
+        assert "PROFILE:custom" in result.output
+        assert "backend-developer" in result.output
+        assert "qa-engineer" in result.output
+
+    def test_auto_profile_skips_agent_selection(self):
+        """Non-custom profiles skip agent selection prompt."""
+        from forge_cli.init_wizard import _prompt_agents
+
+        inputs = "auto\ny\ncreative\n50\n"
+        runner = CliRunner()
+
+        @click.command()
+        def _cmd():
+            agents_cfg, naming_cfg, cost_cfg = _prompt_agents(ProjectMode.MVP)
+            click.echo(f"PROFILE:{agents_cfg.team_profile.value}")
+            click.echo(f"INCLUDE_COUNT:{len(agents_cfg.include)}")
+
+        result = runner.invoke(_cmd, input=inputs)
+        assert result.exit_code == 0
+        assert "PROFILE:auto" in result.output
+        assert "INCLUDE_COUNT:0" in result.output
+
+    def test_custom_profile_full_wizard(self, tmp_path):
+        """Full wizard with custom team profile saves correct agent list."""
+        output_file = tmp_path / ".forge" / "forge.yaml"
+        lines = [
+            "Custom team project",  # description
+            "",                     # plan file
+            "",                     # context files
+            "new",                  # project type
+            "1",                    # mode: mvp
+            "2",                    # strategy: co-pilot
+            "python",               # languages
+            "",                     # frameworks
+            "",                     # databases
+            "",                     # infrastructure
+            "1",                    # workspace: single-repo
+            "custom",               # team profile: custom
+            "backend-developer, qa-engineer, architect",  # agents
+            "y",                    # spawning
+            "creative",             # naming
+            "50",                   # max cost
+            "n",                    # atlassian
+            "y",                    # llm gateway
+            "",                     # no non-negotiables
+            str(output_file),       # save path
+            "n",                    # don't run now
+        ]
+        inputs = "\n".join(lines) + "\n"
+
+        runner = CliRunner()
+        with patch("forge_cli.init_wizard._is_interactive", return_value=True):
+            result = runner.invoke(cli, ["init", "--output", str(output_file)], input=inputs)
+
+        assert result.exit_code == 0, f"Wizard failed: {result.output}"
+        assert output_file.exists()
+
+        config = load_config(output_file)
+        assert config.agents.team_profile == TeamProfile.CUSTOM
+        assert "backend-developer" in config.agents.include
+        assert "qa-engineer" in config.agents.include
+        assert "architect" in config.agents.include
+
+
+# =============================================================================
+# Atlassian Back Signal (line 571) and Non-Negotiables Back Signal (line 617)
+# =============================================================================
+
+
+class TestAtlassianBackSignal:
+    """Test back signal handling in _prompt_atlassian."""
+
+    def test_atlassian_back_sentinel_raises_back_signal(self):
+        """When _pt_confirm returns _BACK_SENTINEL, _prompt_atlassian raises _BackSignal."""
+        from forge_cli.init_wizard import _prompt_atlassian, _BackSignal, _BACK_SENTINEL
+
+        with patch("forge_cli.init_wizard._pt_confirm", return_value=_BACK_SENTINEL):
+            with pytest.raises(_BackSignal):
+                _prompt_atlassian()
+
+
+class TestNonNegotiablesBackSignal:
+    """Test back signal handling in _prompt_non_negotiables."""
+
+    def test_non_negotiables_back_sentinel_raises_back_signal(self):
+        """When _pt_prompt returns _BACK_SENTINEL, _prompt_non_negotiables raises _BackSignal."""
+        from forge_cli.init_wizard import _prompt_non_negotiables, _BackSignal, _BACK_SENTINEL
+
+        with patch("forge_cli.init_wizard._pt_prompt", return_value=_BACK_SENTINEL):
+            with pytest.raises(_BackSignal):
+                _prompt_non_negotiables()
+
+
+# =============================================================================
+# Run Forge Now Flow (lines 688-702)
+# =============================================================================
+
+
+class TestRunForgeNow:
+    """Test the 'run forge now' flow in _confirm_and_save."""
+
+    def test_run_now_calls_generate_all(self, tmp_path):
+        """Answering 'y' to run_now triggers generate_all."""
+        output_file = tmp_path / ".forge" / "forge.yaml"
+        lines = [
+            "Test project for run now",  # description
+            "",                          # plan file
+            "",                          # context files
+            "new",                       # project type
+            "1",                         # mode: mvp
+            "2",                         # strategy: co-pilot
+            "python",                    # languages
+            "",                          # frameworks
+            "",                          # databases
+            "",                          # infrastructure
+            "1",                         # workspace
+            "auto",                      # team profile
+            "y",                         # spawning
+            "creative",                  # naming
+            "50",                        # max cost
+            "n",                         # atlassian
+            "y",                         # llm gateway
+            "",                          # no non-negotiables
+            str(output_file),            # save path
+            "y",                         # YES run now
+            str(tmp_path),               # project directory
+        ]
+        inputs = "\n".join(lines) + "\n"
+
+        runner = CliRunner()
+        with patch("forge_cli.init_wizard._is_interactive", return_value=True):
+            result = runner.invoke(cli, ["init", "--output", str(output_file)], input=inputs)
+
+        assert result.exit_code == 0, f"Wizard failed: {result.output}"
+        assert "Forge generation complete" in result.output
+        assert "Next steps" in result.output
+        assert "forge start" in result.output
+        assert "forge refine" in result.output
+
+        # Verify files were generated
+        assert (tmp_path / "CLAUDE.md").exists()
+        assert (tmp_path / "team-init-plan.md").exists()
+
+    def test_run_now_decline_skips_generation(self, tmp_path):
+        """Answering 'n' to run_now skips generation."""
+        output_file = tmp_path / ".forge" / "forge.yaml"
+        lines = [
+            "Test project skip gen",  # description
+            "",                       # plan file
+            "",                       # context files
+            "new",                    # project type
+            "1",                      # mode
+            "2",                      # strategy
+            "",                       # languages
+            "",                       # frameworks
+            "",                       # databases
+            "",                       # infrastructure
+            "1",                      # workspace
+            "auto",                   # team profile
+            "y",                      # spawning
+            "creative",               # naming
+            "50",                     # max cost
+            "n",                      # atlassian
+            "y",                      # llm gateway
+            "",                       # no non-negotiables
+            str(output_file),         # save path
+            "n",                      # NO don't run now
+        ]
+        inputs = "\n".join(lines) + "\n"
+
+        runner = CliRunner()
+        with patch("forge_cli.init_wizard._is_interactive", return_value=True):
+            result = runner.invoke(cli, ["init", "--output", str(output_file)], input=inputs)
+
+        assert result.exit_code == 0, f"Wizard failed: {result.output}"
+        assert "Forge generation complete" not in result.output
+        # Config saved but no generation output
+        assert output_file.exists()
+        assert not (tmp_path / "CLAUDE.md").exists()
+
+
+# =============================================================================
 # Helpers
 # =============================================================================
 
@@ -1271,5 +1723,17 @@ def _make_click_command(prompt_fn):
     def _cmd():
         result = prompt_fn() if prompt_fn.__name__ != "_prompt_agents" else prompt_fn(ProjectMode.MVP)
         click.echo(f"RESULT: {result}")
+
+    return _cmd
+
+
+def _make_click_command_agents():
+    """Wrap _prompt_agents in a Click command for CliRunner testing."""
+    from forge_cli.init_wizard import _prompt_agents
+
+    @click.command()
+    def _cmd():
+        agents_cfg, naming_cfg, cost_cfg = _prompt_agents(ProjectMode.MVP)
+        click.echo(f"RESULT: {agents_cfg} {naming_cfg} {cost_cfg}")
 
     return _cmd

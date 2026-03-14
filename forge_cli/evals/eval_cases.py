@@ -2544,6 +2544,251 @@ def _team_init_plan_cases() -> list[EvalCase]:
 
 
 # ===========================================================================
+# Checkpoint skill eval cases
+# ===========================================================================
+
+
+def _checkpoint_skill_cases() -> list[EvalCase]:
+    """Eval cases for the checkpoint skill."""
+    fp = ".claude/skills/checkpoint.md"
+    ft = "skill"
+    return [
+        EvalCase(
+            id="skill:checkpoint:save-command",
+            file_path=fp, file_type=ft,
+            description="Save command with JSON schema documented",
+            assertions=[
+                _a("Checkpoint save command documented", CT.CONTAINS, "save"),
+                _a("JSON schema fields described", CT.CONTAINS, "agent_name"),
+                _a("Schema includes context_summary", CT.CONTAINS, "context_summary"),
+                _a("Schema includes handoff_notes", CT.CONTAINS, "handoff_notes"),
+            ],
+        ),
+        EvalCase(
+            id="skill:checkpoint:load-command",
+            file_path=fp, file_type=ft,
+            description="Load/resume command documented",
+            assertions=[
+                _a("Checkpoint load command documented", CT.CONTAINS, "load"),
+                _a("Resume from checkpoint described", CT.REGEX, r"(?i)resum"),
+            ],
+        ),
+        EvalCase(
+            id="skill:checkpoint:stop-signal",
+            file_path=fp, file_type=ft,
+            description="Stop signal detection documented",
+            assertions=[
+                _a("Stop signal check documented", CT.CONTAINS, "check-stop"),
+                _a("STOP_REQUESTED sentinel referenced", CT.CONTAINS, "STOP_REQUESTED"),
+            ],
+        ),
+        EvalCase(
+            id="skill:checkpoint:file-path",
+            file_path=fp, file_type=ft,
+            description="Checkpoint file path referenced",
+            assertions=[
+                _a("Checkpoints directory referenced", CT.CONTAINS, ".forge/checkpoints"),
+            ],
+        ),
+        EvalCase(
+            id="skill:checkpoint:atomic-write",
+            file_path=fp, file_type=ft,
+            description="Atomic write pattern documented",
+            assertions=[
+                _a("Atomic write via tmp+rename described", CT.REGEX, r"(?i)(atomic|\.tmp|rename)"),
+            ],
+        ),
+        EvalCase(
+            id="skill:checkpoint:agent-name-preservation",
+            file_path=fp, file_type=ft,
+            description="Agent name must survive resume",
+            assertions=[
+                _a("Agent name preservation emphasized", CT.REGEX,
+                 r"(?i)(agent.name.*consistent|MUST.*(be|remain).*(consistent|same|identical)|never.*change.*(name|it))"),
+            ],
+        ),
+        EvalCase(
+            id="skill:checkpoint:conversation-history",
+            file_path=fp, file_type=ft,
+            description="Conversation history capture documented",
+            assertions=[
+                _a("Recent conversation field mentioned", CT.CONTAINS, "recent_conversation"),
+            ],
+        ),
+        EvalCase(
+            id="skill:checkpoint:sub-agent-hierarchy",
+            file_path=fp, file_type=ft,
+            description="Sub-agent tracking documented",
+            assertions=[
+                _a("Sub-agent tracking field mentioned", CT.CONTAINS, "sub_agents"),
+            ],
+        ),
+        EvalCase(
+            id="skill:checkpoint:frontmatter",
+            file_path=fp, file_type=ft,
+            description="Skill has proper frontmatter",
+            assertions=[
+                _a("Has name field", CT.FRONTMATTER_FIELD, "name"),
+                _a("Name is checkpoint", CT.CONTAINS, "name: checkpoint"),
+                _a("Has description field", CT.FRONTMATTER_FIELD, "description"),
+                _a("Has argument-hint", CT.FRONTMATTER_FIELD, "argument-hint"),
+            ],
+        ),
+        EvalCase(
+            id="skill:checkpoint:non-negotiable",
+            file_path=fp, file_type=ft,
+            description="Checkpoint rules marked as non-negotiable",
+            assertions=[
+                _a("Non-negotiable checkpoint rules", CT.REGEX, r"(?i)non.negotiable"),
+            ],
+        ),
+        EvalCase(
+            id="skill:checkpoint:first-checkpoint",
+            file_path=fp, file_type=ft,
+            description="First checkpoint urgency is documented",
+            assertions=[
+                _a("First checkpoint guidance present", CT.REGEX, r"(?i)first.*(checkpoint|action|thing)"),
+            ],
+        ),
+        EvalCase(
+            id="skill:checkpoint:frequency",
+            file_path=fp, file_type=ft,
+            description="Checkpoint frequency guidance present",
+            assertions=[
+                _a("When to checkpoint is described", CT.REGEX, r"(?i)(frequency|when to|after.*(task|phase|decision))"),
+            ],
+        ),
+        EvalCase(
+            id="skill:checkpoint:project-aware",
+            file_path=fp, file_type=ft,
+            description="Project-type-specific checkpoint content",
+            assertions=[
+                _a("Checkpoint guidance is project-type-aware", CT.LLM_JUDGE,
+                 "Does the checkpoint skill include project-type-specific guidance "
+                 "(e.g., different checkpoint frequencies for CLI vs web vs full-stack projects)?"),
+            ],
+        ),
+        EvalCase(
+            id="skill:checkpoint:strategy-aware",
+            file_path=fp, file_type=ft,
+            description="Strategy-appropriate checkpoint behavior",
+            assertions=[
+                _a("Checkpoint behavior adapts to strategy", CT.LLM_JUDGE,
+                 "Does the checkpoint skill mention strategy-specific behavior "
+                 "(e.g., silent saves for auto-pilot, announcing saves for micro-manage)?"),
+            ],
+        ),
+    ]
+
+
+def _checkpoint_agent_cases() -> list[EvalCase]:
+    """Eval cases for checkpoint protocol in agent files."""
+    cases: list[EvalCase] = []
+
+    # All agents should have checkpoint protocol
+    for agent_type in [
+        "team-leader", "backend-developer", "architect", "qa-engineer",
+        "critic", "devops-specialist", "research-strategist",
+    ]:
+        fp = f".claude/agents/{agent_type}.md"
+        ft = "agent"
+        cases.append(EvalCase(
+            id=f"agent:{agent_type}:checkpoint-protocol",
+            file_path=fp, file_type=ft,
+            description=f"{agent_type} references checkpoint protocol",
+            assertions=[
+                _a("Agent file includes checkpoint protocol", CT.REGEX,
+                 r"(?i)checkpoint\s+protocol"),
+            ],
+            applicable_when={"agent_in_roster": agent_type},
+        ))
+
+    # Team leader specific cases
+    fp = ".claude/agents/team-leader.md"
+    ft = "agent"
+    cases.extend([
+        EvalCase(
+            id="agent:team-leader:session-management",
+            file_path=fp, file_type=ft,
+            description="Team leader has session management section",
+            assertions=[
+                _a("Session management section present", CT.REGEX,
+                 r"(?i)session\s+management"),
+            ],
+        ),
+        EvalCase(
+            id="agent:team-leader:stop-cascade",
+            file_path=fp, file_type=ft,
+            description="Team leader describes cascading stop",
+            assertions=[
+                _a("Describes stop cascade to agents", CT.REGEX,
+                 r"(?i)(stop.*signal|stopping.*session|cascade.*stop|STOP_REQUESTED)"),
+            ],
+        ),
+        EvalCase(
+            id="agent:team-leader:resume-reconstruction",
+            file_path=fp, file_type=ft,
+            description="Team leader describes agent reconstruction on resume",
+            assertions=[
+                _a("Resume/reconstruction process described", CT.REGEX,
+                 r"(?i)(resum.*agent|re-spawn|reconstruct)"),
+            ],
+        ),
+    ])
+
+    return cases
+
+
+def _checkpoint_claude_md_cases() -> list[EvalCase]:
+    """Eval cases for checkpoint in CLAUDE.md."""
+    fp = "CLAUDE.md"
+    ft = "claude_md"
+    return [
+        EvalCase(
+            id="claude-md:session-management",
+            file_path=fp, file_type=ft,
+            description="CLAUDE.md has session management section",
+            assertions=[
+                _a("Session management section present", CT.SECTION_PRESENT, "Session Management"),
+            ],
+        ),
+        EvalCase(
+            id="claude-md:checkpoint-reference",
+            file_path=fp, file_type=ft,
+            description="CLAUDE.md references checkpoint directory",
+            assertions=[
+                _a("Checkpoint directory referenced", CT.CONTAINS, ".forge/checkpoints"),
+            ],
+        ),
+    ]
+
+
+def _checkpoint_team_init_plan_cases() -> list[EvalCase]:
+    """Eval cases for checkpoint in team-init-plan.md."""
+    fp = "team-init-plan.md"
+    ft = "team_init_plan"
+    return [
+        EvalCase(
+            id="team-init-plan:session-persistence",
+            file_path=fp, file_type=ft,
+            description="Session persistence section present",
+            assertions=[
+                _a("Session persistence section present", CT.SECTION_PRESENT, "Session Persistence"),
+            ],
+        ),
+        EvalCase(
+            id="team-init-plan:resume-detection",
+            file_path=fp, file_type=ft,
+            description="Resume detection described",
+            assertions=[
+                _a("Resume detection from session.json", CT.REGEX,
+                 r"(?i)(resume.*detect|session\.json.*exist|checkpoint.*load)"),
+            ],
+        ),
+    ]
+
+
+# ===========================================================================
 # Registry aggregation
 # ===========================================================================
 
@@ -2568,6 +2813,9 @@ def get_all_eval_cases() -> list[EvalCase]:
     cases.extend(_frontend_designer_cases())
     cases.extend(_frontend_developer_cases())
 
+    # Checkpoint protocol in agent files
+    cases.extend(_checkpoint_agent_cases())
+
     # Skill file cases
     cases.extend(_smoke_test_skill_cases())
     cases.extend(_screenshot_review_skill_cases())
@@ -2584,9 +2832,14 @@ def get_all_eval_cases() -> list[EvalCase]:
     cases.extend(_jira_update_skill_cases())
     cases.extend(_sprint_report_skill_cases())
     cases.extend(_playwright_test_skill_cases())
+    cases.extend(_checkpoint_skill_cases())
 
     # Root file cases
     cases.extend(_claude_md_cases())
     cases.extend(_team_init_plan_cases())
+
+    # Checkpoint in root files
+    cases.extend(_checkpoint_claude_md_cases())
+    cases.extend(_checkpoint_team_init_plan_cases())
 
     return cases

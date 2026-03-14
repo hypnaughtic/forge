@@ -551,9 +551,9 @@ class TestOrchestratorE2E:
         agents = list((tmp_path / ".claude" / "agents").glob("*.md"))
         assert len(agents) == 8
 
-        # Skills: 8 base + 5 new (playwright-test, excalidraw-diagram, code-review, dependency-audit, benchmark)
+        # Skills: 8 base + 5 new + checkpoint = 14 (no jira/sprint when atlassian disabled)
         skills = list((tmp_path / ".claude" / "skills").glob("*.md"))
-        assert len(skills) == 13  # no jira/sprint skills when atlassian disabled
+        assert len(skills) == 14
 
     def test_full_generation_full_no_compromise_atlassian(self, tmp_path):
         """Full generation with all features enabled."""
@@ -572,9 +572,9 @@ class TestOrchestratorE2E:
         assert len(agents) == expected_count
         assert (tmp_path / ".claude" / "agents" / "scrum-master.md").exists()
 
-        # Skills: 8 base + 2 atlassian + 5 new (playwright, excalidraw, code-review, dependency-audit, benchmark)
+        # Skills: 8 base + 2 atlassian + 5 new + checkpoint = 16
         skills = list((tmp_path / ".claude" / "skills").glob("*.md"))
-        assert len(skills) == 15
+        assert len(skills) == 16
 
         # No-compromise mode should be reflected everywhere
         claude_md = (tmp_path / "CLAUDE.md").read_text()

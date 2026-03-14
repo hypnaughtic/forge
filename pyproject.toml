@@ -62,6 +62,10 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+markers = [
+    "e2e: End-to-end tests requiring tmux + real Claude CLI (FORGE_TEST_DRY_RUN=0)",
+]
+timeout = 600
 
 [tool.coverage.run]
 source = ["forge_cli"]

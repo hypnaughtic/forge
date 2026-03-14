@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from forge_cli.config_schema import ExecutionStrategy, ForgeConfig
+from forge_cli.generators.hooks import generate_hooks_config
 
 # Both auto-pilot and co-pilot grant full tool access. The difference between
 # them is behavioral (instructions in agent files), not permission-based.
@@ -65,6 +66,9 @@ def generate_settings_config(config: ForgeConfig, claude_dir: Path) -> None:
     if config.agents.allow_sub_agent_spawning:
         existing.setdefault("env", {})
         existing["env"]["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"] = "1"
+
+    # Add checkpoint hooks configuration (replace entirely on each generation)
+    existing["hooks"] = generate_hooks_config()
 
     with open(settings_path, "w") as f:
         json.dump(existing, f, indent=2)

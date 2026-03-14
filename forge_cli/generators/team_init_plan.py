@@ -524,6 +524,21 @@ def generate_team_init_plan(config: ForgeConfig, project_dir: Path) -> None:
 
     MCP configuration: `.claude/mcp.json` (if Atlassian integration is enabled)
 
+    ## Session Persistence
+
+    ### First-Time Start
+    - Team Leader writes initial `.forge/session.json`
+    - Each agent runs `/checkpoint save` after initialization
+    - Hooks auto-track file modifications in activity logs
+
+    ### Resume Detection
+    If `.forge/session.json` exists with status "stopped" or "running" (crash recovery):
+    - Skip normal initialization (Phase 1/2)
+    - Run `/checkpoint load` to restore Team Leader state
+    - Re-spawn all active agents from their checkpoints
+    - Continue from the exact iteration/phase where you left off
+    - Do NOT restart completed work or generate new agent names
+
     ## Quick Reference
 
     | Config | Value |

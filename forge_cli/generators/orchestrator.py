@@ -140,16 +140,19 @@ def generate_all(
         with progress.step("init_plan", "team-init-plan.md"):
             generate_team_init_plan(config, project_dir)
 
+        # 6. Hook scripts for checkpoint enforcement
+        with progress.step("hooks", "Checkpoint hook scripts"):
+            from forge_cli.generators.hooks import generate_hook_scripts
+            forge_dir = project_dir / ".forge"
+            generate_hook_scripts(config, forge_dir)
+
     console.print()
     return None
 
 
 def _count_skills(config: ForgeConfig) -> int:
     """Count the number of skill files that will be generated."""
-    count = 8  # always: status, iteration-review, smoke-test, screenshot-review,
-    # create-pr, release, arch-review, code-review, excalidraw-diagram,
-    # dependency-audit, benchmark
-    count = 11  # base skills always generated
+    count = 12  # base skills always generated (11 original + checkpoint)
     if config.agents.allow_sub_agent_spawning:
         count += 1  # spawn-agent
     if config.atlassian.enabled:
