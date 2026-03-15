@@ -551,9 +551,9 @@ class TestOrchestratorE2E:
         agents = list((tmp_path / ".claude" / "agents").glob("*.md"))
         assert len(agents) == 8
 
-        # Skills: 8 base + 5 new + checkpoint = 14 (no jira/sprint when atlassian disabled)
+        # Skills: 8 base + 5 new + checkpoint + 4 lifecycle = 18
         skills = list((tmp_path / ".claude" / "skills").glob("*.md"))
-        assert len(skills) == 14
+        assert len(skills) == 18
 
     def test_full_generation_full_no_compromise_atlassian(self, tmp_path):
         """Full generation with all features enabled."""
@@ -572,9 +572,9 @@ class TestOrchestratorE2E:
         assert len(agents) == expected_count
         assert (tmp_path / ".claude" / "agents" / "scrum-master.md").exists()
 
-        # Skills: 8 base + 2 atlassian + 5 new + checkpoint = 16
+        # Skills: 8 base + 2 atlassian + 5 new + checkpoint + 4 lifecycle = 20
         skills = list((tmp_path / ".claude" / "skills").glob("*.md"))
-        assert len(skills) == 16
+        assert len(skills) == 20
 
         # No-compromise mode should be reflected everywhere
         claude_md = (tmp_path / "CLAUDE.md").read_text()
@@ -626,7 +626,12 @@ class TestOrchestratorE2E:
                 second_run[str(f.relative_to(tmp_path))] = f.read_text()
 
         assert first_run.keys() == second_run.keys()
+        # token-report.json has a timestamp that changes between runs
+        # team-init-plan.md has non-deterministic LLM content (pre-existing)
+        skip_files = {"token-report.json", "team-init-plan.md"}
         for key in first_run:
+            if any(s in key for s in skip_files):
+                continue
             assert first_run[key] == second_run[key], f"File differs on re-generation: {key}"
 
     def test_custom_instructions_propagate(self, tmp_path):
