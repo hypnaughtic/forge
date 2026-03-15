@@ -487,6 +487,131 @@ class TestRefineAll:
         assert report.all_passed is True
 
 
+class TestSaveRefinementReportTokenImpact:
+    """Test token impact section in refinement report."""
+
+    def test_token_impact_section_rendered(self, tmp_path):
+        """Token impact table appears when files have token data."""
+        from forge_cli.generators.orchestrator import _save_refinement_report
+        from forge_cli.generators.refinement import (
+            FileRefinementResult,
+            RefinementIteration,
+            RefinementReport,
+        )
+        from forge_cli.config_schema import ForgeConfig
+
+        config = ForgeConfig()
+        report = RefinementReport(
+            files=[
+                FileRefinementResult(
+                    file_path=".claude/agents/backend-developer.md",
+                    file_type="agent",
+                    initial_score=85,
+                    final_score=95,
+                    iterations=[
+                        RefinementIteration(
+                            iteration=1, score=95, reasoning="Good",
+                            suggestions=[], changes_made=["Minor fix"],
+                            cost_usd=0.01, eval_pass_rate=1.0,
+                        ),
+                    ],
+                    total_cost_usd=0.01,
+                    initial_tokens=8000,
+                    final_tokens=8500,
+                ),
+            ],
+            total_cost_usd=0.01,
+            total_llm_calls=2,
+            files_improved=1,
+            files_already_good=0,
+            all_passed=True,
+        )
+        _save_refinement_report(report, tmp_path, config)
+
+        md_path = tmp_path / ".forge" / "refinement-report.md"
+        assert md_path.exists()
+        content = md_path.read_text()
+        assert "Token Impact" in content
+        assert "8,000" in content
+        assert "8,500" in content
+
+    def test_no_token_section_without_token_data(self, tmp_path):
+        """No token impact table when files lack token data."""
+        from forge_cli.generators.orchestrator import _save_refinement_report
+        from forge_cli.generators.refinement import (
+            FileRefinementResult,
+            RefinementIteration,
+            RefinementReport,
+        )
+        from forge_cli.config_schema import ForgeConfig
+
+        config = ForgeConfig()
+        report = RefinementReport(
+            files=[
+                FileRefinementResult(
+                    file_path=".claude/agents/test.md",
+                    file_type="agent",
+                    initial_score=95,
+                    final_score=95,
+                    iterations=[],
+                    total_cost_usd=0.0,
+                ),
+            ],
+            total_cost_usd=0.0,
+            total_llm_calls=0,
+            files_improved=0,
+            files_already_good=1,
+            all_passed=True,
+        )
+        _save_refinement_report(report, tmp_path, config)
+
+        md_path = tmp_path / ".forge" / "refinement-report.md"
+        content = md_path.read_text()
+        assert "Token Impact" not in content
+
+    def test_below_threshold_improvement_suggestion(self, tmp_path):
+        """Files below threshold get improvement suggestions."""
+        from forge_cli.generators.orchestrator import _save_refinement_report
+        from forge_cli.generators.refinement import (
+            FileRefinementResult,
+            RefinementIteration,
+            RefinementReport,
+        )
+        from forge_cli.config_schema import ForgeConfig
+
+        config = ForgeConfig()
+        config.refinement.score_threshold = 90
+        report = RefinementReport(
+            files=[
+                FileRefinementResult(
+                    file_path=".claude/agents/low.md",
+                    file_type="agent",
+                    initial_score=70,
+                    final_score=80,
+                    iterations=[
+                        RefinementIteration(
+                            iteration=1, score=80, reasoning="OK",
+                            suggestions=["Add more detail"],
+                            changes_made=["Expanded section"],
+                            cost_usd=0.01, eval_pass_rate=0.8,
+                        ),
+                    ],
+                    total_cost_usd=0.01,
+                ),
+            ],
+            total_cost_usd=0.01,
+            total_llm_calls=2,
+            files_improved=1,
+            files_already_good=0,
+            all_passed=False,
+        )
+        _save_refinement_report(report, tmp_path, config)
+
+        md_path = tmp_path / ".forge" / "refinement-report.md"
+        content = md_path.read_text()
+        assert "Next Scope of Improvement" in content
+
+
 # ---------------------------------------------------------------------------
 # TestRefinementProgress — progress display unit tests
 # ---------------------------------------------------------------------------
