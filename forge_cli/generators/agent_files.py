@@ -265,6 +265,22 @@ def _project_context_section(config: ForgeConfig) -> str:
                 "Follow Team Leader directives."
             )
 
+    # Clean markdown headers from requirements to avoid header conflicts
+    # The context summarizer may embed ## headers that clash with agent file structure
+    req_lines = requirements_text.strip().split("\n")
+    cleaned_lines: list[str] = []
+    for line in req_lines:
+        # Demote headers: ## X → #### X to avoid clashing with agent file structure
+        if re.match(r"^#{1,3}\s", line):
+            line = "##" + line
+        cleaned_lines.append(line)
+    # Strip leading/trailing --- separators
+    while cleaned_lines and cleaned_lines[0].strip() == "---":
+        cleaned_lines.pop(0)
+    while cleaned_lines and cleaned_lines[-1].strip() == "---":
+        cleaned_lines.pop()
+    requirements_text = "\n".join(cleaned_lines)
+
     # Truncate very long derived context for inline embedding
     # (full context is always available in .forge/project-context.md)
     if len(requirements_text) > 4000:
@@ -2171,7 +2187,50 @@ def _backend_developer_template(config: ForgeConfig) -> str:
 
 
 def _frontend_engineer_template(config: ForgeConfig) -> str:
-    return dedent("""\
+    frameworks = [f.lower() for f in config.tech_stack.frameworks]
+    desc = config.project.description.lower()
+    domains = _detect_project_domains(config)
+
+    # Framework-specific guidance
+    fw_guidance: list[str] = []
+    if "react" in frameworks:
+        fw_guidance.append("- **React patterns**: Functional components with TypeScript, custom hooks for shared logic, React.memo for performance")
+        fw_guidance.append("- **State management**: Use TanStack Query for server state, Zustand or Context for UI state. Keep server and client state separate.")
+        fw_guidance.append("- **Testing**: React Testing Library + Vitest for component tests, user-event for interactions")
+    if "vue" in frameworks:
+        fw_guidance.append("- **Vue patterns**: Composition API, composables for shared logic, Pinia for state management")
+    if "tailwind" in frameworks:
+        fw_guidance.append("- **Tailwind CSS**: Use utility classes directly, extract components for repeated patterns, configure theme in tailwind.config")
+    if any(f in frameworks for f in ("next", "nextjs", "next.js")):
+        fw_guidance.append("- **Next.js**: App Router with server components by default, client components only for interactivity, API routes for BFF")
+
+    fw_text = "\n    ".join(fw_guidance) if fw_guidance else "- Follow the configured frontend framework patterns and conventions"
+    fw_section = f"\n\n    ### Framework-Specific Patterns\n    {fw_text}"
+
+    # Domain-specific implementation
+    domain_impl: list[str] = []
+    if "kanban" in desc or "drag" in desc:
+        domain_impl.append("- **Drag-and-drop**: Use dnd-kit or similar library. Implement visual feedback during drag, drop zone highlighting, position persistence.")
+    if "chat" in desc or "messaging" in desc:
+        domain_impl.append("- **Chat UI**: Message list with virtualization for performance, typing indicators, @mention autocomplete, unread counts.")
+    if "real-time" in desc or "websocket" in desc:
+        domain_impl.append("- **Real-time updates**: WebSocket connection management with auto-reconnect, optimistic UI updates, conflict resolution for concurrent edits.")
+    if "auth" in domains:
+        domain_impl.append("- **Auth flows**: Login/register forms with validation, OAuth buttons, token storage (httpOnly cookies preferred), protected route guards.")
+
+    domain_text = "\n    ".join(domain_impl) if domain_impl else ""
+    domain_section = f"\n\n    ### Domain-Specific Implementation\n    {domain_text}" if domain_text else ""
+
+    # Mode-appropriate quality
+    mode = config.mode.value
+    if mode == "mvp":
+        quality = "65-70% coverage on critical user flows. Happy-path first."
+    elif mode == "no-compromise":
+        quality = "100% coverage. Test every component, interaction, and edge case."
+    else:
+        quality = "90%+ coverage on components and user flows."
+
+    return dedent(f"""\
     # Frontend Engineer
 
     ## Identity & Role
@@ -2184,20 +2243,21 @@ def _frontend_engineer_template(config: ForgeConfig) -> str:
 
     ### UI Implementation
     - Build UI components following design specs (or create sensible defaults if no designer)
-    - Implement responsive layouts
+    - Implement responsive layouts (mobile-first, test at 375px, 768px, 1280px)
     - Handle loading states, error states, empty states
     - Implement forms with validation and user feedback
+    - Ensure basic accessibility: semantic HTML, keyboard navigation, ARIA labels for interactive elements{fw_section}{domain_section}
 
     ### State Management & Logic
-    - Implement client-side state management (React hooks, Redux, Zustand, etc.)
+    - Implement client-side state management appropriate to the framework
     - Integrate with backend APIs using the Architect's contracts
     - Handle authentication flows (login, session, token refresh)
     - Implement client-side routing
 
-    ### Testing
-    - Write component tests
+    ### Testing ({quality})
+    - Write component tests for all interactive components
     - Write integration tests for key user flows
-    - Test responsive behavior
+    - Test responsive behavior at multiple breakpoints
     - Verify the UI loads in a browser and key flows work end-to-end
     - **Take screenshots** of every page/component you build using Playwright
     - **Visually verify** your work before marking complete — use the Read tool to view screenshots""")

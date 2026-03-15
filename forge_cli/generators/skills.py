@@ -2061,7 +2061,15 @@ def _arch_review_skill(config: ForgeConfig) -> str:
        - Connection pooling configured"""))
         point_num += 1
 
-    # 7. Code organization (always relevant)
+    # 7. Tech stack fit review
+    review_points.append(dedent(f"""\
+    {point_num}. **Tech stack fit**: Architecture decisions align with configured tech stack?
+       - Chosen libraries and tools match the project's tech stack ({stack})
+       - No use of alternative frameworks that conflict with the configured stack
+       - Dependencies justify their inclusion — no unnecessary bloat"""))
+    point_num += 1
+
+    # 8. Code organization (always relevant)
     review_points.append(dedent(f"""\
     {point_num}. **Code organization**: Follows project structure conventions?
        - Proper module/package separation

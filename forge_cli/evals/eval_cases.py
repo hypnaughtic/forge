@@ -672,7 +672,7 @@ def _devops_specialist_cases() -> list[EvalCase]:
             description="Infrastructure matches config",
             assertions=[
                 _a("Infrastructure references match config", CT.LLM_JUDGE,
-                 "Does the file reference infrastructure technologies that match or relate to the project's configured infrastructure?"),
+                 "Does the file reference infrastructure or deployment technologies appropriate for the project? For static sites this means CDN/hosting platforms (Vercel, Netlify, etc.), for web apps this means Docker/containers/cloud, for CLI tools this means package distribution. The infrastructure should match the project type even if no explicit infrastructure list is configured."),
             ],
         ),
         EvalCase(

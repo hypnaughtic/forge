@@ -5,7 +5,30 @@ from __future__ import annotations
 from pathlib import Path
 from textwrap import dedent
 
+import re
+
 from forge_cli.config_schema import ForgeConfig
+
+
+def _clean_requirements(text: str) -> str:
+    """Strip markdown headers from requirements to avoid header conflicts in CLAUDE.md.
+
+    The context summarizer may embed ## headers that clash with CLAUDE.md structure.
+    Demote all headers by 2 levels (## → ####) and strip any leading horizontal rules.
+    """
+    lines = text.strip().split("\n")
+    cleaned: list[str] = []
+    for line in lines:
+        # Demote headers: ## X → #### X, ### X → ##### X
+        if re.match(r"^#{1,3}\s", line):
+            line = "##" + line
+        cleaned.append(line)
+    # Strip leading/trailing --- separators
+    while cleaned and cleaned[0].strip() == "---":
+        cleaned.pop(0)
+    while cleaned and cleaned[-1].strip() == "---":
+        cleaned.pop()
+    return "\n".join(cleaned)
 
 
 def _plan_file_claude_md(config: ForgeConfig) -> str:
@@ -34,6 +57,8 @@ def generate_claude_md(config: ForgeConfig, project_dir: Path) -> None:
         tech_parts.append(", ".join(config.tech_stack.languages))
     if config.tech_stack.frameworks:
         tech_parts.append(", ".join(config.tech_stack.frameworks))
+    if config.tech_stack.databases:
+        tech_parts.append(", ".join(config.tech_stack.databases))
     tech_str = " | ".join(tech_parts) if tech_parts else "(auto-detect)"
 
     agent_roster = "\n".join(
@@ -235,7 +260,7 @@ def generate_claude_md(config: ForgeConfig, project_dir: Path) -> None:
 
     ## Project Requirements
 
-    {config.project.requirements or config.project.description}
+    {_clean_requirements(config.project.requirements or config.project.description)}
 
     ## Team Leader Instructions
 
