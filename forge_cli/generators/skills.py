@@ -1267,7 +1267,7 @@ def _smoke_test_skill(config: ForgeConfig) -> str:
         sections.append(
             f"## {section_num}. Visual Verification\n\n"
             "Capture full-page screenshots of key pages using Playwright:\n"
-            "- `npx playwright screenshot --full-page http://localhost:{port}/path page.png`\n"
+            "- `Use Playwright MCP or test script to capture http://localhost:{port}/path page.png`\n"
             "- Save to `docs/screenshots/smoke-test/`\n"
             "- Use the Read tool to verify visual correctness"
         )
@@ -1482,13 +1482,13 @@ def _screenshot_review_skill(config: ForgeConfig) -> str:
         # Detect specific API framework for accurate docs reference
         if "fastapi" in frameworks:
             docs_step = "1. **Verify OpenAPI/Swagger docs** are accessible at `/docs` (Swagger UI) and `/redoc` (ReDoc)"
-            screenshot_cmd = "npx playwright screenshot --full-page http://localhost:{port}/docs api-docs.png"
+            screenshot_cmd = "Use Playwright MCP or test script to capture http://localhost:{port}/docs api-docs.png"
         elif "django" in frameworks or "drf" in frameworks:
             docs_step = "1. **Verify API docs** are accessible (DRF browsable API or configured Swagger/drf-spectacular)"
-            screenshot_cmd = "npx playwright screenshot --full-page http://localhost:{port}/api/docs api-docs.png"
+            screenshot_cmd = "Use Playwright MCP or test script to capture http://localhost:{port}/api/docs api-docs.png"
         else:
             docs_step = "1. **Verify API documentation** is generated and accessible (OpenAPI/Swagger if configured)"
-            screenshot_cmd = "npx playwright screenshot --full-page http://localhost:{port}/docs api-docs.png"
+            screenshot_cmd = "Use Playwright MCP or test script to capture http://localhost:{port}/docs api-docs.png"
 
         # Domain-specific documentation areas — use domain detection
         domains = _detect_project_domains(config)
@@ -1629,9 +1629,10 @@ def _screenshot_review_skill(config: ForgeConfig) -> str:
     1. **Start the application** if not already running
     2. **Key pages to capture** ({config.project.description}):
 {pages_text}
-    3. **Capture screenshots** using Playwright:
-       - Desktop viewport (1280x720): `npx playwright screenshot --full-page http://localhost:{{port}}/path page-desktop.png`
-       - Mobile viewport (375x812): `npx playwright screenshot --full-page --viewport-size=375,812 http://localhost:{{port}}/path page-mobile.png`
+    3. **Capture screenshots** using Playwright MCP (configured in .claude/mcp.json) or a test script:
+       - Desktop viewport (1280x720): navigate to each page and capture full-page screenshot
+       - Mobile viewport (375x812): set viewport size and capture again
+       - Use `npx playwright test --project=screenshots` if a screenshot test exists, or use the Playwright MCP browser tool
     4. **Capture state variants** for key pages:
 {states_text}
     5. **Save all screenshots** to `docs/screenshots/{{iteration}}/`
@@ -1905,6 +1906,13 @@ def _release_management_skill(config: ForgeConfig) -> str:
 {_test_commands(config)}
     - All smoke tests pass (use /smoke-test skill)
     - Current iteration is verified and tagged{domain_section}
+
+    ## Team Verification Gates
+
+    Before proceeding with release:
+    - **QA Engineer**: Must confirm all smoke tests and regression tests pass
+    - **Critic**: Must confirm no BLOCKER findings remain (WARNINGs acceptable)
+    - **DevOps**: Must confirm deployment pipeline is ready
 
     ## Steps
 

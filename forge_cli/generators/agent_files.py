@@ -1873,8 +1873,9 @@ def _architect_template(config: ForgeConfig) -> str:
     - Design the system architecture based on {strategy_ref}
     - Produce: system topology diagram (as text/mermaid), component responsibilities, data flow patterns
     {api_line}
-    - Establish coding patterns, project structure conventions, and naming standards
-    - Design the {"data model and processing pipeline" if is_cli else "database schema and data model"}""")
+    - Define REST resource hierarchy with specific endpoints (e.g., /api/v1/{{resource}}, methods, request/response shapes)
+    - Design the {"data model and processing pipeline" if is_cli else "database schema — list core entities/tables with columns, types, keys, indexes, and relationships"}
+    - Establish coding patterns, project structure conventions, and naming standards""")
 
         # Language-specific cross-cutting patterns
         if "go" in langs or "golang" in langs:
@@ -2264,7 +2265,35 @@ def _frontend_engineer_template(config: ForgeConfig) -> str:
 
 
 def _frontend_developer_template(config: ForgeConfig) -> str:
-    return dedent("""\
+    frameworks = [f.lower() for f in config.tech_stack.frameworks]
+    desc = config.project.description.lower()
+    domains = _detect_project_domains(config)
+
+    # Framework-specific patterns
+    fw_items: list[str] = []
+    if "react" in frameworks:
+        fw_items.append("- **React**: Custom hooks for shared logic, TypeScript interfaces for props, React.memo for performance-critical components")
+        fw_items.append("- **State**: TanStack Query for server state, Zustand/Context for UI state. Keep server and client state separate.")
+    if "vue" in frameworks:
+        fw_items.append("- **Vue**: Composition API with composables, Pinia for state management")
+    if any(f in frameworks for f in ("next", "nextjs", "next.js")):
+        fw_items.append("- **Next.js**: App Router, server components by default, client components only where needed")
+
+    fw_text = "\n    ".join(fw_items) if fw_items else "- Follow the configured frontend framework patterns"
+
+    # Domain-specific logic
+    domain_items: list[str] = []
+    if "kanban" in desc or "drag" in desc:
+        domain_items.append("- **Drag-and-drop logic**: Position tracking, optimistic updates, conflict resolution for concurrent moves")
+    if "real-time" in desc or "websocket" in desc or "chat" in desc:
+        domain_items.append("- **Real-time sync**: WebSocket connection management, reconnect logic, event dispatching")
+    if "auth" in domains:
+        domain_items.append("- **Auth flows**: Token storage, refresh logic, protected route guards, OAuth callback handling")
+
+    domain_text = "\n    ".join(domain_items) if domain_items else ""
+    domain_section = f"\n\n    ### Domain-Specific Logic\n    {domain_text}" if domain_text else ""
+
+    return dedent(f"""\
     # Frontend Developer
 
     ## Identity & Role
@@ -2275,13 +2304,16 @@ def _frontend_developer_template(config: ForgeConfig) -> str:
 
     ## Core Responsibilities
 
-    - Implement state management (React, Vue, Svelte patterns)
+    ### Framework Patterns
+    {fw_text}
+
+    ### Core Implementation
     - Integrate with backend APIs using the Architect's contracts
     - Handle auth flows, routing, data fetching, caching
     - Build reusable utility functions and hooks
     - Write unit and integration tests for frontend logic
     - Coordinate with Frontend Designer for component implementations
-    - After implementing features, **screenshot the UI** to verify integration with Designer's specs""")
+    - After implementing features, **screenshot the UI** to verify integration with Designer's specs{domain_section}""")
 
 
 def _frontend_designer_template(config: ForgeConfig) -> str:
