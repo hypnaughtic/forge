@@ -142,6 +142,7 @@ version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
+    { name = "llm-gateway" },
     { name = "prompt-toolkit" },
     { name = "pydantic" },
     { name = "pyyaml" },
@@ -162,6 +163,7 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.1" },
+    { name = "llm-gateway", git = "https://github.com/hypnaughtic/llm-gateway.git" },
     { name = "llm-gateway", marker = "extra == 'refinement'", git = "https://github.com/hypnaughtic/llm-gateway.git" },
     { name = "llm-gateway", marker = "extra == 'test'", git = "https://github.com/hypnaughtic/llm-gateway.git" },
     { name = "prompt-toolkit", specifier = ">=3.0" },
