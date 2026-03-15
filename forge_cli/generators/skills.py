@@ -267,7 +267,7 @@ def _test_commands(config: ForgeConfig) -> str:
         elif "django" in frameworks or "drf" in frameworks:
             cmds.append("- Backend (Django): `pytest` / `manage.py test` and verify `manage.py runserver` starts")
         elif "fastapi" in frameworks:
-            cmds.append("- Backend (FastAPI): `pytest` and verify server starts with `uvicorn`")
+            cmds.append("- Backend (FastAPI): `pytest` and verify server starts: `uvicorn main:app --host 0.0.0.0 --port 8000`")
         elif "flask" in frameworks:
             cmds.append("- Backend (Flask): `pytest` and verify `flask run` starts")
         else:
@@ -290,7 +290,14 @@ def _test_commands(config: ForgeConfig) -> str:
 
     if config.tech_stack.databases:
         dbs = ", ".join(config.tech_stack.databases)
-        cmds.append(f"- Database ({dbs}): verify migrations apply cleanly")
+        if "django" in frameworks or "drf" in frameworks:
+            cmds.append(f"- Database ({dbs}): `python manage.py migrate` — verify migrations apply cleanly")
+        elif any(f in frameworks for f in ("fastapi", "flask")) or "python" in langs:
+            cmds.append(f"- Database ({dbs}): `alembic upgrade head` — verify migrations apply cleanly")
+        elif "go" in langs or "golang" in langs:
+            cmds.append(f"- Database ({dbs}): verify migrations apply cleanly (goose/golang-migrate)")
+        else:
+            cmds.append(f"- Database ({dbs}): verify migrations apply cleanly")
     return "\n".join(cmds) if cmds else "- Run project test suite"
 
 

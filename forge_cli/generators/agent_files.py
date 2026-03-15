@@ -1724,6 +1724,7 @@ def _research_strategist_template(config: ForgeConfig) -> str:
 
     ### Initial Strategy
     - Research the project domain, technology options, and architectural patterns
+    - Conduct a competitive landscape analysis: survey existing solutions and alternatives, identify differentiators
     - Produce a technical strategy document covering: architecture approach, technology choices with rationale, integration patterns, deployment strategy
     - Create an iteration plan: break the project into 3-7 iterations with clear milestones and deliverables per iteration
     - Produce a risk assessment: technical risks, dependency risks, complexity risks, each with mitigation strategies
@@ -2027,6 +2028,9 @@ def _backend_developer_template(config: ForgeConfig) -> str:
     framework_guidance: list[str] = []
     if "fastapi" in frameworks:
         framework_guidance.append("- **FastAPI patterns**: async route handlers, Pydantic v2 models for request/response validation, dependency injection for services, background tasks with `BackgroundTasks`")
+        framework_guidance.append("- **Route organization**: Use `APIRouter` per feature module (auth, tasks, users). Mount in `main.py` with prefixes.")
+        framework_guidance.append("- **Middleware**: CORS (frontend origins), request logging, error handler (`@app.exception_handler`)")
+        framework_guidance.append("- **Lifespan**: Use `@app.lifespan` for startup/shutdown (DB pools, Redis connections)")
         framework_guidance.append("- **Testing**: Use `pytest-asyncio` + `httpx.AsyncClient` for async endpoint tests, factory fixtures for test data")
     if "django" in frameworks or "drf" in frameworks:
         framework_guidance.append("- **Django patterns**: class-based views or DRF ViewSets, serializer validation, queryset optimization, signals for side effects")
@@ -2048,9 +2052,10 @@ def _backend_developer_template(config: ForgeConfig) -> str:
         if is_go:
             db_guidance.append("- **PostgreSQL**: Use pgx or sqlx driver, write reversible migrations, leverage database constraints (UNIQUE, CHECK, FK)")
         else:
-            db_guidance.append("- **PostgreSQL + SQLAlchemy/Alembic**: Use async sessions, write reversible migrations, leverage database constraints (UNIQUE, CHECK, FK)")
+            db_guidance.append("- **PostgreSQL + SQLAlchemy/Alembic**: Use async sessions (`async_sessionmaker`), write reversible migrations with descriptive names (e.g., `add_user_email_index`), leverage database constraints (UNIQUE, CHECK, FK)")
+            db_guidance.append("- **Query patterns**: Use eager loading (`selectinload`, `joinedload`) to prevent N+1. Explicit transaction boundaries for multi-step writes.")
     if "redis" in dbs:
-        db_guidance.append("- **Redis**: Use for caching, session storage, pub/sub for real-time events, rate limiting with TTL keys")
+        db_guidance.append("- **Redis**: Key naming: `{entity}:{id}:{attr}`. Use for caching (5m TTL), sessions (1h TTL), pub/sub for real-time events, rate limiting with TTL keys")
     if "mongodb" in " ".join(dbs):
         db_guidance.append("- **MongoDB**: Design documents for query patterns, use indexes for frequent queries, aggregation pipelines for analytics")
     if "elasticsearch" in " ".join(dbs):
@@ -2087,6 +2092,59 @@ def _backend_developer_template(config: ForgeConfig) -> str:
     domain_text_w = "\n    ".join(domain_impl_web) if domain_impl_web else ""
     domain_section_w = f"\n\n    ### Domain-Specific Implementation\n    {domain_text_w}" if domain_text_w else ""
 
+    # Mode-appropriate quality guidance
+    mode = config.mode.value
+    type_hint = _lang_type_hint(config)
+    if mode == "mvp":
+        quality_section = f"""\
+
+    ### Quality Standards (MVP — 70% threshold)
+    - **Coverage target**: 65-70% for critical paths. Skip tests for admin dashboards and edge-case formatting.
+    - **Happy-path first**: Focus on the main user workflow. Document known edge cases as issues for post-MVP.
+    - Type-safe code ({type_hint})
+    - Input validation at system boundaries
+    - Meaningful error messages (not stack traces) for API consumers
+    - Idempotent operations where applicable
+    - Database transactions for multi-step operations"""
+    elif mode == "no-compromise":
+        quality_section = f"""\
+
+    ### Quality Standards (No-Compromise — 100% threshold)
+    - **Coverage target**: 100% — every branch, every error path, every edge case.
+    - Type-safe code ({type_hint}), strict type checking with zero suppressions
+    - Input validation at ALL boundaries (API, inter-service, database)
+    - Comprehensive error messages with correlation IDs for tracing
+    - Idempotent operations for ALL mutating endpoints
+    - Database transactions with explicit isolation levels"""
+    else:
+        quality_section = f"""\
+
+    ### Quality Standards (Production-Ready — 90% threshold)
+    - **Coverage target**: 90%+ for all business logic and API endpoints.
+    - Type-safe code ({type_hint})
+    - Input validation at system boundaries
+    - Meaningful error messages (not stack traces) for API consumers
+    - Idempotent operations where applicable
+    - Database transactions for multi-step operations"""
+
+    # API design section for web backends
+    api_section = ""
+    if has_web:
+        api_section = """
+
+    ### API Design Patterns
+    - **Resource routes**: `/api/v1/{resource}` for collections, `/{resource}/{id}` for single items
+    - **HTTP verbs**: POST (create, 201), GET (read, 200), PATCH (update, 200), DELETE (remove, 204)
+    - **Query parameters**: `?limit=20&offset=0` for pagination, `?status=open` for filtering
+    - **Response format**: Success: `{"data": {...}}` — Error: `{"error": "message", "code": "ERROR_CODE"}`
+
+    ### Error Handling & Resilience
+    - Define custom exception classes mapped to HTTP status codes (ValidationError→422, NotFoundError→404)
+    - Catch database IntegrityError → return 409 with descriptive message
+    - Retry transient failures (DB timeouts, external API 429s) with exponential backoff
+    - Set explicit timeouts on all external HTTP calls
+    - Graceful degradation: if a non-critical service fails, log and continue"""
+
     return dedent(f"""\
     # Backend Developer
 
@@ -2103,20 +2161,13 @@ def _backend_developer_template(config: ForgeConfig) -> str:
     - Implement business logic, validation, error handling
     - Write database queries, migrations, seed data
     - Implement service integrations (following vendor-agnostic interfaces)
-    - Follow the project's coding patterns and conventions{framework_section}{db_section}{domain_section_w}
+    - Follow the project's coding patterns and conventions{framework_section}{db_section}{api_section}{domain_section_w}
 
     ### Testing
     - Write unit tests for all business logic (target: mode-appropriate coverage)
     - Write integration tests for API endpoints
     - Test error paths and edge cases
-    - Verify your code actually runs — start the server, hit your endpoints
-
-    ### Quality Standards
-    - Type-safe code ({_lang_type_hint(config)})
-    - Input validation at system boundaries
-    - Meaningful error messages (not stack traces) for API consumers
-    - Idempotent operations where applicable
-    - Database transactions for multi-step operations""")
+    - Verify your code actually runs — start the server, hit your endpoints{quality_section}""")
 
 
 def _frontend_engineer_template(config: ForgeConfig) -> str:
@@ -2659,6 +2710,7 @@ def _security_tester_template(config: ForgeConfig) -> str:
     - Check input validation and output encoding
     - Review secret management practices
     - Assess data protection (encryption at rest/transit)
+    - Verify rate limiting on authentication and sensitive endpoints (prevent brute force attacks)
     - Review dependency vulnerabilities (CVEs)
     - Produce security audit report with findings and remediation steps{domain_text}{fw_text}""")
 

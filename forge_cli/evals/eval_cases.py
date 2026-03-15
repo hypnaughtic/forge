@@ -144,8 +144,8 @@ def _backend_developer_cases() -> list[EvalCase]:
             file_path=fp, file_type=ft,
             description="Web project backend dev references API framework",
             assertions=[
-                _a("References API framework (FastAPI/Django/Flask/Express)", CT.REGEX,
-                 r"(?i)(fastapi|django|flask|express|api\s+framework)"),
+                _a("References API framework (FastAPI/Django/Flask/Express/Go)", CT.REGEX,
+                 r"(?i)(fastapi|django|flask|express|api\s+framework|go\s+pattern|handler\s+function|gin|echo|chi|fiber|gorilla)"),
             ],
             applicable_when={"has_web_backend": True},
         ),
