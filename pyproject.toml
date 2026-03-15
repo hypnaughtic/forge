@@ -26,6 +26,7 @@ dependencies = [
     "pyyaml>=6.0",
     "pydantic>=2.0",
     "prompt_toolkit>=3.0",
+    "llm-gateway @ git+https://github.com/hypnaughtic/llm-gateway.git",
 ]
 
 [project.scripts]
