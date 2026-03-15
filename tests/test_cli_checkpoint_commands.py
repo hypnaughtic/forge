@@ -395,8 +395,8 @@ class TestStopResumeLifecycle:
         session_data = json.loads((tmp_path / ".forge" / "session.json").read_text())
         assert session_data["status"] == "stopped"
 
-        # Checkpoint should still exist
-        cp_path = checkpoints_dir / "backend-developer.json"
+        # Checkpoint should still exist (hierarchical path)
+        cp_path = checkpoints_dir / "backend-developer" / "DevBot.json"
         assert cp_path.exists()
         cp_data = json.loads(cp_path.read_text())
         assert cp_data["agent_name"] == "DevBot"

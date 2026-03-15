@@ -100,7 +100,7 @@ def _build_agent_file(agent_type: str, config: ForgeConfig) -> str:
         sections.append(_non_negotiables_section(agent_type, config))
 
     # Base protocol (embedded, not referenced)
-    sections.append(_base_protocol_section(config))
+    sections.append(_base_protocol_section(config, agent_type=agent_type))
 
     # Workflow enforcement protocol (always included, adapts to config)
     sections.append(_workflow_enforcement_section(agent_type, config))
@@ -345,7 +345,7 @@ def _project_context_section(config: ForgeConfig) -> str:
     )
 
 
-def _base_protocol_section(config: ForgeConfig) -> str:
+def _base_protocol_section(config: ForgeConfig, agent_type: str = "") -> str:
     return dedent("""\
     ## Base Agent Protocol
 
@@ -406,40 +406,76 @@ def _base_protocol_section(config: ForgeConfig) -> str:
     - **NOTE**: optional suggestion
     Max 2 review rounds — unresolved after 2 rounds, Team Leader decides.
 
-    """) + _checkpoint_protocol_section(config) + _git_auth_section(config) + _strategy_behavior_section(config)
+    """) + _checkpoint_protocol_section(config, agent_type=agent_type) + _git_auth_section(config) + _strategy_behavior_section(config)
 
 
-def _checkpoint_protocol_section(config: ForgeConfig) -> str:
-    """Generate checkpoint protocol section — injected into ALL agent files."""
-    return dedent("""\
+def _checkpoint_protocol_section(config: ForgeConfig, agent_type: str = "") -> str:
+    """Generate checkpoint protocol section with Skill Decision Tree.
 
-    ### Checkpoint Protocol (NON-NEGOTIABLE)
+    Replaces inline ceremony logic with deterministic skill routing.
+    All lifecycle moments map to specific skills.
+    """
+    anchor_interval = config.compaction.anchor_interval_minutes
+    compaction_threshold = config.compaction.compaction_threshold_tokens
 
-    You MUST maintain your checkpoint state. This is not optional.
+    tl_section = ""
+    if agent_type == "team-leader":
+        tl_section = dedent(f"""\
 
-    #### On Startup (FIRST THING YOU DO)
-    1. Check if `.forge/checkpoints/{your-agent-type}.json` exists
-    2. If yes: you are RESUMING. Run `/checkpoint load` IMMEDIATELY before doing anything else
-    3. If no: this is a fresh start. Within your FIRST 5 tool calls, run `/checkpoint save` to establish your initial checkpoint. Do not delay — checkpoint BEFORE you start any real work. Include your chosen agent_name, your initial context_summary, and handoff_notes describing your plan.
+        #### Team Leader Lifecycle Rules
 
-    #### During Work
-    - Run `/checkpoint save` after EVERY: task completion, phase transition, major decision, sub-agent spawn
-    - Run `/checkpoint check-stop` BEFORE starting any new major task
-    - Your hooks will remind you if your checkpoint is stale — HEED these reminders immediately
-    - Maximum interval between checkpoints: 10 minutes. If you haven't checkpointed in 10 minutes, do it NOW.
+        As Team Leader, you have additional lifecycle responsibilities:
 
-    #### On Stop
-    When told to stop (by human, parent agent, or stop signal):
-    1. Run `/checkpoint save` with detailed `handoff_notes`
-    2. Commit all work to a WIP branch
-    3. Report completion to parent
-    4. Stop all work
+        - On startup, also read `team-init-plan.md` and `.forge/session.json`
+        - When a child agent returns with compaction status, run `/respawn` to restart it with preserved context
+        - Monitor `.forge/events/` for `compaction_needed` events from child agents
+        - During `/agent-init resume`, also reconstruct the agent tree from session.json and re-spawn active child agents
+        - You are the only agent that reads session.json — child agents depend on you for team coordination
+        """)
 
-    #### On Completion
-    When ALL your work is done and verified:
-    1. Run `/checkpoint save` with `status: "complete"`
-    2. Report to parent agent
+    return dedent(f"""\
 
+    ### Checkpoint & Lifecycle Protocol (NON-NEGOTIABLE)
+
+    You MUST maintain your checkpoint state using lifecycle skills. This is not optional.
+    Checkpoints are stored at `.forge/checkpoints/{{your-agent-type}}/{{your-agent-name}}.json`.
+    Context anchors at `.forge/checkpoints/{{your-agent-type}}/{{your-agent-name}}.context-anchor.md`.
+
+    #### Skill Decision Tree
+
+    At each lifecycle moment, run the corresponding skill:
+
+    | Moment | Skill to Run |
+    |--------|-------------|
+    | JUST SPAWNED | `/agent-init detect` |
+    | NEED SUB-AGENT | `/spawn-agent <type> <task>` |
+    | COMPACTION THRESHOLD HIT | `/handoff compaction` |
+    | CHILD RETURNED (compaction) | `/respawn <type> <name>` |
+    | ALL TASKS FINISHED | `/handoff complete` |
+    | BLOCKED, CANNOT PROCEED | `/handoff blocked` |
+    | AFTER COMPACTION (PreCompact fired) | `/context-reload reload` |
+    | EVERY {anchor_interval} MINUTES | `/context-reload anchor` + `/checkpoint save` |
+    | CONTEXT FEELS STALE | `/context-reload status` |
+    | BEFORE LARGE OPERATIONS | `/checkpoint save` + `/context-reload anchor` |
+
+    #### Compaction Awareness
+
+    - Compaction threshold: **{compaction_threshold:,} tokens**
+    - Context anchor interval: **{anchor_interval} minutes**
+    - Hooks will warn you when estimated tokens approach the threshold
+    - When warned, run `/handoff compaction` immediately — do NOT wait
+    - After a PreCompact hook fires, run `/context-reload reload` to restore context
+
+    #### Checkpoint Discipline
+
+    - Save your FIRST checkpoint within the first 5 tool calls via `/agent-init detect`
+    - Save IMMEDIATELY after: task completion, phase transition, sub-agent spawn/complete, any significant decision
+    - Save BEFORE: starting any task that will take >5 minutes
+    - Maximum interval between checkpoints: 10 minutes
+    - Check stop signal BEFORE: starting any new major task (`/checkpoint check-stop`)
+    - ALWAYS include accurate `handoff_notes` — your future self depends on them
+    - Your `agent_name` MUST be identical across every checkpoint you save
+    {tl_section}
     """)
 
 

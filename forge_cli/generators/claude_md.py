@@ -213,6 +213,26 @@ def generate_claude_md(config: ForgeConfig, project_dir: Path) -> None:
     - **Crash recovery**: Hooks auto-write activity logs. Resume works even after ungraceful shutdown.
     - **Instruction updates**: Between sessions, users may run `forge generate` or `forge refine`. On resume, always use the LATEST instruction files from `.claude/agents/`.
 
+    ## Context Management
+
+    Forge implements cooperative compaction to preserve agent context across long sessions.
+
+    - **Compaction Threshold**: {config.compaction.compaction_threshold_tokens:,} tokens — when an agent's estimated token usage approaches this limit, hooks will warn and the agent must initiate a handoff
+    - **Context Anchors**: {'Enabled' if config.compaction.enable_context_anchors else 'Disabled'} — agents write periodic context-anchor.md files (every {config.compaction.anchor_interval_minutes} minutes) summarizing their current mental model, active files, and next actions
+    - **Hierarchical Checkpoints**: Agent checkpoints are stored at `.forge/checkpoints/{{type}}/{{name}}.json` with per-agent activity logs
+    - **Cooperative Respawn**: When a child agent hits the compaction threshold, it hands off to its parent via `/handoff compaction`, and the parent respawns it with preserved context via `/respawn`
+
+    ## Lifecycle Skills
+
+    All agents have access to these lifecycle skills for context management:
+
+    - `/agent-init [fresh|resume|detect]` — Startup ceremony: read instruction files, load/create checkpoints, write context anchors
+    - `/handoff [complete|compaction|blocked]` — Structured handoff: save final checkpoint, write context anchor, produce handoff report
+    - `/respawn <agent-type> <agent-name>` — Parent respawns a child agent after compaction with full context injection
+    - `/context-reload [reload|anchor|status]` — Context recovery: re-read files, write anchors, check staleness
+    - `/checkpoint [save|load|check-stop|status]` — Core checkpoint operations for session persistence
+    - `/spawn-agent <agent-type> <task>` — Spawn a new agent with correct instruction files and lifecycle registration
+
     ## Project Requirements
 
     {config.project.requirements or config.project.description}

@@ -75,6 +75,8 @@ class FileRefinementResult:
     total_cost_usd: float = 0.0
     baseline_eval_pass_rate: float = 0.0
     final_eval_pass_rate: float = 0.0
+    initial_tokens: int = 0
+    final_tokens: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -86,6 +88,8 @@ class FileRefinementResult:
             "final_eval_pass_rate": self.final_eval_pass_rate,
             "iterations": [it.to_dict() for it in self.iterations],
             "total_cost_usd": self.total_cost_usd,
+            "initial_tokens": self.initial_tokens,
+            "final_tokens": self.final_tokens,
         }
 
 

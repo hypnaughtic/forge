@@ -547,53 +547,79 @@ def init(output: str | None) -> None:
     run_wizard(output)
 
 
+def _generate_creative_name() -> str:
+    """Generate a creative agent name for the team leader."""
+    import random
+    adjectives = [
+        "swift", "bright", "keen", "bold", "sharp",
+        "sage", "prime", "noble", "vivid", "agile",
+        "steady", "lucid", "deft", "grand", "astute",
+    ]
+    nouns = [
+        "falcon", "phoenix", "atlas", "cipher", "beacon",
+        "nexus", "forge", "herald", "vanguard", "sentinel",
+        "oracle", "corsair", "titan", "ember", "zenith",
+    ]
+    return f"{random.choice(adjectives)}-{random.choice(nouns)}"  # noqa: S311
+
+
+def clean_session_state(forge_dir: Path) -> None:
+    """Remove all ephemeral session state. Called at the start of every ``forge start``."""
+    import shutil as _shutil
+
+    paths_to_remove = [
+        forge_dir / "session.json",
+        forge_dir / "events-archive.jsonl",
+        forge_dir / "token-report.json",
+    ]
+    dirs_to_remove = [
+        forge_dir / "checkpoints",
+        forge_dir / "events",
+    ]
+
+    for path in paths_to_remove:
+        path.unlink(missing_ok=True)
+
+    for dir_path in dirs_to_remove:
+        if dir_path.exists():
+            _shutil.rmtree(dir_path)
+
+    (forge_dir / "checkpoints").mkdir(parents=True, exist_ok=True)
+    (forge_dir / "events").mkdir(parents=True, exist_ok=True)
+
+
 @cli.command()
 @click.option("--config", "config_path", type=click.Path(exists=True), required=False, default=None, help="Path to forge.yaml (auto-detected if omitted)")
 @click.option("--project-dir", type=click.Path(), default=".", help="Project directory")
 @click.option("--tmux/--no-tmux", default=None, help="Use tmux for split-pane agent monitoring (auto-detected)")
 def start(config_path: str | None, project_dir: str, tmux: bool | None) -> None:
-    """Start an interactive Claude CLI session with the team init prompt.
-
-    Launches `claude` in your project directory with the instruction to read
-    team-init-plan.md and initialize the team. When tmux is available, creates
-    a named session for monitoring agent activity in split panes.
-    """
+    """Start an interactive Claude CLI session with the team init prompt."""
     import os
     import shutil
     import subprocess
 
-    _resolve_config(config_path, project_dir)
+    resolved = _resolve_config(config_path, project_dir)
 
-    # Verify team-init-plan.md exists
     project_path = Path(project_dir).resolve()
     init_plan = project_path / "team-init-plan.md"
     if not init_plan.exists():
-        console.print(
-            "[red]team-init-plan.md not found. Run [bold]forge generate[/bold] first.[/red]"
-        )
+        console.print("[red]team-init-plan.md not found. Run [bold]forge generate[/bold] first.[/red]")
         raise SystemExit(1)
 
-    # Check claude CLI is available
     claude_bin = shutil.which("claude")
     if not claude_bin:
-        console.print(
-            "[red]Claude CLI not found. Install it first: "
-            "https://docs.anthropic.com/en/docs/claude-code[/red]"
-        )
+        console.print("[red]Claude CLI not found.[/red]")
         raise SystemExit(1)
 
-    # Determine tmux availability
     tmux_bin = shutil.which("tmux")
     use_tmux = tmux if tmux is not None else (tmux_bin is not None)
-
     if use_tmux and not tmux_bin:
         console.print("[yellow]tmux not found. Falling back to direct Claude session.[/yellow]")
         use_tmux = False
 
-    # Initialize session state for checkpoint system
-    from forge_cli.checkpoint import (
-        SessionState, compute_config_hash, compute_instruction_hashes, write_session,
-    )
+    from forge_cli.checkpoint import compute_config_hash, compute_instruction_hashes
+    from forge_cli.models import SessionState
+    from forge_cli.session import write_event, write_session
     from forge_cli.generators.hooks import generate_hook_scripts
     from uuid import uuid4
     from datetime import datetime, timezone
@@ -601,16 +627,32 @@ def start(config_path: str | None, project_dir: str, tmux: bool | None) -> None:
     forge_dir = project_path / ".forge"
     forge_dir.mkdir(parents=True, exist_ok=True)
 
-    # Generate hook scripts
-    generate_hook_scripts(config if 'config' in dir() else None, forge_dir)
+    clean_session_state(forge_dir)
 
-    # Create session.json
-    config_file = Path(resolved) if 'resolved' in dir() else None
+    try:
+        from forge_cli.config_loader import load_config
+        config = load_config(resolved)
+        generate_hook_scripts(config, forge_dir)
+    except Exception:
+        generate_hook_scripts(None, forge_dir)
+
+    tl_name = _generate_creative_name()
+    tl_checkpoint_path = f".forge/checkpoints/team-leader/{tl_name}.json"
+
+    write_event(forge_dir, {
+        "event": "agent_registered",
+        "agent_name": tl_name,
+        "agent_type": "team-leader",
+        "parent_agent": None,
+        "checkpoint_path": tl_checkpoint_path,
+    })
+
+    config_file = Path(resolved)
     session = SessionState(
         forge_session_id=str(uuid4()),
         project_dir=str(project_path),
         project_name=project_path.name,
-        config_hash=compute_config_hash(config_file) if config_file else "",
+        config_hash=compute_config_hash(config_file),
         started_at=datetime.now(timezone.utc).isoformat(),
         updated_at=datetime.now(timezone.utc).isoformat(),
         status="running",
@@ -620,7 +662,9 @@ def start(config_path: str | None, project_dir: str, tmux: bool | None) -> None:
     write_session(session, forge_dir)
 
     init_prompt = (
+        f"You are {tl_name}, the team-leader. "
         "Read team-init-plan.md and initialize the team. "
+        "FIRST ACTION: Run /agent-init detect. "
         "Follow the startup sequence and begin Iteration 1."
     )
 
@@ -674,12 +718,11 @@ def start(config_path: str | None, project_dir: str, tmux: bool | None) -> None:
 @click.option("--timeout", default=60, help="Seconds to wait for graceful stop")
 def stop(project_dir: str, timeout: int) -> None:
     """Signal all agents to gracefully stop and checkpoint."""
-    import json
     import shutil
     from datetime import datetime, timezone
 
-    from forge_cli.checkpoint import (
-        clear_stop_signal, read_session, signal_stop,
+    from forge_cli.session import (
+        clear_stop_signal, materialize_session, read_session, signal_stop,
         wait_for_agents_stopped, write_session,
     )
 
@@ -691,34 +734,35 @@ def stop(project_dir: str, timeout: int) -> None:
         console.print("[red]No session found. Is forge running?[/red]")
         raise SystemExit(1)
 
+    session = materialize_session(forge_dir)
+
     if session.status not in ("running",):
         console.print(f"[yellow]Session status is '{session.status}', not 'running'.[/yellow]")
 
-    console.print(f"[bold]Stopping forge session...[/bold]")
+    console.print("[bold]Stopping forge session...[/bold]")
 
-    # Write stop sentinel
     signal_stop(forge_dir)
     console.print("  Stop signal sent (STOP_REQUESTED)")
 
-    # If tmux mode, send stop message to TL pane
     tmux_bin = shutil.which("tmux")
     if session.tmux_session_name and tmux_bin:
         import subprocess
         try:
             subprocess.run(
                 [tmux_bin, "send-keys", "-t", f"{session.tmux_session_name}:0",
-                 "Stop working for the day. All agents must run /checkpoint save and stop.", "Enter"],
+                 "Stop working for the day. All agents must run /handoff complete and stop.", "Enter"],
                 capture_output=True, timeout=5,
             )
             console.print("  Stop message sent to Team Leader")
         except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
             pass
 
-    # Wait for agents to checkpoint
     console.print(f"  Waiting for agents to stop (timeout: {timeout}s)...")
     checkpoints_dir = forge_dir / "checkpoints"
     stopped, timed_out = wait_for_agents_stopped(
-        checkpoints_dir, timeout=float(timeout),
+        checkpoints_dir,
+        agent_tree=session.agent_tree,
+        timeout=float(timeout),
     )
 
     if timed_out:
@@ -773,28 +817,46 @@ def resume(config_path: str | None, project_dir: str, tmux: bool | None) -> None
     from datetime import datetime, timezone
 
     from forge_cli.checkpoint import (
-        build_resume_prompt, compute_instruction_hashes,
-        detect_instruction_changes, read_all_checkpoints,
-        read_session, write_session,
+        compute_instruction_hashes,
+        detect_instruction_changes,
+        read_all_checkpoints,
+        validate_checkpoints_against_tree,
+    )
+    from forge_cli.session import (
+        build_resume_prompt,
+        materialize_session,
+        read_session,
+        write_session,
     )
 
     project_path = Path(project_dir).resolve()
     forge_dir = project_path / ".forge"
 
-    # Read session state
     session = read_session(forge_dir)
     if session is None:
         console.print("[red]No session found. Run [bold]forge start[/bold] first.[/red]")
         raise SystemExit(1)
 
+    session = materialize_session(forge_dir)
+
     if session.status not in ("stopped", "running"):
         console.print(f"[yellow]Session status is '{session.status}'. Expected 'stopped' or 'running' (crash recovery).[/yellow]")
 
-    # Read all checkpoints
     checkpoints_dir = forge_dir / "checkpoints"
     checkpoints = read_all_checkpoints(checkpoints_dir)
 
-    console.print(f"[bold]Resuming forge session[/bold]")
+    if session.agent_tree:
+        orphans, missing, ghosts = validate_checkpoints_against_tree(
+            checkpoints, session.agent_tree, checkpoints_dir,
+        )
+        if orphans:
+            console.print(f"  [yellow]Orphan checkpoints: {', '.join(orphans)}[/yellow]")
+        if ghosts:
+            console.print(f"  [dim]Ghost agents: {', '.join(ghosts)}[/dim]")
+        if missing:
+            console.print(f"  [yellow]Missing checkpoints: {', '.join(missing)}[/yellow]")
+
+    console.print("[bold]Resuming forge session[/bold]")
     console.print(f"  Session: {session.forge_session_id[:8]}...")
     console.print(f"  Status: {session.status}")
     console.print(f"  Agents with checkpoints: {len(checkpoints)}")

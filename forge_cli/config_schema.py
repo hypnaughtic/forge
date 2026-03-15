@@ -113,6 +113,14 @@ class RefinementConfig(BaseModel):
     cost_limit_usd: float = 10.0
 
 
+class CompactionConfig(BaseModel):
+    """Configuration for context compaction and cooperative respawn."""
+
+    compaction_threshold_tokens: int = 100_000  # absolute token count
+    enable_context_anchors: bool = True
+    anchor_interval_minutes: int = 15
+
+
 class ForgeConfig(BaseModel):
     """Root configuration for a forge-initialized project."""
 
@@ -127,6 +135,7 @@ class ForgeConfig(BaseModel):
     llm_gateway: LLMGatewayConfig = Field(default_factory=LLMGatewayConfig)
     git: GitConfig = Field(default_factory=GitConfig)
     workspace: WorkspaceConfig = Field(default_factory=WorkspaceConfig)
+    compaction: CompactionConfig = Field(default_factory=CompactionConfig)
     refinement: RefinementConfig = Field(default_factory=RefinementConfig)
     non_negotiables: list[str] = Field(default_factory=list)
 

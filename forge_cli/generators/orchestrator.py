@@ -146,13 +146,25 @@ def generate_all(
             forge_dir = project_dir / ".forge"
             generate_hook_scripts(config, forge_dir)
 
+    # 7. Token report — build, display, and save
+    try:
+        from forge_cli.tokens import build_token_report, display_token_table, save_token_report
+        token_report = build_token_report(config, project_dir)
+        display_token_table(token_report, console)
+        forge_dir = project_dir / ".forge"
+        save_token_report(token_report, forge_dir)
+    except ImportError:
+        console.print("[dim]  Token report skipped (llm-gateway not available)[/dim]")
+    except Exception as exc:
+        console.print(f"[dim]  Token report skipped ({exc})[/dim]")
+
     console.print()
     return None
 
 
 def _count_skills(config: ForgeConfig) -> int:
     """Count the number of skill files that will be generated."""
-    count = 12  # base skills always generated (11 original + checkpoint)
+    count = 16  # base skills always generated (11 original + checkpoint + agent-init + respawn + handoff + context-reload)
     if config.agents.allow_sub_agent_spawning:
         count += 1  # spawn-agent
     if config.atlassian.enabled:
@@ -258,6 +270,39 @@ def _save_refinement_report(
                 "`forge refine` again may improve this file further.",
                 "",
             ])
+
+    # Token Impact section
+    has_token_data = any(
+        fr.initial_tokens > 0 or fr.final_tokens > 0
+        for fr in report.files
+    )
+    if has_token_data:
+        md_lines.extend([
+            "## Token Impact",
+            "",
+            "| File | Before (tokens) | After (tokens) | Delta |",
+            "|------|----------------|----------------|-------|",
+        ])
+        total_before = 0
+        total_after = 0
+        for file_result in report.files:
+            if file_result.initial_tokens > 0 or file_result.final_tokens > 0:
+                delta = file_result.final_tokens - file_result.initial_tokens
+                sign = "+" if delta >= 0 else ""
+                md_lines.append(
+                    f"| {file_result.file_path} "
+                    f"| {file_result.initial_tokens:,} "
+                    f"| {file_result.final_tokens:,} "
+                    f"| {sign}{delta:,} |"
+                )
+                total_before += file_result.initial_tokens
+                total_after += file_result.final_tokens
+        total_delta = total_after - total_before
+        total_sign = "+" if total_delta >= 0 else ""
+        md_lines.extend([
+            f"| **Total** | **{total_before:,}** | **{total_after:,}** | **{total_sign}{total_delta:,}** |",
+            "",
+        ])
 
     md_lines.extend([
         "---",

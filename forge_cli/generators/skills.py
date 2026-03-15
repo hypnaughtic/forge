@@ -95,6 +95,22 @@ def generate_skills(
     _write_skill(skills_dir / "checkpoint.md", _checkpoint_skill(config))
     _emit("checkpoint.md")
 
+    # Agent init skill (always generated — startup ceremony)
+    _write_skill(skills_dir / "agent-init.md", _agent_init_skill(config))
+    _emit("agent-init.md")
+
+    # Respawn skill (always generated — cooperative compaction)
+    _write_skill(skills_dir / "respawn.md", _respawn_skill(config))
+    _emit("respawn.md")
+
+    # Handoff skill (always generated — structured handoffs)
+    _write_skill(skills_dir / "handoff.md", _handoff_skill(config))
+    _emit("handoff.md")
+
+    # Context reload skill (always generated — context recovery)
+    _write_skill(skills_dir / "context-reload.md", _context_reload_skill(config))
+    _emit("context-reload.md")
+
 
 def _write_skill(path: Path, content: str) -> None:
     # Strip the template indentation (from Python source nesting) while
@@ -850,12 +866,27 @@ def _spawn_agent_skill(config: ForgeConfig) -> str:
 
     1. **Validate agent type**: Confirm the agent file exists at `.claude/agents/<agent-type>.md`
     2. **Read the instruction file**: Load `.claude/agents/<agent-type>.md` in full
-    3. **Spawn with context**: Use the Agent tool with:
+    3. **Register the spawn event**: Write a JSON event to `.forge/events/`:
+       ```
+       {{
+         "event_type": "agent_started",
+         "agent_type": "<agent-type>",
+         "agent_name": "<to-be-assigned>",
+         "parent_agent_type": "<your-type>",
+         "parent_agent_name": "<your-name>",
+         "task": "<task-description>",
+         "timestamp": "<ISO-timestamp>"
+       }}
+       ```
+    4. **Spawn with context**: Use the Agent tool with:
        - The full instruction file as system context
        - The task description as the initial prompt
        - Project context: {config.project.description} ({config.mode.value} mode, {config.strategy.value} strategy)
-    4. **Verify spawn**: Confirm the sub-agent acknowledged its role and task
-    5. **Track**: Log the spawned agent in the current iteration status
+       - Naming protocol: instruct the child to choose a name and run `/agent-init detect` as first action
+       - Parent identity: include your agent_type and agent_name so the child knows its parent
+    5. **Verify spawn**: Confirm the sub-agent acknowledged its role, chose a name, and ran `/agent-init detect`
+    6. **Track in checkpoint**: Update your checkpoint's `sub_agents` list with the new agent
+    7. **Update session.json**: Add the new agent to the agent_tree (Team Leader only)
 
     ## Domain Context for Spawning
 
@@ -3016,6 +3047,322 @@ def _benchmark_skill(config: ForgeConfig) -> str:
     """
 
 
+def _agent_init_skill(config: ForgeConfig) -> str:
+    """Generate the agent-init skill for startup ceremony."""
+    domain = _domain_context(config)
+    anchor_interval = config.compaction.anchor_interval_minutes
+
+    return f"""\
+    ---
+    name: agent-init
+    description: "Agent startup ceremony — fresh start, resume from checkpoint, or auto-detect"
+    argument-hint: "[fresh|resume|detect]"
+    ---
+
+    # Agent Initialization
+
+    > {domain}
+
+    Full startup ceremony for agent lifecycle management.
+
+    ## Modes
+
+    Parse first word of `$ARGUMENTS` to determine mode. Default: `detect`.
+
+    ### `detect` — Auto-Detect Mode (DEFAULT)
+
+    1. Determine your agent type from your instruction file name
+    2. Check if `.forge/checkpoints/{{your-agent-type}}/` directory exists
+    3. Look for any `.json` checkpoint file in that directory
+    4. If checkpoint found → run **resume** flow below
+    5. If no checkpoint → run **fresh** flow below
+
+    ### `fresh` — Fresh Start
+
+    1. **Confirm identity**: Note your agent type from your instruction file
+    2. **Read instruction file**: Load `.claude/agents/{{your-agent-type}}.md` in full
+    3. **Read CLAUDE.md**: Load the project root `CLAUDE.md` for team context
+    4. **Choose a name**: Follow the Agent Naming Protocol from your instruction file
+    5. **Create checkpoint directory**: `mkdir -p .forge/checkpoints/{{your-agent-type}}/`
+    6. **Save first checkpoint**: Run `/checkpoint save` with your chosen name, initial context_summary, and handoff_notes describing your plan
+    7. **Write context anchor**: Create `.forge/checkpoints/{{your-agent-type}}/{{your-name}}.context-anchor.md` with:
+       - Current task (initial assignment)
+       - Key decisions (none yet)
+       - Active files (instruction file, CLAUDE.md)
+       - Next actions (your plan)
+       - Mental model (initial understanding)
+    8. **Team Leader only**: Also read `team-init-plan.md` and `.forge/session.json`
+
+    ### `resume` — Resume from Checkpoint
+
+    1. **Confirm identity**: Note your agent type from your instruction file
+    2. **Read instruction file**: Load `.claude/agents/{{your-agent-type}}.md` (may have been updated)
+    3. **Read CLAUDE.md**: Load project root `CLAUDE.md`
+    4. **Load checkpoint**: Run `/checkpoint load`
+    5. **Read context anchor**: Load `.forge/checkpoints/{{your-agent-type}}/{{your-name}}.context-anchor.md`
+    6. **Re-read essential files**: From checkpoint's `essential_files` list (max 10 files). If `essential_files` is empty, fall back to the last 5 entries in `files_modified`
+    7. **Check git status**: Verify your branches and files still exist
+    8. **Review handoff_notes**: Your past self left you instructions — follow them
+    9. **Team Leader only**: Also read `team-init-plan.md` and `.forge/session.json`, reconstruct agent tree
+
+    ## Context Anchor Format
+
+    Write to `.forge/checkpoints/{{your-agent-type}}/{{your-name}}.context-anchor.md`:
+
+    ```markdown
+    # Context Anchor — {{your-name}} ({{your-agent-type}})
+    Updated: {{ISO-timestamp}}
+
+    ## Current Task
+    {{what you are working on right now}}
+
+    ## Key Decisions
+    {{decisions made this session with brief reasoning}}
+
+    ## Active Files
+    {{files you are actively working with — max 10}}
+
+    ## Blockers
+    {{anything blocking progress}}
+
+    ## Next Actions
+    {{ordered list of what to do next}}
+
+    ## Mental Model
+    {{2-5 sentences summarizing your understanding of the project state}}
+
+    ## Essential Files
+    {{list of files critical to reload on resume — max 10}}
+    ```
+
+    Update this anchor every {anchor_interval} minutes during work.
+
+    $ARGUMENTS
+    """
+
+
+def _respawn_skill(config: ForgeConfig) -> str:
+    """Generate the respawn skill for parent agents."""
+    domain = _domain_context(config)
+
+    return f"""\
+    ---
+    name: respawn
+    description: "Respawn a child agent after compaction with preserved context"
+    argument-hint: "<agent-type> <agent-name>"
+    ---
+
+    # Respawn Agent
+
+    > {domain}
+
+    Parent runs this when a child agent returns with a compaction handoff.
+
+    ## Arguments
+
+    - **agent-type**: First word of `$ARGUMENTS` (e.g., `backend-developer`)
+    - **agent-name**: Second word of `$ARGUMENTS` (e.g., `Nova`)
+
+    ## Steps
+
+    1. **Validate child checkpoint exists**: Check `.forge/checkpoints/{{agent-type}}/{{agent-name}}.json`
+       - If not found, report error and abort
+       - If found, verify it was updated recently (within last 30 minutes)
+
+    2. **Read child's context anchor**: Load `.forge/checkpoints/{{agent-type}}/{{agent-name}}.context-anchor.md`
+
+    3. **Identify child's sub-agents**: Check `.forge/session.json` for any agents that list this child as parent
+       - Note their status — they may need re-spawning too
+
+    4. **Build respawn prompt**: Construct a comprehensive prompt including:
+       - The child's instruction file from `.claude/agents/{{agent-type}}.md`
+       - The checkpoint's `context_summary` and `handoff_notes`
+       - The context anchor content
+       - The checkpoint's `current_task`, `pending_tasks`, and `decisions_made`
+       - List of `files_modified` and `branches` from the checkpoint
+       - Explicit instruction: "You are being respawned after context compaction. Run `/agent-init resume` as your first action. Your name is {{agent-name}} — do NOT choose a new name."
+       - `compaction_count` from checkpoint (incremented)
+
+    5. **Spawn the agent**: Use the Agent tool with the respawn prompt
+
+    6. **Verify respawn**: Confirm the child:
+       - Adopted the correct name
+       - Ran `/agent-init resume`
+       - Acknowledged its prior context
+
+    7. **Log in checkpoint**: Update your own checkpoint's `sub_agents` list with the respawned agent
+
+    8. **Register event**: Write agent_started event to `.forge/events/`
+
+    ## Error Handling
+
+    - If checkpoint is too old (>30 min), warn but proceed — stale context is better than no context
+    - If context anchor is missing, proceed with checkpoint data only
+    - If respawn fails, retry once, then escalate to Team Leader
+
+    $ARGUMENTS
+    """
+
+
+def _handoff_skill(config: ForgeConfig) -> str:
+    """Generate the handoff skill for structured agent handoffs."""
+    domain = _domain_context(config)
+
+    return f"""\
+    ---
+    name: handoff
+    description: "Structured handoff — complete, compaction, or blocked"
+    argument-hint: "[complete|compaction|blocked] [description]"
+    ---
+
+    # Agent Handoff
+
+    > {domain}
+
+    Structured handoff protocol for agent lifecycle transitions.
+
+    ## Modes
+
+    Parse first word of `$ARGUMENTS` to determine mode.
+
+    ### `complete` — Task Finished
+
+    1. **Verify all tasks done**: Check your `pending_tasks` list is empty and all `completed_tasks` are verified
+    2. **Verify sub-agents complete**: If you spawned sub-agents, confirm all have status `complete`
+    3. **Final checkpoint save**: Run `/checkpoint save` with `status: "complete"`
+       - Include comprehensive `handoff_notes` summarizing all work done
+       - Include complete `context_summary` of final project state
+    4. **Write context anchor**: Final `.forge/checkpoints/{{your-agent-type}}/{{your-name}}.context-anchor.md`
+    5. **Produce handoff report**: Output a structured report:
+       ```
+       ## Handoff Report — {{your-name}} ({{your-agent-type}})
+
+       **Status**: COMPLETE
+       **Tasks Completed**: {{count}}
+       **Files Modified**: {{list}}
+       **Branches**: {{list}}
+       **Key Decisions**: {{summary}}
+       **Notes for Parent**: {{anything the parent agent needs to know}}
+       ```
+
+    ### `compaction` — Context Compaction Needed
+
+    1. **Increment compaction_count** in your checkpoint data
+    2. **Checkpoint save**: Run `/checkpoint save` — status stays `active` (NOT complete)
+       - Include extra-detailed `handoff_notes` — your respawned self needs maximum context
+       - Include `context_summary` capturing your complete mental model
+       - Include `essential_files` list (max 10 most important files to reload)
+    3. **Write context anchor**: Full `.forge/checkpoints/{{your-agent-type}}/{{your-name}}.context-anchor.md`
+    4. **Produce handoff report**: Output a structured report:
+       ```
+       ## Handoff Report — {{your-name}} ({{your-agent-type}})
+
+       **Status**: REQUESTING RESPAWN (compaction #{{}})
+       **Current Task**: {{what you were working on}}
+       **Progress**: {{percentage and description}}
+       **Next Steps**: {{ordered list of what respawned self should do}}
+       **Critical Context**: {{anything that would be lost without this handoff}}
+       **Essential Files**: {{files to reload}}
+       ```
+    5. **Return to parent**: The parent will run `/respawn` to restart you with context
+
+    ### `blocked` — Cannot Proceed
+
+    1. **Checkpoint save**: Run `/checkpoint save` with `status: "stopped"`
+       - Include detailed blocker description in `handoff_notes`
+       - Include what you tried and why it failed
+    2. **Write context anchor**: `.forge/checkpoints/{{your-agent-type}}/{{your-name}}.context-anchor.md`
+    3. **Produce handoff report**:
+       ```
+       ## Handoff Report — {{your-name}} ({{your-agent-type}})
+
+       **Status**: BLOCKED
+       **Blocker**: {{description of what is blocking progress}}
+       **Tried**: {{what you attempted to resolve it}}
+       **Needs**: {{what would unblock you}}
+       **Can Resume When**: {{conditions for resumption}}
+       ```
+
+    $ARGUMENTS
+    """
+
+
+def _context_reload_skill(config: ForgeConfig) -> str:
+    """Generate the context-reload skill for context recovery."""
+    domain = _domain_context(config)
+    anchor_interval = config.compaction.anchor_interval_minutes
+    compaction_threshold = config.compaction.compaction_threshold_tokens
+
+    return f"""\
+    ---
+    name: context-reload
+    description: "Context recovery — reload files, write anchors, check staleness"
+    argument-hint: "[reload|anchor|status]"
+    ---
+
+    # Context Reload
+
+    > {domain}
+
+    Context management for long-running agent sessions.
+
+    ## Sub-Commands
+
+    Parse first word of `$ARGUMENTS` to determine action.
+
+    ### `reload` — Full Context Recovery
+
+    Use after context compaction or when context feels stale.
+
+    1. **Read instruction file**: Load `.claude/agents/{{your-agent-type}}.md`
+    2. **Read CLAUDE.md**: Load project root `CLAUDE.md`
+    3. **Load checkpoint**: Run `/checkpoint load` to restore state
+    4. **Read context anchor**: Load `.forge/checkpoints/{{your-agent-type}}/{{your-name}}.context-anchor.md`
+    5. **Re-read essential files**: From checkpoint's `essential_files` list (max 10).
+       If `essential_files` is empty, fall back to the last 5 entries from `files_modified`
+    6. **Check git status**: Verify branches and working tree state
+    7. **Resume from handoff_notes**: Follow the instructions your past self left
+    8. **Save fresh checkpoint**: Run `/checkpoint save` to mark successful reload
+    9. **Delete compaction marker**: Remove `.forge/checkpoints/{{your-agent-type}}/{{your-name}}.compaction-marker` if present
+
+    ### `anchor` — Write Context Anchor
+
+    Write/update your context anchor file. Do this every {anchor_interval} minutes.
+
+    1. **Write context-anchor.md** to `.forge/checkpoints/{{your-agent-type}}/{{your-name}}.context-anchor.md`:
+       - Current task and progress
+       - Key decisions made this session
+       - Active files (max 10 most relevant)
+       - Current blockers
+       - Next actions (ordered)
+       - Mental model (2-5 sentences)
+       - Essential files for reload (max 10)
+    2. **Update essential_files** in your next checkpoint save
+
+    ### `status` — Check Context Health
+
+    Diagnose context freshness and recommend actions.
+
+    1. **Check checkpoint staleness**: How old is your last checkpoint?
+       - < 10 min: OK
+       - 10-15 min: STALE — save soon
+       - > 15 min: CRITICAL — save immediately
+    2. **Check anchor staleness**: How old is your context anchor?
+       - < {anchor_interval} min: OK
+       - > {anchor_interval} min: STALE — run `/context-reload anchor`
+    3. **Token estimate**: Check activity log size as a proxy
+       - Log size * 4 = estimated tokens consumed
+       - Threshold: {compaction_threshold:,} tokens
+    4. **Recommendations**: Based on staleness and token usage:
+       - If tokens near threshold: "Run `/handoff compaction` soon"
+       - If checkpoint stale: "Run `/checkpoint save` now"
+       - If anchor stale: "Run `/context-reload anchor` now"
+       - If all fresh: "Context health is good"
+
+    $ARGUMENTS
+    """
+
+
 def _checkpoint_skill(config: ForgeConfig) -> str:
     """Generate the checkpoint skill for session persistence."""
     domain = _domain_context(config)
@@ -3126,12 +3473,13 @@ def _checkpoint_skill(config: ForgeConfig) -> str:
        - `tool_call_count`: total tool calls this session
        - `error`: last error message if any, otherwise null
        - `handoff_notes`: detailed instructions for your future self — what to do next, what's in progress, what to watch out for
-    3. Write atomically: write to `.forge/checkpoints/{{your-agent-type}}.json.tmp` first, then rename to `.forge/checkpoints/{{your-agent-type}}.json`
-    4. Verify the write succeeded by reading back the file
+    3. Ensure checkpoint directory exists: `mkdir -p .forge/checkpoints/{{your-agent-type}}/`
+    4. Write atomically: write to `.forge/checkpoints/{{your-agent-type}}/{{your-agent-name}}.json.tmp` first, then rename to `.forge/checkpoints/{{your-agent-type}}/{{your-agent-name}}.json`
+    5. Verify the write succeeded by reading back the file
 
     ### `load` — Resume from Checkpoint
 
-    1. Read `.forge/checkpoints/{{your-agent-type}}.json`
+    1. Read `.forge/checkpoints/{{your-agent-type}}/{{your-agent-name}}.json`
     2. ADOPT the `agent_name` from the checkpoint — do NOT generate a new name
     3. Resume from `current_task.step_index` — do NOT restart completed work
     4. Re-read your instruction file from `.claude/agents/{{your-agent-type}}.md` (it may have been updated between sessions)
@@ -3157,7 +3505,7 @@ def _checkpoint_skill(config: ForgeConfig) -> str:
 
     ### `status` — Show Checkpoint State
 
-    1. Read all checkpoint files in `.forge/checkpoints/`
+    1. Read all checkpoint files in `.forge/checkpoints/` (recursive — search subdirectories)
     2. For each checkpoint, display:
        - Agent name and type
        - Status (active/stopping/stopped/complete)
@@ -3183,7 +3531,7 @@ def _checkpoint_skill(config: ForgeConfig) -> str:
     - ALWAYS include accurate `handoff_notes` — your future self depends on them
     - ALWAYS include a meaningful `context_summary` — this is the most critical field for resume quality
     - Your `agent_name` MUST be identical across every checkpoint you save — never change it
-    - Checkpoint files live in `.forge/checkpoints/` — never write them elsewhere
+    - Checkpoint files live in `.forge/checkpoints/{{your-agent-type}}/{{your-agent-name}}.json` — never write them elsewhere
     {non_neg}
     $ARGUMENTS
     """
