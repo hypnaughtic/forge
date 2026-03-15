@@ -309,3 +309,83 @@ class TestSerialization:
         assert result is not None
         assert result.project_name == "my-project"
         assert result.agent_tree["Orion"].checkpoint_path == ".forge/checkpoints/team-leader/Orion.json"
+
+
+class TestLegacyAndEdgeCases:
+    """Additional tests for legacy fallback paths and error branches."""
+
+    def test_read_checkpoint_legacy_flat_path(self, tmp_path):
+        """Read from legacy {type}.json path when agent_name is None."""
+        checkpoints_dir = tmp_path / "checkpoints"
+        checkpoints_dir.mkdir()
+        cp = AgentCheckpoint(agent_type="backend-developer", agent_name="Nova")
+        # Write as flat file (legacy format)
+        (checkpoints_dir / "backend-developer.json").write_text(
+            json.dumps(cp.model_dump(mode="json"), indent=2)
+        )
+        result = read_checkpoint("backend-developer", checkpoints_dir)
+        assert result is not None
+        assert result.agent_name == "Nova"
+
+    def test_read_checkpoint_corrupted_hierarchical(self, tmp_path):
+        """Corrupted JSON in hierarchical path returns None."""
+        checkpoints_dir = tmp_path / "checkpoints"
+        type_dir = checkpoints_dir / "dev"
+        type_dir.mkdir(parents=True)
+        (type_dir / "Broken.json").write_text("not valid json {{{")
+        result = read_checkpoint("dev", checkpoints_dir, agent_name="Broken")
+        assert result is None
+
+    def test_read_all_skips_corrupted_hierarchical(self, tmp_path):
+        """Corrupted files in type dirs are skipped."""
+        checkpoints_dir = tmp_path / "checkpoints"
+        type_dir = checkpoints_dir / "dev"
+        type_dir.mkdir(parents=True)
+        (type_dir / "corrupt.json").write_text("bad json")
+        write_checkpoint(AgentCheckpoint(agent_type="dev", agent_name="Good"), checkpoints_dir)
+        result = read_all_checkpoints(checkpoints_dir)
+        assert len(result) == 1
+        assert "Good" in result
+
+    def test_read_all_skips_tmp_in_type_dirs(self, tmp_path):
+        """Tmp files in hierarchical dirs are skipped."""
+        checkpoints_dir = tmp_path / "checkpoints"
+        type_dir = checkpoints_dir / "dev"
+        type_dir.mkdir(parents=True)
+        (type_dir / "Orphan.json.tmp").write_text("{}")
+        result = read_all_checkpoints(checkpoints_dir)
+        assert result == {}
+
+    def test_read_all_legacy_flat_fallback(self, tmp_path):
+        """Legacy flat files at root are discovered."""
+        import json as _json
+        checkpoints_dir = tmp_path / "checkpoints"
+        checkpoints_dir.mkdir()
+        cp = AgentCheckpoint(agent_type="legacy", agent_name="OldAgent")
+        (checkpoints_dir / "legacy.json").write_text(
+            _json.dumps(cp.model_dump(mode="json"), indent=2)
+        )
+        result = read_all_checkpoints(checkpoints_dir)
+        assert "OldAgent" in result
+
+    def test_read_all_legacy_skips_corrupted(self, tmp_path):
+        """Corrupted legacy flat files are skipped."""
+        checkpoints_dir = tmp_path / "checkpoints"
+        checkpoints_dir.mkdir()
+        (checkpoints_dir / "bad.json").write_text("not json")
+        result = read_all_checkpoints(checkpoints_dir)
+        assert result == {}
+
+    def test_read_all_legacy_skips_duplicate(self, tmp_path):
+        """Legacy file with same agent_name as hierarchical is skipped."""
+        import json as _json
+        checkpoints_dir = tmp_path / "checkpoints"
+        cp = AgentCheckpoint(agent_type="dev", agent_name="Alpha")
+        # Write hierarchical
+        write_checkpoint(cp, checkpoints_dir)
+        # Write legacy flat with same agent_name
+        (checkpoints_dir / "dev.json").write_text(
+            _json.dumps(cp.model_dump(mode="json"), indent=2)
+        )
+        result = read_all_checkpoints(checkpoints_dir)
+        assert len(result) == 1  # no duplicates

@@ -32,7 +32,7 @@ def _get_dry_run_provider() -> Any | None:
     try:
         from llm_gateway.testing import FakeLLMProvider
         return FakeLLMProvider()
-    except ImportError:
+    except ImportError:  # pragma: no cover
         return None
 
 
@@ -153,9 +153,9 @@ def generate_all(
         display_token_table(token_report, console)
         forge_dir = project_dir / ".forge"
         save_token_report(token_report, forge_dir)
-    except ImportError:
+    except ImportError:  # pragma: no cover
         console.print("[dim]  Token report skipped (llm-gateway not available)[/dim]")
-    except Exception as exc:
+    except Exception as exc:  # pragma: no cover
         console.print(f"[dim]  Token report skipped ({exc})[/dim]")
 
     console.print()
