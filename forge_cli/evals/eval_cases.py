@@ -2697,8 +2697,8 @@ def _checkpoint_agent_cases() -> list[EvalCase]:
             file_path=fp, file_type=ft,
             description=f"{agent_type} references checkpoint protocol",
             assertions=[
-                _a("Agent file includes checkpoint protocol", CT.REGEX,
-                 r"(?i)checkpoint\s+protocol"),
+                _a("Agent file includes checkpoint protocol or lifecycle skills", CT.REGEX,
+                 r"(?i)(checkpoint\s+protocol|lifecycle\s+skill|decision\s+tree|/checkpoint\s+save)"),
             ],
             applicable_when={"agent_in_roster": agent_type},
         ))
@@ -2789,12 +2789,421 @@ def _checkpoint_team_init_plan_cases() -> list[EvalCase]:
 
 
 # ===========================================================================
+# Lifecycle skill eval cases (context rot reduction)
+# ===========================================================================
+
+
+def _agent_init_skill_cases() -> list[EvalCase]:
+    """Eval cases for agent-init.md lifecycle skill."""
+    fp = ".claude/skills/agent-init.md"
+    ft = "skill"
+    return [
+        EvalCase(
+            id="skill:agent-init:frontmatter",
+            file_path=fp, file_type=ft,
+            description="agent-init skill has correct frontmatter",
+            assertions=[
+                _a("Has description field", CT.FRONTMATTER_FIELD, "description"),
+            ],
+        ),
+        EvalCase(
+            id="skill:agent-init:fresh-mode",
+            file_path=fp, file_type=ft,
+            description="agent-init has fresh startup mode",
+            assertions=[
+                _a("Documents fresh mode", CT.REGEX, r"(?i)(fresh|first.?time|new.?agent|no.?checkpoint)"),
+                _a("Reads instruction file", CT.REGEX, r"(?i)(instruction.?file|\.claude/agents/)"),
+                _a("Reads CLAUDE.md", CT.CONTAINS, "CLAUDE.md"),
+            ],
+        ),
+        EvalCase(
+            id="skill:agent-init:resume-mode",
+            file_path=fp, file_type=ft,
+            description="agent-init has resume mode",
+            assertions=[
+                _a("Documents resume mode", CT.REGEX, r"(?i)(resume|existing.?checkpoint|reload)"),
+                _a("Loads checkpoint", CT.REGEX, r"(?i)(/checkpoint\s+load|checkpoint.*load)"),
+                _a("Reads context anchor", CT.REGEX, r"(?i)(context.?anchor|\.context-anchor\.md)"),
+            ],
+        ),
+        EvalCase(
+            id="skill:agent-init:detect-mode",
+            file_path=fp, file_type=ft,
+            description="agent-init has auto-detect mode",
+            assertions=[
+                _a("Documents detect mode", CT.REGEX, r"(?i)(detect|auto.?detect|check.*exist)"),
+            ],
+        ),
+        EvalCase(
+            id="skill:agent-init:essential-files",
+            file_path=fp, file_type=ft,
+            description="agent-init references essential_files for context recovery",
+            assertions=[
+                _a("References essential_files", CT.REGEX, r"(?i)(essential.?files|must.?reload|working.?files)"),
+            ],
+        ),
+        EvalCase(
+            id="skill:agent-init:identity-confirmation",
+            file_path=fp, file_type=ft,
+            description="agent-init confirms agent identity from spawn prompt",
+            assertions=[
+                _a("Identity confirmation", CT.REGEX, r"(?i)(identity|name|type|parent|confirm|spawn.?prompt)"),
+            ],
+        ),
+        EvalCase(
+            id="skill:agent-init:first-checkpoint",
+            file_path=fp, file_type=ft,
+            description="agent-init creates first checkpoint on fresh start",
+            assertions=[
+                _a("Creates first checkpoint", CT.REGEX, r"(?i)(/checkpoint\s+save|save.*first|initial.*checkpoint)"),
+            ],
+        ),
+        EvalCase(
+            id="skill:agent-init:context-anchor-write",
+            file_path=fp, file_type=ft,
+            description="agent-init writes context anchor",
+            assertions=[
+                _a("Writes context anchor", CT.REGEX, r"(?i)(/context-reload\s+anchor|write.*anchor|context.?anchor)"),
+            ],
+        ),
+        EvalCase(
+            id="skill:agent-init:quality",
+            file_path=fp, file_type=ft,
+            description="agent-init is comprehensive and actionable",
+            assertions=[
+                _a(
+                    "Agent-init skill provides clear, step-by-step instructions for agent "
+                    "initialization covering both fresh starts and resume scenarios. It should "
+                    "include identity confirmation, instruction file loading, checkpoint "
+                    "management, and context anchor creation.",
+                    CT.LLM_JUDGE,
+                    "Evaluate whether this skill file gives an AI agent everything it needs "
+                    "to initialize correctly in both fresh-start and resume scenarios.",
+                ),
+            ],
+        ),
+    ]
+
+
+def _respawn_skill_cases() -> list[EvalCase]:
+    """Eval cases for respawn.md lifecycle skill."""
+    fp = ".claude/skills/respawn.md"
+    ft = "skill"
+    return [
+        EvalCase(
+            id="skill:respawn:frontmatter",
+            file_path=fp, file_type=ft,
+            description="respawn skill has correct frontmatter",
+            assertions=[
+                _a("Has description field", CT.FRONTMATTER_FIELD, "description"),
+            ],
+        ),
+        EvalCase(
+            id="skill:respawn:checkpoint-validation",
+            file_path=fp, file_type=ft,
+            description="respawn validates child checkpoint before respawning",
+            assertions=[
+                _a("Validates checkpoint exists", CT.REGEX,
+                 r"(?i)(verif|validat|check|confirm).*checkpoint"),
+            ],
+        ),
+        EvalCase(
+            id="skill:respawn:token-reset",
+            file_path=fp, file_type=ft,
+            description="respawn resets token counter",
+            assertions=[
+                _a("Resets token counter/estimate", CT.REGEX,
+                 r"(?i)(reset|delete|clear|remove).*(token|counter|estimate|\.token-estimate)"),
+            ],
+        ),
+        EvalCase(
+            id="skill:respawn:context-anchor-read",
+            file_path=fp, file_type=ft,
+            description="respawn reads child's context anchor",
+            assertions=[
+                _a("Reads context anchor", CT.REGEX,
+                 r"(?i)(read|load|context.?anchor|\.context-anchor\.md)"),
+            ],
+        ),
+        EvalCase(
+            id="skill:respawn:agent-init-resume",
+            file_path=fp, file_type=ft,
+            description="respawn instructs child to run /agent-init resume",
+            assertions=[
+                _a("References /agent-init resume", CT.REGEX,
+                 r"(?i)/agent-init\s+(resume|detect)"),
+            ],
+        ),
+        EvalCase(
+            id="skill:respawn:name-preservation",
+            file_path=fp, file_type=ft,
+            description="respawn preserves agent name across respawn",
+            assertions=[
+                _a("Name preservation", CT.REGEX,
+                 r"(?i)(same\s+name|exact\s+name|preserv.*name|name.*preserv)"),
+            ],
+        ),
+        EvalCase(
+            id="skill:respawn:sub-agent-discovery",
+            file_path=fp, file_type=ft,
+            description="respawn handles child's own sub-agents",
+            assertions=[
+                _a("Sub-agent discovery", CT.REGEX,
+                 r"(?i)(sub.?agent|child|children|recursive|hierarchy)"),
+            ],
+        ),
+        EvalCase(
+            id="skill:respawn:quality",
+            file_path=fp, file_type=ft,
+            description="respawn skill is comprehensive",
+            assertions=[
+                _a(
+                    "Respawn skill clearly instructs a parent agent on how to respawn "
+                    "a child after compaction, including checkpoint validation, context "
+                    "anchor loading, token counter reset, and spawn prompt construction.",
+                    CT.LLM_JUDGE,
+                    "Evaluate whether this skill provides complete, unambiguous instructions "
+                    "for respawning an agent after compaction threshold is reached.",
+                ),
+            ],
+        ),
+    ]
+
+
+def _handoff_skill_cases() -> list[EvalCase]:
+    """Eval cases for handoff.md lifecycle skill."""
+    fp = ".claude/skills/handoff.md"
+    ft = "skill"
+    return [
+        EvalCase(
+            id="skill:handoff:frontmatter",
+            file_path=fp, file_type=ft,
+            description="handoff skill has correct frontmatter",
+            assertions=[
+                _a("Has description field", CT.FRONTMATTER_FIELD, "description"),
+            ],
+        ),
+        EvalCase(
+            id="skill:handoff:complete-mode",
+            file_path=fp, file_type=ft,
+            description="handoff has complete mode for finished work",
+            assertions=[
+                _a("Documents complete mode", CT.REGEX, r"(?i)(complete|finish|done|all.?work)"),
+                _a("Sets status to complete", CT.REGEX, r"(?i)(status.*complete|complete.*status)"),
+            ],
+        ),
+        EvalCase(
+            id="skill:handoff:compaction-mode",
+            file_path=fp, file_type=ft,
+            description="handoff has compaction mode for threshold reached",
+            assertions=[
+                _a("Documents compaction mode", CT.REGEX,
+                 r"(?i)(compaction|threshold|requesting.?respawn)"),
+                _a("Increments compaction count", CT.REGEX,
+                 r"(?i)(compaction.?count|increment)"),
+            ],
+        ),
+        EvalCase(
+            id="skill:handoff:blocked-mode",
+            file_path=fp, file_type=ft,
+            description="handoff has blocked mode for stuck work",
+            assertions=[
+                _a("Documents blocked mode", CT.REGEX,
+                 r"(?i)(block|stuck|cannot.?proceed|unable)"),
+            ],
+        ),
+        EvalCase(
+            id="skill:handoff:handoff-report",
+            file_path=fp, file_type=ft,
+            description="handoff produces structured report",
+            assertions=[
+                _a("Structured handoff report", CT.REGEX,
+                 r"(?i)(handoff.?report|structured.*report|summary|status)"),
+                _a("Lists files modified", CT.REGEX,
+                 r"(?i)(files.?modified|files.?created|artifacts)"),
+            ],
+        ),
+        EvalCase(
+            id="skill:handoff:checkpoint-save",
+            file_path=fp, file_type=ft,
+            description="handoff saves checkpoint before returning",
+            assertions=[
+                _a("Saves checkpoint", CT.REGEX,
+                 r"(?i)(/checkpoint\s+save|save.*checkpoint)"),
+            ],
+        ),
+        EvalCase(
+            id="skill:handoff:context-anchor",
+            file_path=fp, file_type=ft,
+            description="handoff writes context anchor before returning",
+            assertions=[
+                _a("Writes context anchor", CT.REGEX,
+                 r"(?i)(/context-reload\s+anchor|context.?anchor)"),
+            ],
+        ),
+        EvalCase(
+            id="skill:handoff:quality",
+            file_path=fp, file_type=ft,
+            description="handoff skill is comprehensive",
+            assertions=[
+                _a(
+                    "Handoff skill provides clear instructions for three distinct modes: "
+                    "complete (all work done), compaction (threshold reached, requesting "
+                    "respawn), and blocked (cannot proceed). Each mode should specify "
+                    "checkpoint save behavior, context anchor writing, and report format.",
+                    CT.LLM_JUDGE,
+                    "Evaluate whether this skill covers all three handoff scenarios with "
+                    "clear, actionable steps and proper state preservation.",
+                ),
+            ],
+        ),
+    ]
+
+
+def _context_reload_skill_cases() -> list[EvalCase]:
+    """Eval cases for context-reload.md lifecycle skill."""
+    fp = ".claude/skills/context-reload.md"
+    ft = "skill"
+    return [
+        EvalCase(
+            id="skill:context-reload:frontmatter",
+            file_path=fp, file_type=ft,
+            description="context-reload skill has correct frontmatter",
+            assertions=[
+                _a("Has description field", CT.FRONTMATTER_FIELD, "description"),
+            ],
+        ),
+        EvalCase(
+            id="skill:context-reload:reload-subcommand",
+            file_path=fp, file_type=ft,
+            description="context-reload has reload sub-command",
+            assertions=[
+                _a("Documents reload sub-command", CT.REGEX, r"(?i)(reload|full.*reload|restore.*context)"),
+                _a("Loads instruction file", CT.REGEX, r"(?i)(instruction.?file|\.claude/agents/)"),
+                _a("Loads CLAUDE.md", CT.CONTAINS, "CLAUDE.md"),
+                _a("Loads checkpoint", CT.REGEX, r"(?i)(/checkpoint\s+load|load.*checkpoint)"),
+            ],
+        ),
+        EvalCase(
+            id="skill:context-reload:anchor-subcommand",
+            file_path=fp, file_type=ft,
+            description="context-reload has anchor sub-command",
+            assertions=[
+                _a("Documents anchor sub-command", CT.REGEX, r"(?i)(anchor|write.*anchor|context.?anchor)"),
+                _a("Anchor includes current task", CT.REGEX, r"(?i)(current.?task|working.?on|active.?task)"),
+                _a("Anchor includes essential files", CT.REGEX, r"(?i)(essential.?files|critical.?files|working.?files)"),
+            ],
+        ),
+        EvalCase(
+            id="skill:context-reload:status-subcommand",
+            file_path=fp, file_type=ft,
+            description="context-reload has status sub-command",
+            assertions=[
+                _a("Documents status sub-command", CT.REGEX, r"(?i)(status|check|staleness|health)"),
+                _a("Reports token estimate", CT.REGEX, r"(?i)(token|estimate|usage|threshold)"),
+            ],
+        ),
+        EvalCase(
+            id="skill:context-reload:essential-files",
+            file_path=fp, file_type=ft,
+            description="context-reload handles essential_files list",
+            assertions=[
+                _a("References essential_files", CT.REGEX, r"(?i)(essential.?files|5.?10|curated|must.?reload)"),
+            ],
+        ),
+        EvalCase(
+            id="skill:context-reload:compaction-marker",
+            file_path=fp, file_type=ft,
+            description="context-reload handles compaction marker cleanup",
+            assertions=[
+                _a("Handles compaction marker", CT.REGEX, r"(?i)(compaction.?marker|\.compaction-marker|delete.*marker|clean.*marker)"),
+            ],
+        ),
+        EvalCase(
+            id="skill:context-reload:quality",
+            file_path=fp, file_type=ft,
+            description="context-reload skill is comprehensive",
+            assertions=[
+                _a(
+                    "Context-reload skill provides clear instructions for three sub-commands: "
+                    "reload (full context restoration), anchor (write context snapshot), and "
+                    "status (check staleness). It should reference essential_files, checkpoint "
+                    "loading, and compaction marker cleanup.",
+                    CT.LLM_JUDGE,
+                    "Evaluate whether this skill provides a complete context recovery system "
+                    "with all three sub-commands clearly documented.",
+                ),
+            ],
+        ),
+    ]
+
+
+def _context_management_claude_md_cases() -> list[EvalCase]:
+    """Eval cases for Context Management section in CLAUDE.md."""
+    fp = "CLAUDE.md"
+    ft = "claude_md"
+    return [
+        EvalCase(
+            id="claude-md:context-management-section",
+            file_path=fp, file_type=ft,
+            description="CLAUDE.md has context management section",
+            assertions=[
+                _a("Context management section present", CT.SECTION_PRESENT, "Context Management"),
+            ],
+        ),
+        EvalCase(
+            id="claude-md:compaction-threshold",
+            file_path=fp, file_type=ft,
+            description="CLAUDE.md documents compaction threshold",
+            assertions=[
+                _a("Compaction threshold documented", CT.REGEX, r"(?i)(compaction.?threshold|100.?000|threshold.*token)"),
+            ],
+        ),
+        EvalCase(
+            id="claude-md:lifecycle-skills-section",
+            file_path=fp, file_type=ft,
+            description="CLAUDE.md lists lifecycle skills",
+            assertions=[
+                _a("Lifecycle skills section present", CT.SECTION_PRESENT, "Lifecycle Skills"),
+                _a("References /agent-init", CT.CONTAINS, "/agent-init"),
+                _a("References /handoff", CT.CONTAINS, "/handoff"),
+                _a("References /context-reload", CT.CONTAINS, "/context-reload"),
+            ],
+        ),
+    ]
+
+
+def _checkpoint_protocol_decision_tree_cases() -> list[EvalCase]:
+    """Eval cases for Skill Decision Tree in agent instruction files."""
+    cases: list[EvalCase] = []
+    for agent_type in [
+        "team-leader", "backend-developer", "architect",
+        "qa-engineer", "devops-specialist", "critic",
+    ]:
+        fp = f".claude/agents/{agent_type}.md"
+        ft = "agent"
+        cases.append(EvalCase(
+            id=f"agent:{agent_type}:decision-tree",
+            file_path=fp, file_type=ft,
+            description=f"{agent_type} has skill decision tree",
+            assertions=[
+                _a("Has decision tree or lifecycle skills reference", CT.REGEX,
+                 r"(?i)(decision.?tree|lifecycle.?skill|/agent-init|JUST SPAWNED)"),
+                _a("References /handoff", CT.REGEX, r"(?i)/handoff"),
+                _a("References /checkpoint save", CT.REGEX, r"(?i)/checkpoint\s+save"),
+            ],
+            applicable_when={"agent_in_roster": agent_type},
+        ))
+    return cases
+
+
+# ===========================================================================
 # Registry aggregation
 # ===========================================================================
 
 
 def get_all_eval_cases() -> list[EvalCase]:
-    """Return the complete eval case registry (350+ cases)."""
+    """Return the complete eval case registry (400+ cases)."""
     cases: list[EvalCase] = []
 
     # Agent file cases
@@ -2834,6 +3243,12 @@ def get_all_eval_cases() -> list[EvalCase]:
     cases.extend(_playwright_test_skill_cases())
     cases.extend(_checkpoint_skill_cases())
 
+    # Lifecycle skill cases (context rot reduction)
+    cases.extend(_agent_init_skill_cases())
+    cases.extend(_respawn_skill_cases())
+    cases.extend(_handoff_skill_cases())
+    cases.extend(_context_reload_skill_cases())
+
     # Root file cases
     cases.extend(_claude_md_cases())
     cases.extend(_team_init_plan_cases())
@@ -2841,5 +3256,11 @@ def get_all_eval_cases() -> list[EvalCase]:
     # Checkpoint in root files
     cases.extend(_checkpoint_claude_md_cases())
     cases.extend(_checkpoint_team_init_plan_cases())
+
+    # Context management in root files
+    cases.extend(_context_management_claude_md_cases())
+
+    # Decision tree in agent files
+    cases.extend(_checkpoint_protocol_decision_tree_cases())
 
     return cases

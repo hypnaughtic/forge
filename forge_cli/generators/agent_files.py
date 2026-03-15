@@ -2232,6 +2232,40 @@ def _frontend_designer_template(config: ForgeConfig) -> str:
     - File visual fidelity bugs with screenshots showing expected vs actual{domain_section}""")
 
 
+def _qa_database_testing_section(config: ForgeConfig) -> str:
+    """Generate database testing guidance if project uses databases."""
+    dbs = [d.lower() for d in config.tech_stack.databases]
+    if not dbs:
+        return ""
+    db_items = ["\n\n    ### Database Testing"]
+    if any("postgres" in d for d in dbs):
+        db_items.extend([
+            "    - Test database migrations: forward and rollback",
+            "    - Verify schema constraints (NOT NULL, UNIQUE, FK) catch invalid data",
+            "    - Test connection pooling under concurrent load",
+            "    - Validate query performance with EXPLAIN ANALYZE on critical queries",
+            "    - Test transaction isolation (concurrent updates to same record)",
+        ])
+    if any("redis" in d for d in dbs):
+        db_items.extend([
+            "    - Test cache invalidation: stale data never served after writes",
+            "    - Verify TTL expiration for session/cache entries",
+            "    - Test Redis connection failure graceful degradation",
+        ])
+    if any("mongo" in d for d in dbs):
+        db_items.extend([
+            "    - Test document schema validation and index coverage",
+            "    - Verify aggregation pipeline correctness with edge case data",
+        ])
+    if not any("postgres" in d or "redis" in d or "mongo" in d for d in dbs):
+        db_items.extend([
+            "    - Test database schema migrations: forward and rollback",
+            "    - Verify data integrity constraints catch invalid data",
+            "    - Test connection handling under concurrent load",
+        ])
+    return "\n".join(db_items)
+
+
 def _qa_engineer_template(config: ForgeConfig) -> str:
     is_cli = config.is_cli_project()
     has_frontend = config.has_frontend_involvement()
@@ -2329,7 +2363,7 @@ def _qa_engineer_template(config: ForgeConfig) -> str:
     - Define test pyramid: unit → integration → E2E ratio
     - Define quality gates per iteration
     - Identify critical paths that need maximum test coverage
-    - Define test data strategies{test_impl}{visual_section}{domain_section}
+    - Define test data strategies{test_impl}{visual_section}{_qa_database_testing_section(config)}{domain_section}
 
     ### Quality Gates
     - All tests must pass before iteration completion

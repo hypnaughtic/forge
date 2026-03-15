@@ -429,10 +429,16 @@ def _domain_context(config: ForgeConfig) -> str:
     """
     parts = [f"**Project**: {config.project.description}"]
     if config.project.requirements:
-        # Truncate to keep skill files focused — full context is in CLAUDE.md
-        excerpt = config.project.requirements[:200]
-        if len(config.project.requirements) > 200:
-            excerpt += "..."
+        # Truncate at word boundary to keep skill files focused
+        req = config.project.requirements
+        if len(req) > 300:
+            # Find last space before limit for clean truncation
+            cut = req[:300].rfind(" ")
+            if cut < 100:
+                cut = 300
+            excerpt = req[:cut].rstrip(".,;:-") + "..."
+        else:
+            excerpt = req
         parts.append(f"**Requirements**: {excerpt}")
     parts.append(
         f"**Mode**: {config.mode.value} | **Strategy**: {config.strategy.value}"
@@ -3049,7 +3055,6 @@ def _benchmark_skill(config: ForgeConfig) -> str:
 
 def _agent_init_skill(config: ForgeConfig) -> str:
     """Generate the agent-init skill for startup ceremony."""
-    domain = _domain_context(config)
     anchor_interval = config.compaction.anchor_interval_minutes
 
     return f"""\
@@ -3061,7 +3066,7 @@ def _agent_init_skill(config: ForgeConfig) -> str:
 
     # Agent Initialization
 
-    > {domain}
+    > Lifecycle ceremony — applies to all agents regardless of project type.
 
     Full startup ceremony for agent lifecycle management.
 
@@ -3143,8 +3148,6 @@ def _agent_init_skill(config: ForgeConfig) -> str:
 
 def _respawn_skill(config: ForgeConfig) -> str:
     """Generate the respawn skill for parent agents."""
-    domain = _domain_context(config)
-
     return f"""\
     ---
     name: respawn
@@ -3154,7 +3157,7 @@ def _respawn_skill(config: ForgeConfig) -> str:
 
     # Respawn Agent
 
-    > {domain}
+    > Lifecycle ceremony — parent runs this when a child returns after compaction.
 
     Parent runs this when a child agent returns with a compaction handoff.
 
@@ -3169,30 +3172,33 @@ def _respawn_skill(config: ForgeConfig) -> str:
        - If not found, report error and abort
        - If found, verify it was updated recently (within last 30 minutes)
 
-    2. **Read child's context anchor**: Load `.forge/checkpoints/{{agent-type}}/{{agent-name}}.context-anchor.md`
+    2. **Reset token tracking**: Delete `.forge/checkpoints/{{agent-type}}/{{agent-name}}.token-estimate` to reset the token counter to zero. Also delete `.forge/checkpoints/{{agent-type}}/{{agent-name}}.compaction-marker` if it exists.
 
-    3. **Identify child's sub-agents**: Check `.forge/session.json` for any agents that list this child as parent
+    3. **Read child's context anchor**: Load `.forge/checkpoints/{{agent-type}}/{{agent-name}}.context-anchor.md`
+
+    4. **Identify child's sub-agents (recursive hierarchy)**: Check `.forge/session.json` for any agents that list this child as parent
        - Note their status — they may need re-spawning too
 
-    4. **Build respawn prompt**: Construct a comprehensive prompt including:
+    5. **Build respawn prompt**: Construct a comprehensive prompt including:
        - The child's instruction file from `.claude/agents/{{agent-type}}.md`
        - The checkpoint's `context_summary` and `handoff_notes`
        - The context anchor content
        - The checkpoint's `current_task`, `pending_tasks`, and `decisions_made`
        - List of `files_modified` and `branches` from the checkpoint
-       - Explicit instruction: "You are being respawned after context compaction. Run `/agent-init resume` as your first action. Your name is {{agent-name}} — do NOT choose a new name."
        - `compaction_count` from checkpoint (incremented)
 
-    5. **Spawn the agent**: Use the Agent tool with the respawn prompt
+    6. **Preserve the exact same name**: The respawned agent MUST use the exact same name as before. Include in spawn prompt: "You are being respawned after context compaction. Run `/agent-init resume` as your first action. Your name is {{agent-name}} — do NOT choose a new name. Preserve this exact name."
 
-    6. **Verify respawn**: Confirm the child:
-       - Adopted the correct name
+    7. **Spawn the agent**: Use the Agent tool with the respawn prompt
+
+    8. **Verify respawn**: Confirm the child:
+       - Preserved the same name (exact name match)
        - Ran `/agent-init resume`
        - Acknowledged its prior context
 
-    7. **Log in checkpoint**: Update your own checkpoint's `sub_agents` list with the respawned agent
+    9. **Log in checkpoint**: Update your own checkpoint's `sub_agents` list with the respawned agent
 
-    8. **Register event**: Write agent_started event to `.forge/events/`
+    10. **Register event**: Write agent_started event to `.forge/events/`
 
     ## Error Handling
 
@@ -3206,8 +3212,6 @@ def _respawn_skill(config: ForgeConfig) -> str:
 
 def _handoff_skill(config: ForgeConfig) -> str:
     """Generate the handoff skill for structured agent handoffs."""
-    domain = _domain_context(config)
-
     return f"""\
     ---
     name: handoff
@@ -3217,9 +3221,7 @@ def _handoff_skill(config: ForgeConfig) -> str:
 
     # Agent Handoff
 
-    > {domain}
-
-    Structured handoff protocol for agent lifecycle transitions.
+    > Lifecycle ceremony — structured handoff for all agent lifecycle transitions.
 
     ## Modes
 
@@ -3289,7 +3291,6 @@ def _handoff_skill(config: ForgeConfig) -> str:
 
 def _context_reload_skill(config: ForgeConfig) -> str:
     """Generate the context-reload skill for context recovery."""
-    domain = _domain_context(config)
     anchor_interval = config.compaction.anchor_interval_minutes
     compaction_threshold = config.compaction.compaction_threshold_tokens
 
@@ -3302,7 +3303,7 @@ def _context_reload_skill(config: ForgeConfig) -> str:
 
     # Context Reload
 
-    > {domain}
+    > Lifecycle ceremony — context recovery and anchor management for all agents.
 
     Context management for long-running agent sessions.
 
@@ -3365,7 +3366,6 @@ def _context_reload_skill(config: ForgeConfig) -> str:
 
 def _checkpoint_skill(config: ForgeConfig) -> str:
     """Generate the checkpoint skill for session persistence."""
-    domain = _domain_context(config)
     non_neg = _non_negotiables_section(config, context="checkpoint")
 
     # Project-type-specific checkpoint frequency guidance
@@ -3436,9 +3436,9 @@ def _checkpoint_skill(config: ForgeConfig) -> str:
 
     # Agent Checkpoint Protocol
 
-    > {domain}
+    > Lifecycle ceremony — session persistence for stop/resume across all project types.
 
-    **Strategy**: {strategy_note}
+    **Strategy ({strategy})**: {strategy_note}
 
     ## Commands
 

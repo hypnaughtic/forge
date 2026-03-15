@@ -164,6 +164,18 @@ def _build_project_context(config: ForgeConfig, project_dir: Path | None = None)
     return "\n".join(parts)
 
 
+_LIFECYCLE_CEREMONY_SKILLS = {
+    "agent-init", "respawn", "handoff", "context-reload", "checkpoint",
+}
+
+
+def _is_lifecycle_ceremony(file_path: str) -> bool:
+    """Check if a file is a lifecycle/ceremony skill (project-agnostic)."""
+    from pathlib import PurePosixPath
+    name = PurePosixPath(file_path).stem
+    return name in _LIFECYCLE_CEREMONY_SKILLS
+
+
 def _build_score_prompt(
     content: str,
     config: ForgeConfig,
@@ -178,6 +190,7 @@ def _build_score_prompt(
     toward concrete issues identified by automated assertions.
     """
     context = _build_project_context(config, project_dir=project_dir)
+    is_ceremony = _is_lifecycle_ceremony(file_path)
 
     eval_section = ""
     if eval_failures:
@@ -189,6 +202,30 @@ EVAL ASSERTION FAILURES (from automated quality checks — these are objective i
 
 Factor these failures into your score. Each unaddressed failure should reduce the score."""
 
+    if is_ceremony:
+        criteria = """SCORING CRITERIA for LIFECYCLE CEREMONY SKILL (score 0-100):
+This is a lifecycle/ceremony skill (checkpoint, context-reload, agent-init, handoff, respawn).
+These skills define UNIVERSAL procedures that work identically regardless of project type.
+They should NOT contain project-specific details like tech stack, domain, or requirements.
+
+1. Completeness — Does it cover all steps in the ceremony procedure? (35 pts)
+2. Clarity & Actionability — Are steps clear, ordered, and unambiguous for an AI agent? (30 pts)
+3. Correctness — Are file paths, commands, and JSON structures correct? (20 pts)
+4. Error Handling — Does it handle edge cases (missing files, corrupted data)? (15 pts)
+
+IMPORTANT RULES for ceremony skills:
+- Do NOT penalize for LACK of project-specific content — ceremony skills are INTENTIONALLY generic.
+- Do NOT suggest adding tech stack references, domain details, or project requirements.
+- DO penalize if project context is embedded where it adds no value (e.g., domain context in checkpoint save steps).
+- Focus on whether the PROCEDURE is complete, correct, and followable."""
+    else:
+        criteria = """SCORING CRITERIA (score 0-100, unified):
+1. Completeness — Does it cover all responsibilities for this role/file type? (25 pts)
+2. Config fidelity — Does it reflect the project config (mode, strategy, tech stack, agents)? (25 pts)
+3. Specificity — Does it use project-specific details from the config above? (20 pts)
+4. Clarity & Actionability — Are instructions clear enough for an AI agent to follow? (20 pts)
+5. Consistency — Is it internally consistent and compatible with team structure? (10 pts)"""
+
     return f"""You are evaluating a generated agent instruction file for quality.
 
 PROJECT CONTEXT:
@@ -199,12 +236,7 @@ FILE: {file_path} (type: {file_type})
 CONTENT:
 {content}
 
-SCORING CRITERIA (score 0-100, unified):
-1. Completeness — Does it cover all responsibilities for this role/file type? (25 pts)
-2. Config fidelity — Does it reflect the project config (mode, strategy, tech stack, agents)? (25 pts)
-3. Specificity — Does it use project-specific details from the config above? (20 pts)
-4. Clarity & Actionability — Are instructions clear enough for an AI agent to follow? (20 pts)
-5. Consistency — Is it internally consistent and compatible with team structure? (10 pts)
+{criteria}
 
 IMPORTANT RULES:
 - `$ARGUMENTS` is a Claude skill template variable — do NOT penalize its presence.
@@ -269,9 +301,26 @@ EVAL ASSERTION FAILURES (must address these — they are objective test results,
 
 """
 
+    is_ceremony = _is_lifecycle_ceremony(file_path)
+
+    if is_ceremony:
+        context_instruction = (
+            "PROJECT CONTEXT (for reference only — this is a lifecycle ceremony skill "
+            "that should NOT embed project-specific details):"
+        )
+        rules_extra = """- This is a LIFECYCLE CEREMONY skill — do NOT add project-specific tech stack, domain details, or requirements.
+- Ceremony skills define universal procedures (checkpoint save/load, context reload, agent init, handoff, respawn).
+- Improvements should focus on: clearer steps, better error handling, more precise file paths, better edge case coverage.
+- Do NOT add project context headers, domain context blocks, or tech stack references."""
+    else:
+        context_instruction = "PROJECT CONTEXT (use these details to make content project-specific):"
+        rules_extra = """- Focus on embedding project-specific details (tech stack, requirements, mode, agents) where they add value.
+- Do NOT add domain-specific content (HR, payment, e-commerce) unless the PROJECT CONTEXT explicitly describes that domain.
+- Do NOT copy-paste the project requirements verbatim — distill relevant details into actionable instructions."""
+
     return f"""You are improving a generated agent instruction file to score above 90/100.
 
-PROJECT CONTEXT (use these details to make content project-specific):
+{context_instruction}
 {context}
 
 FILE: {file_path} (type: {file_type})
@@ -290,10 +339,8 @@ RULES:
 - Preserve `$ARGUMENTS` placeholders, section headers, and `---` separators.
 - Address each suggestion concisely. Do NOT over-expand — add targeted improvements, not walls of text.
 - Keep the file roughly the same length. Improve quality, not quantity.
-- Focus on embedding project-specific details (tech stack, requirements, mode, agents) where they add value.
 - PRESERVE sections that are NOT mentioned in the suggestions — only modify what needs improvement.
-- Do NOT add domain-specific content (HR, payment, e-commerce) unless the PROJECT CONTEXT explicitly describes that domain.
-- Do NOT copy-paste the project requirements verbatim — distill relevant details into actionable instructions.
+{rules_extra}
 
 Return a structured response with:
 - content: the complete improved file content
