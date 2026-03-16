@@ -144,7 +144,7 @@ def materialize_session(forge_dir: Path) -> SessionState:
 
 def _apply_event(session: SessionState, event: dict) -> None:
     """Apply a single event. All handlers are idempotent (set operations)."""
-    event_type = event.get("event")
+    event_type = event.get("type") or event.get("event")
     tree = session.agent_tree
 
     if event_type == "agent_registered":

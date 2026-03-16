@@ -882,7 +882,8 @@ def _spawn_agent_skill(config: ForgeConfig) -> str:
     3. **Register the spawn event**: Write a JSON event to `.forge/events/`:
        ```
        {{
-         "event_type": "agent_started",
+         "type": "agent_started",
+         "event": "agent_started",
          "agent_type": "<agent-type>",
          "agent_name": "<to-be-assigned>",
          "parent_agent_type": "<your-type>",

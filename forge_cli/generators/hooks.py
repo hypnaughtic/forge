@@ -53,15 +53,21 @@ def generate_hook_scripts(config: ForgeConfig | None, forge_dir: Path) -> list[P
     _make_executable(path)
     scripts.append(path)
 
-    # Bash checkpoint reminder
+    # Bash checkpoint reminder (with activity tracking + compaction)
     path = hooks_dir / "bash-checkpoint-reminder.sh"
-    path.write_text(_bash_checkpoint_reminder_script())
+    path.write_text(_bash_checkpoint_reminder_script(compaction_threshold, anchor_interval))
     _make_executable(path)
     scripts.append(path)
 
     # Pre-compact checkpoint
     path = hooks_dir / "pre-compact-checkpoint.sh"
     path.write_text(_pre_compact_checkpoint_script())
+    _make_executable(path)
+    scripts.append(path)
+
+    # Generic activity tracking (Read|Glob|Grep|Agent — tools not covered above)
+    path = hooks_dir / "generic-activity-tracker.sh"
+    path.write_text(_generic_activity_tracker_script(compaction_threshold))
     _make_executable(path)
     scripts.append(path)
 
@@ -135,7 +141,7 @@ def resolve(forge_dir: str, session_id: str) -> dict:
             for event_file in sorted(events_dir.glob("*.json"), reverse=True):
                 event = json.loads(event_file.read_text())
                 if (
-                    event.get("event_type") == "agent_started"
+                    (event.get("type") or event.get("event_type") or event.get("event")) == "agent_started"
                     and event.get("session_id") == session_id
                 ):
                     result["agent_type"] = event.get("agent_type", "unknown")
@@ -171,7 +177,7 @@ def _post_tool_checkpoint_script(
 # checks anchor freshness.
 set -euo pipefail
 
-FORGE_DIR="$(pwd)/.forge"
+FORGE_DIR="${{CLAUDE_PROJECT_DIR:-.}}/.forge"
 CHECKPOINTS_DIR="${{FORGE_DIR}}/checkpoints"
 mkdir -p "${{CHECKPOINTS_DIR}}"
 
@@ -219,7 +225,7 @@ if [ -f "${{LOG_FILE}}" ]; then
         mkdir -p "${{EVENTS_DIR}}"
         EVENT_FILE="${{EVENTS_DIR}}/$(date +%s%N)-compaction-needed.json"
         TMP_EVENT="${{EVENT_FILE}}.tmp"
-        echo "{{\\"event_type\\":\\"compaction_needed\\",\\"agent_type\\":\\"${{AGENT_TYPE}}\\",\\"agent_name\\":\\"${{AGENT_NAME}}\\",\\"estimated_tokens\\":${{ESTIMATED_TOKENS}},\\"threshold\\":{compaction_threshold},\\"timestamp\\":\\"${{TIMESTAMP}}\\"}}" > "${{TMP_EVENT}}"
+        echo "{{\\"type\\":\\"compaction_needed\\",\\"event\\":\\"compaction_needed\\",\\"agent_type\\":\\"${{AGENT_TYPE}}\\",\\"agent_name\\":\\"${{AGENT_NAME}}\\",\\"estimated_tokens\\":${{ESTIMATED_TOKENS}},\\"threshold\\":{compaction_threshold},\\"timestamp\\":\\"${{TIMESTAMP}}\\"}}" > "${{TMP_EVENT}}"
         mv "${{TMP_EVENT}}" "${{EVENT_FILE}}" 2>/dev/null || true
         echo "COMPACTION WARNING: Estimated token usage (${{ESTIMATED_TOKENS}}) exceeds threshold ({compaction_threshold}). Run /handoff compaction to preserve context before compaction occurs."
     fi
@@ -238,50 +244,138 @@ fi
 '''
 
 
-def _bash_checkpoint_reminder_script() -> str:
-    """Hook for PostToolUse on Bash — longer threshold, stop signal detection."""
-    return '''\
+def _bash_checkpoint_reminder_script(
+    compaction_threshold: int = 100_000,
+    anchor_interval: int = 15,
+) -> str:
+    """Hook for PostToolUse on Bash — activity logging, token tracking, stop signal."""
+    return f'''\
 #!/usr/bin/env bash
 # Forge hook: PostToolUse (Bash)
-# Checks for stop signal and reminds about stale checkpoints.
+# Logs activity, tracks tokens, checks stop signal, reminds about checkpoints.
 set -euo pipefail
 
-FORGE_DIR="$(pwd)/.forge"
-CHECKPOINTS_DIR="${FORGE_DIR}/checkpoints"
+FORGE_DIR="${{CLAUDE_PROJECT_DIR:-.}}/.forge"
+CHECKPOINTS_DIR="${{FORGE_DIR}}/checkpoints"
+mkdir -p "${{CHECKPOINTS_DIR}}"
 
 # Check for stop signal FIRST
-if [ -f "${FORGE_DIR}/STOP_REQUESTED" ]; then
+if [ -f "${{FORGE_DIR}}/STOP_REQUESTED" ]; then
     echo "STOP SIGNAL DETECTED: forge stop has been requested. Save your checkpoint NOW with /checkpoint save, commit WIP, and stop all work."
     exit 0
 fi
 
-# Read stdin (required even if not used)
-cat > /dev/null
+# Read tool input from stdin
+INPUT=$(cat)
+
+TOOL_NAME=$(echo "${{INPUT}}" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_name','Bash'))" 2>/dev/null || echo "Bash")
+SESSION_ID=$(echo "${{INPUT}}" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('session_id',''))" 2>/dev/null || echo "")
+
+TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+# Resolve agent identity
+IDENTITY=$(python3 "${{FORGE_DIR}}/scripts/resolve_identity.py" "${{FORGE_DIR}}" "${{SESSION_ID}}" 2>/dev/null || echo '{{"agent_type":"unknown","agent_name":"unknown"}}')
+AGENT_TYPE=$(echo "${{IDENTITY}}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('agent_type','unknown'))" 2>/dev/null || echo "unknown")
+AGENT_NAME=$(echo "${{IDENTITY}}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('agent_name','unknown'))" 2>/dev/null || echo "unknown")
+
+# Ensure hierarchical checkpoint directory exists
+AGENT_CKPT_DIR="${{CHECKPOINTS_DIR}}/${{AGENT_TYPE}}"
+mkdir -p "${{AGENT_CKPT_DIR}}"
+
+LOG_FILE="${{AGENT_CKPT_DIR}}/${{AGENT_NAME}}.activity.jsonl"
+
+# Append activity entry
+echo "{{\\"timestamp\\":\\"${{TIMESTAMP}}\\",\\"tool\\":\\"${{TOOL_NAME}}\\",\\"session_id\\":\\"${{SESSION_ID}}\\"}}" >> "${{LOG_FILE}}" 2>/dev/null || true
+
+# Token tracking — cooperative compaction trigger
+COMPACTION_THRESHOLD={compaction_threshold}
+if [ -f "${{LOG_FILE}}" ]; then
+    LOG_BYTES=$(wc -c < "${{LOG_FILE}}" 2>/dev/null || echo "0")
+    ESTIMATED_TOKENS=$(( LOG_BYTES / 4 ))
+    if [ "${{ESTIMATED_TOKENS}}" -gt "${{COMPACTION_THRESHOLD}}" ]; then
+        EVENTS_DIR="${{FORGE_DIR}}/events"
+        mkdir -p "${{EVENTS_DIR}}"
+        EVENT_FILE="${{EVENTS_DIR}}/$(date +%s%N)-compaction-needed.json"
+        TMP_EVENT="${{EVENT_FILE}}.tmp"
+        echo "{{\\"type\\":\\"compaction_needed\\",\\"event\\":\\"compaction_needed\\",\\"agent_type\\":\\"${{AGENT_TYPE}}\\",\\"agent_name\\":\\"${{AGENT_NAME}}\\",\\"estimated_tokens\\":${{ESTIMATED_TOKENS}},\\"threshold\\":{compaction_threshold},\\"timestamp\\":\\"${{TIMESTAMP}}\\"}}" > "${{TMP_EVENT}}"
+        mv "${{TMP_EVENT}}" "${{EVENT_FILE}}" 2>/dev/null || true
+        echo "COMPACTION WARNING: Estimated token usage (${{ESTIMATED_TOKENS}}) exceeds threshold ({compaction_threshold}). Run /handoff compaction to preserve context before compaction occurs."
+    fi
+fi
 
 # Check if checkpoint is very stale (>15 min)
-# Recursive search through hierarchical checkpoint directories
-if [ -d "${CHECKPOINTS_DIR}" ]; then
+if [ -d "${{CHECKPOINTS_DIR}}" ]; then
     FOUND_STALE=0
-    while IFS= read -r -d '' CHECKPOINT_FILE; do
-        [ -f "${CHECKPOINT_FILE}" ] || continue
-        CHECKPOINT_AGE=$(( $(date +%s) - $(stat -f %m "${CHECKPOINT_FILE}" 2>/dev/null || stat -c %Y "${CHECKPOINT_FILE}" 2>/dev/null || echo "0") ))
-        if [ "${CHECKPOINT_AGE}" -gt 900 ]; then
-            AGENT=$(basename "${CHECKPOINT_FILE}" .json)
-            echo "CHECKPOINT REMINDER: ${AGENT} checkpoint is $((CHECKPOINT_AGE / 60)) min old. Run /checkpoint save now."
+    while IFS= read -r -d \\'\\' CHECKPOINT_FILE; do
+        [ -f "${{CHECKPOINT_FILE}}" ] || continue
+        CHECKPOINT_AGE=$(( $(date +%s) - $(stat -f %m "${{CHECKPOINT_FILE}}" 2>/dev/null || stat -c %Y "${{CHECKPOINT_FILE}}" 2>/dev/null || echo "0") ))
+        if [ "${{CHECKPOINT_AGE}}" -gt 900 ]; then
+            AGENT=$(basename "${{CHECKPOINT_FILE}}" .json)
+            echo "CHECKPOINT REMINDER: ${{AGENT}} checkpoint is $((${{CHECKPOINT_AGE}} / 60)) min old. Run /checkpoint save now."
             FOUND_STALE=1
             break
         fi
-    done < <(find "${CHECKPOINTS_DIR}" -name "*.json" -not -name "*.tmp" -print0 2>/dev/null)
+    done < <(find "${{CHECKPOINTS_DIR}}" -name "*.json" -not -name "*.tmp" -print0 2>/dev/null)
 
-    # Check for compaction markers
-    if [ "${FOUND_STALE}" -eq 0 ]; then
-        while IFS= read -r -d '' MARKER_FILE; do
-            if [ -f "${MARKER_FILE}" ]; then
-                AGENT=$(basename "${MARKER_FILE}" .compaction-marker)
-                echo "COMPACTION MARKER: ${AGENT} has a pending compaction request. Run /handoff compaction or /context-reload reload."
+    if [ "${{FOUND_STALE}}" -eq 0 ]; then
+        while IFS= read -r -d \\'\\' MARKER_FILE; do
+            if [ -f "${{MARKER_FILE}}" ]; then
+                AGENT=$(basename "${{MARKER_FILE}}" .compaction-marker)
+                echo "COMPACTION MARKER: ${{AGENT}} has a pending compaction request. Run /handoff compaction or /context-reload reload."
                 break
             fi
-        done < <(find "${CHECKPOINTS_DIR}" -name "*.compaction-marker" -print0 2>/dev/null)
+        done < <(find "${{CHECKPOINTS_DIR}}" -name "*.compaction-marker" -print0 2>/dev/null)
+    fi
+fi
+'''
+
+
+def _generic_activity_tracker_script(compaction_threshold: int = 100_000) -> str:
+    """Lightweight activity tracker for Read|Glob|Grep|Agent tools.
+
+    Appends to activity log and checks compaction threshold.
+    """
+    return f'''\
+#!/usr/bin/env bash
+# Forge hook: PostToolUse (Read|Glob|Grep|Agent)
+# Lightweight activity logging + compaction token tracking.
+set -euo pipefail
+
+FORGE_DIR="${{CLAUDE_PROJECT_DIR:-.}}/.forge"
+CHECKPOINTS_DIR="${{FORGE_DIR}}/checkpoints"
+mkdir -p "${{CHECKPOINTS_DIR}}"
+
+INPUT=$(cat)
+
+TOOL_NAME=$(echo "${{INPUT}}" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tool_name','unknown'))" 2>/dev/null || echo "unknown")
+SESSION_ID=$(echo "${{INPUT}}" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('session_id',''))" 2>/dev/null || echo "")
+
+TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+IDENTITY=$(python3 "${{FORGE_DIR}}/scripts/resolve_identity.py" "${{FORGE_DIR}}" "${{SESSION_ID}}" 2>/dev/null || echo '{{"agent_type":"unknown","agent_name":"unknown"}}')
+AGENT_TYPE=$(echo "${{IDENTITY}}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('agent_type','unknown'))" 2>/dev/null || echo "unknown")
+AGENT_NAME=$(echo "${{IDENTITY}}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('agent_name','unknown'))" 2>/dev/null || echo "unknown")
+
+AGENT_CKPT_DIR="${{CHECKPOINTS_DIR}}/${{AGENT_TYPE}}"
+mkdir -p "${{AGENT_CKPT_DIR}}"
+
+LOG_FILE="${{AGENT_CKPT_DIR}}/${{AGENT_NAME}}.activity.jsonl"
+
+echo "{{\\"timestamp\\":\\"${{TIMESTAMP}}\\",\\"tool\\":\\"${{TOOL_NAME}}\\",\\"session_id\\":\\"${{SESSION_ID}}\\"}}" >> "${{LOG_FILE}}" 2>/dev/null || true
+
+# Token tracking
+COMPACTION_THRESHOLD={compaction_threshold}
+if [ -f "${{LOG_FILE}}" ]; then
+    LOG_BYTES=$(wc -c < "${{LOG_FILE}}" 2>/dev/null || echo "0")
+    ESTIMATED_TOKENS=$(( LOG_BYTES / 4 ))
+    if [ "${{ESTIMATED_TOKENS}}" -gt "${{COMPACTION_THRESHOLD}}" ]; then
+        EVENTS_DIR="${{FORGE_DIR}}/events"
+        mkdir -p "${{EVENTS_DIR}}"
+        EVENT_FILE="${{EVENTS_DIR}}/$(date +%s%N)-compaction-needed.json"
+        TMP_EVENT="${{EVENT_FILE}}.tmp"
+        echo "{{\\"type\\":\\"compaction_needed\\",\\"event\\":\\"compaction_needed\\",\\"agent_type\\":\\"${{AGENT_TYPE}}\\",\\"agent_name\\":\\"${{AGENT_NAME}}\\",\\"estimated_tokens\\":${{ESTIMATED_TOKENS}},\\"threshold\\":{compaction_threshold},\\"timestamp\\":\\"${{TIMESTAMP}}\\"}}" > "${{TMP_EVENT}}"
+        mv "${{TMP_EVENT}}" "${{EVENT_FILE}}" 2>/dev/null || true
+        echo "COMPACTION WARNING: Estimated token usage (${{ESTIMATED_TOKENS}}) exceeds threshold ({compaction_threshold}). Run /handoff compaction to preserve context before compaction occurs."
     fi
 fi
 '''
@@ -295,7 +389,7 @@ def _pre_compact_checkpoint_script() -> str:
 # CRITICAL: Context is about to be compressed. Last chance to capture state.
 set -euo pipefail
 
-FORGE_DIR="$(pwd)/.forge"
+FORGE_DIR="${CLAUDE_PROJECT_DIR:-.}/.forge"
 CHECKPOINTS_DIR="${FORGE_DIR}/checkpoints"
 mkdir -p "${CHECKPOINTS_DIR}"
 
@@ -333,7 +427,7 @@ def _subagent_lifecycle_script() -> str:
 # Event-based agent lifecycle tracking using atomic writes to .forge/events/.
 set -euo pipefail
 
-FORGE_DIR="$(pwd)/.forge"
+FORGE_DIR="${CLAUDE_PROJECT_DIR:-.}/.forge"
 EVENTS_DIR="${FORGE_DIR}/events"
 mkdir -p "${EVENTS_DIR}"
 
@@ -372,7 +466,7 @@ def _stop_checkpoint_script() -> str:
 # Called by forge stop to verify all agents have checkpointed.
 set -euo pipefail
 
-FORGE_DIR="$(pwd)/.forge"
+FORGE_DIR="${CLAUDE_PROJECT_DIR:-.}/.forge"
 CHECKPOINTS_DIR="${FORGE_DIR}/checkpoints"
 
 if [ ! -d "${CHECKPOINTS_DIR}" ]; then
@@ -408,6 +502,8 @@ def generate_hooks_config() -> dict:
 
     Returns the hooks dict to merge into `.claude/settings.json`.
     """
+    # Relative paths from project root — Claude Code sets CWD to project dir
+    prefix = ".forge/hooks"
     return {
         "PostToolUse": [
             {
@@ -415,8 +511,8 @@ def generate_hooks_config() -> dict:
                 "hooks": [
                     {
                         "type": "command",
-                        "command": ".forge/hooks/post-tool-checkpoint.sh",
-                        "timeout": 5,
+                        "command": f"{prefix}/post-tool-checkpoint.sh",
+                        "timeout": 30,
                     }
                 ],
             },
@@ -425,8 +521,18 @@ def generate_hooks_config() -> dict:
                 "hooks": [
                     {
                         "type": "command",
-                        "command": ".forge/hooks/bash-checkpoint-reminder.sh",
-                        "timeout": 5,
+                        "command": f"{prefix}/bash-checkpoint-reminder.sh",
+                        "timeout": 30,
+                    }
+                ],
+            },
+            {
+                "matcher": "Read|Glob|Grep|Agent",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": f"{prefix}/generic-activity-tracker.sh",
+                        "timeout": 30,
                     }
                 ],
             },
@@ -436,8 +542,8 @@ def generate_hooks_config() -> dict:
                 "hooks": [
                     {
                         "type": "command",
-                        "command": ".forge/hooks/pre-compact-checkpoint.sh",
-                        "timeout": 10,
+                        "command": f"{prefix}/pre-compact-checkpoint.sh",
+                        "timeout": 60,
                     }
                 ],
             },
@@ -447,8 +553,8 @@ def generate_hooks_config() -> dict:
                 "hooks": [
                     {
                         "type": "command",
-                        "command": ".forge/hooks/subagent-lifecycle.sh",
-                        "timeout": 5,
+                        "command": f"{prefix}/subagent-lifecycle.sh",
+                        "timeout": 30,
                     }
                 ],
             },
@@ -458,8 +564,8 @@ def generate_hooks_config() -> dict:
                 "hooks": [
                     {
                         "type": "command",
-                        "command": ".forge/hooks/subagent-lifecycle.sh",
-                        "timeout": 5,
+                        "command": f"{prefix}/subagent-lifecycle.sh",
+                        "timeout": 30,
                     }
                 ],
             },

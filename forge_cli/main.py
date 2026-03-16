@@ -640,6 +640,7 @@ def start(config_path: str | None, project_dir: str, tmux: bool | None) -> None:
     tl_checkpoint_path = f".forge/checkpoints/team-leader/{tl_name}.json"
 
     write_event(forge_dir, {
+        "type": "agent_registered",
         "event": "agent_registered",
         "agent_name": tl_name,
         "agent_type": "team-leader",
