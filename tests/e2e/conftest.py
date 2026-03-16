@@ -14,6 +14,7 @@ import pytest
 
 from forge_cli.config_schema import (
     AgentsConfig,
+    CompactionConfig,
     ExecutionStrategy,
     ForgeConfig,
     LLMGatewayConfig,
@@ -26,6 +27,7 @@ from forge_cli.generators.orchestrator import generate_all
 from tests.e2e.checkpoint_validator import CheckpointValidator
 from tests.e2e.feedback_collector import FeedbackCollector
 from tests.e2e.tmux_helpers import ForgeSessionOrchestrator, TmuxTestSession
+from tests.e2e.transcript_analyzer import TranscriptAnalyzer
 
 
 # -- Markers --
@@ -120,3 +122,59 @@ def feedback(tmp_path: Path) -> FeedbackCollector:
     feedback_dir = tmp_path / "feedback"
     feedback_dir.mkdir()
     return FeedbackCollector(feedback_dir)
+
+
+# -- Compaction fixtures --
+
+@pytest.fixture
+def compaction_project(tmp_path: Path) -> tuple[Path, ForgeConfig]:
+    """Project configured for compaction testing with low threshold."""
+    config = ForgeConfig(
+        project=ProjectConfig(
+            description="Build a Python CLI calculator tool with add, subtract, "
+                        "multiply, divide commands. Include input validation, "
+                        "help text, and comprehensive unit tests.",
+            directory=str(tmp_path),
+        ),
+        mode=ProjectMode.MVP,
+        strategy=ExecutionStrategy.CO_PILOT,
+        agents=AgentsConfig(team_profile=TeamProfile.LEAN),
+        llm_gateway=LLMGatewayConfig(
+            enabled=True,
+            local_claude_model="claude-sonnet-4-20250514",
+        ),
+        compaction=CompactionConfig(
+            compaction_threshold_tokens=500,
+            enable_context_anchors=True,
+            anchor_interval_minutes=1,
+        ),
+    )
+    generate_all(config)
+    return tmp_path, config
+
+
+@pytest.fixture
+def compaction_orchestrator(
+    compaction_project: tuple[Path, ForgeConfig], llm,
+) -> ForgeSessionOrchestrator:
+    """Orchestrator wired to a compaction-configured project."""
+    project_dir, config = compaction_project
+    transcript_dir = project_dir / "transcripts"
+    transcript_dir.mkdir()
+    orch = ForgeSessionOrchestrator(project_dir, config, llm, transcript_dir)
+    return orch
+
+
+@pytest.fixture
+def compaction_validator(
+    compaction_project: tuple[Path, ForgeConfig],
+) -> CheckpointValidator:
+    """Validator for compaction-configured project."""
+    project_dir, _ = compaction_project
+    return CheckpointValidator(project_dir)
+
+
+@pytest.fixture
+def transcript_analyzer(llm) -> TranscriptAnalyzer:
+    """TranscriptAnalyzer instance with real LLM provider."""
+    return TranscriptAnalyzer(llm)

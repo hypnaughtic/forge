@@ -191,6 +191,147 @@ Return JSON: {{"score": int, "findings": [str]}}
         except Exception as e:
             return AnalysisResult(score=0, findings=[f"Analysis failed: {e}"])
 
+    async def analyze_compaction_compliance(self, transcript: str) -> AnalysisResult:
+        """Did the agent run /handoff compaction when warned about context limits?"""
+        prompt = f"""\
+Analyze this Claude Code agent transcript. Score (0-100) how well the agent
+complied with compaction requirements when it received context pressure warnings.
+
+Check for:
+- Did the agent receive a COMPACTION WARNING or context limit warning?
+- Did it run `/handoff compaction` in response?
+- Did it save checkpoint state before compaction?
+- Did it write context anchor and essential_files?
+- Was there unreasonable delay between warning and handoff?
+
+Transcript:
+{transcript[:5000]}
+
+Return JSON: {{"score": int, "findings": [str]}}
+"""
+        try:
+            response = await self.llm.generate(prompt=prompt, model="claude-sonnet-4-20250514")
+            import json
+            data = json.loads(response.text)
+            return AnalysisResult(
+                score=data.get("score", 0),
+                findings=data.get("findings", []),
+            )
+        except Exception as e:
+            return AnalysisResult(score=0, findings=[f"Analysis failed: {e}"])
+
+    async def analyze_context_restoration(self, post_compaction_transcript: str,
+                                           checkpoint: dict) -> AnalysisResult:
+        """Did the agent correctly reload context after compaction?"""
+        prompt = f"""\
+Analyze whether this agent correctly restored its context after compaction/respawn.
+
+Checkpoint data:
+- Agent name: {checkpoint.get('agent_name', 'unknown')}
+- Essential files: {checkpoint.get('essential_files', [])}
+- Context summary: {checkpoint.get('context_summary', '')[:500]}
+- Handoff notes: {checkpoint.get('handoff_notes', '')[:500]}
+- Compaction count: {checkpoint.get('compaction_count', 0)}
+
+Post-compaction transcript (first 3000 chars):
+{post_compaction_transcript[:3000]}
+
+Check:
+- Did the agent reload essential files?
+- Did it reference the context summary or handoff notes?
+- Did it continue from where it left off (not restart)?
+- Did it maintain awareness of its identity and role?
+- Did it run /context-reload or equivalent?
+
+Return JSON: {{"score": int, "findings": [str]}}
+"""
+        try:
+            response = await self.llm.generate(prompt=prompt, model="claude-sonnet-4-20250514")
+            import json
+            data = json.loads(response.text)
+            return AnalysisResult(
+                score=data.get("score", 0),
+                findings=data.get("findings", []),
+            )
+        except Exception as e:
+            return AnalysisResult(score=0, findings=[f"Analysis failed: {e}"])
+
+    async def analyze_respawn_fidelity(self, parent_transcript: str,
+                                        child_pre: str, child_post: str,
+                                        child_checkpoint: dict) -> AnalysisResult:
+        """Did parent correctly respawn child after compaction?"""
+        prompt = f"""\
+Analyze whether a parent agent correctly handled respawning a child agent
+after the child's context compaction.
+
+Child checkpoint:
+- Name: {child_checkpoint.get('agent_name', 'unknown')}
+- Type: {child_checkpoint.get('agent_type', 'unknown')}
+- Parent: {child_checkpoint.get('parent_agent', 'unknown')}
+- Compaction count: {child_checkpoint.get('compaction_count', 0)}
+- Handoff notes: {child_checkpoint.get('handoff_notes', '')[:500]}
+
+Parent transcript (last 2000 chars):
+{parent_transcript[-2000:]}
+
+Child pre-compaction (last 1000 chars):
+{child_pre[-1000:]}
+
+Child post-respawn (first 2000 chars):
+{child_post[:2000]}
+
+Check:
+- Did parent receive handoff from child?
+- Did parent use /respawn command?
+- Did respawned child receive checkpoint context?
+- Did child continue from correct state (not restart)?
+- Was the handoff timely?
+
+Return JSON: {{"score": int, "findings": [str]}}
+"""
+        try:
+            response = await self.llm.generate(prompt=prompt, model="claude-sonnet-4-20250514")
+            import json
+            data = json.loads(response.text)
+            return AnalysisResult(
+                score=data.get("score", 0),
+                findings=data.get("findings", []),
+            )
+        except Exception as e:
+            return AnalysisResult(score=0, findings=[f"Analysis failed: {e}"])
+
+    async def analyze_essential_files_accuracy(self, essential_files_list: list[str],
+                                                files_actually_used: list[str]) -> AnalysisResult:
+        """Are essential_files accurate — do they cover what was actually needed?"""
+        prompt = f"""\
+Analyze the accuracy of an agent's essential_files list by comparing it to
+the files the agent actually used during its work.
+
+Essential files declared:
+{chr(10).join(f'- {f}' for f in essential_files_list[:20])}
+
+Files actually used (read/modified):
+{chr(10).join(f'- {f}' for f in files_actually_used[:30])}
+
+Check:
+- Are critical files in the essential list?
+- Are there important used files missing from essential?
+- Are there essential files that were never used (over-specified)?
+- Score based on recall (important files covered) and precision (no junk)
+
+Return JSON: {{"score": int, "findings": [str]}}
+"""
+        try:
+            response = await self.llm.generate(prompt=prompt, model="claude-sonnet-4-20250514")
+            import json
+            data = json.loads(response.text)
+            return AnalysisResult(
+                score=data.get("score", 0),
+                findings=data.get("findings", []),
+            )
+        except Exception as e:
+            return AnalysisResult(score=0, findings=[f"Analysis failed: {e}"])
+
     async def generate_improvement_suggestions(self, analysis_results: list[AnalysisResult],
                                                skill_content: str) -> list[str]:
         """Based on analysis failures, suggest improvements to the checkpoint skill."""

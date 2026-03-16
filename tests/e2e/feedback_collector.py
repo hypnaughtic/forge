@@ -113,6 +113,43 @@ class FeedbackCollector:
                 flaky.append(scenario)
         return flaky
 
+    def record_compaction_result(
+        self, test_name: str, scenario: str,
+        analysis: AnalysisResult,
+        snapshot_before: SessionSnapshot,
+        snapshot_after: SessionSnapshot,
+        compaction_count: int = 0,
+        essential_files_count: int = 0,
+        context_anchor_age: float = 0.0,
+        markers_before: int = 0,
+        markers_after: int = 0,
+        events_count: int = 0,
+    ) -> None:
+        """Record a compaction test result with compaction-specific telemetry."""
+        result = {
+            "test_name": test_name,
+            "scenario": scenario,
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "score": analysis.score,
+            "findings": analysis.findings,
+            "missed_checkpoints": analysis.missed_checkpoints,
+            "suggestions": analysis.suggestions,
+            "agents_before": list(snapshot_before.checkpoints.keys()),
+            "agents_after": list(snapshot_after.checkpoints.keys()),
+            "checkpoint_count_before": len(snapshot_before.checkpoint_files),
+            "checkpoint_count_after": len(snapshot_after.checkpoint_files),
+            # Compaction-specific telemetry
+            "compaction_count": compaction_count,
+            "essential_files_count": essential_files_count,
+            "context_anchor_age": context_anchor_age,
+            "markers_before": markers_before,
+            "markers_after": markers_after,
+            "compaction_events_count": events_count,
+        }
+
+        output_path = self.feedback_dir / f"{test_name}_{scenario}.json"
+        output_path.write_text(json.dumps(result, indent=2))
+
     def export_metrics(self) -> dict:
         """Export aggregate metrics."""
         history = self.load_history()
