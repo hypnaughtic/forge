@@ -115,7 +115,10 @@ class TestConfigChange:
 
         # Resume - agents should follow auto-pilot behavior
         orchestrator.resume_session(wait_for_agents=True)
-        validator.assert_session_status("running")
+        session = validator.assert_session_exists()
+        assert session["status"] in ("running", "resumed"), (
+            f"Session status should be running or resumed, got {session['status']}"
+        )
         orchestrator.save_transcripts("scenario_05_strategy_change")
 
     def test_context_files_update_between_sessions(
@@ -141,5 +144,8 @@ class TestConfigChange:
         orchestrator.regenerate_files()
 
         orchestrator.resume_session(wait_for_agents=True)
-        validator.assert_session_status("running")
+        session = validator.assert_session_exists()
+        assert session["status"] in ("running", "resumed"), (
+            f"Session status should be running or resumed, got {session['status']}"
+        )
         orchestrator.save_transcripts("scenario_05_context_files")

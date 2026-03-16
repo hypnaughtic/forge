@@ -7,6 +7,7 @@ Uses real LLM (local_claude via llm-gateway) for all analysis.
 from __future__ import annotations
 
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -73,7 +74,7 @@ class ImprovementRunner:
     def _run_e2e_tests(self) -> list[dict]:
         """Run pytest E2E tests programmatically."""
         result = subprocess.run(
-            ["python", "-m", "pytest", "tests/e2e/", "-v", "--timeout=600",
+            [sys.executable, "-m", "pytest", "tests/e2e/", "-v", "--timeout=600",
              "--tb=short", "-q"],
             capture_output=True, text=True,
             cwd=str(self.project_dir),

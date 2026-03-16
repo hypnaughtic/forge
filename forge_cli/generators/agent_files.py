@@ -100,7 +100,7 @@ def _build_agent_file(agent_type: str, config: ForgeConfig) -> str:
         sections.append(_non_negotiables_section(agent_type, config))
 
     # Base protocol (embedded, not referenced)
-    sections.append(_base_protocol_section(config))
+    sections.append(_base_protocol_section(config, agent_type=agent_type))
 
     # Workflow enforcement protocol (always included, adapts to config)
     sections.append(_workflow_enforcement_section(agent_type, config))
@@ -265,6 +265,22 @@ def _project_context_section(config: ForgeConfig) -> str:
                 "Follow Team Leader directives."
             )
 
+    # Clean markdown headers from requirements to avoid header conflicts
+    # The context summarizer may embed ## headers that clash with agent file structure
+    req_lines = requirements_text.strip().split("\n")
+    cleaned_lines: list[str] = []
+    for line in req_lines:
+        # Demote headers: ## X → #### X to avoid clashing with agent file structure
+        if re.match(r"^#{1,3}\s", line):
+            line = "##" + line
+        cleaned_lines.append(line)
+    # Strip leading/trailing --- separators
+    while cleaned_lines and cleaned_lines[0].strip() == "---":
+        cleaned_lines.pop(0)
+    while cleaned_lines and cleaned_lines[-1].strip() == "---":
+        cleaned_lines.pop()
+    requirements_text = "\n".join(cleaned_lines)
+
     # Truncate very long derived context for inline embedding
     # (full context is always available in .forge/project-context.md)
     if len(requirements_text) > 4000:
@@ -345,7 +361,7 @@ def _project_context_section(config: ForgeConfig) -> str:
     )
 
 
-def _base_protocol_section(config: ForgeConfig) -> str:
+def _base_protocol_section(config: ForgeConfig, agent_type: str = "") -> str:
     return dedent("""\
     ## Base Agent Protocol
 
@@ -406,40 +422,76 @@ def _base_protocol_section(config: ForgeConfig) -> str:
     - **NOTE**: optional suggestion
     Max 2 review rounds — unresolved after 2 rounds, Team Leader decides.
 
-    """) + _checkpoint_protocol_section(config) + _git_auth_section(config) + _strategy_behavior_section(config)
+    """) + _checkpoint_protocol_section(config, agent_type=agent_type) + _git_auth_section(config) + _strategy_behavior_section(config)
 
 
-def _checkpoint_protocol_section(config: ForgeConfig) -> str:
-    """Generate checkpoint protocol section — injected into ALL agent files."""
-    return dedent("""\
+def _checkpoint_protocol_section(config: ForgeConfig, agent_type: str = "") -> str:
+    """Generate checkpoint protocol section with Skill Decision Tree.
 
-    ### Checkpoint Protocol (NON-NEGOTIABLE)
+    Replaces inline ceremony logic with deterministic skill routing.
+    All lifecycle moments map to specific skills.
+    """
+    anchor_interval = config.compaction.anchor_interval_minutes
+    compaction_threshold = config.compaction.compaction_threshold_tokens
 
-    You MUST maintain your checkpoint state. This is not optional.
+    tl_section = ""
+    if agent_type == "team-leader":
+        tl_section = dedent(f"""\
 
-    #### On Startup (FIRST THING YOU DO)
-    1. Check if `.forge/checkpoints/{your-agent-type}.json` exists
-    2. If yes: you are RESUMING. Run `/checkpoint load` IMMEDIATELY before doing anything else
-    3. If no: this is a fresh start. Within your FIRST 5 tool calls, run `/checkpoint save` to establish your initial checkpoint. Do not delay — checkpoint BEFORE you start any real work. Include your chosen agent_name, your initial context_summary, and handoff_notes describing your plan.
+        #### Team Leader Lifecycle Rules
 
-    #### During Work
-    - Run `/checkpoint save` after EVERY: task completion, phase transition, major decision, sub-agent spawn
-    - Run `/checkpoint check-stop` BEFORE starting any new major task
-    - Your hooks will remind you if your checkpoint is stale — HEED these reminders immediately
-    - Maximum interval between checkpoints: 10 minutes. If you haven't checkpointed in 10 minutes, do it NOW.
+        As Team Leader, you have additional lifecycle responsibilities:
 
-    #### On Stop
-    When told to stop (by human, parent agent, or stop signal):
-    1. Run `/checkpoint save` with detailed `handoff_notes`
-    2. Commit all work to a WIP branch
-    3. Report completion to parent
-    4. Stop all work
+        - On startup, also read `team-init-plan.md` and `.forge/session.json`
+        - When a child agent returns with compaction status, run `/respawn` to restart it with preserved context
+        - Monitor `.forge/events/` for `compaction_needed` events from child agents
+        - During `/agent-init resume`, also reconstruct the agent tree from session.json and re-spawn active child agents
+        - You are the only agent that reads session.json — child agents depend on you for team coordination
+        """)
 
-    #### On Completion
-    When ALL your work is done and verified:
-    1. Run `/checkpoint save` with `status: "complete"`
-    2. Report to parent agent
+    return dedent(f"""\
 
+    ### Checkpoint & Lifecycle Protocol (NON-NEGOTIABLE)
+
+    You MUST maintain your checkpoint state using lifecycle skills. This is not optional.
+    Checkpoints are stored at `.forge/checkpoints/{{your-agent-type}}/{{your-agent-name}}.json`.
+    Context anchors at `.forge/checkpoints/{{your-agent-type}}/{{your-agent-name}}.context-anchor.md`.
+
+    #### Skill Decision Tree
+
+    At each lifecycle moment, run the corresponding skill:
+
+    | Moment | Skill to Run |
+    |--------|-------------|
+    | JUST SPAWNED | `/agent-init detect` |
+    | NEED SUB-AGENT | `/spawn-agent <type> <task>` |
+    | COMPACTION THRESHOLD HIT | `/handoff compaction` |
+    | CHILD RETURNED (compaction) | `/respawn <type> <name>` |
+    | ALL TASKS FINISHED | `/handoff complete` |
+    | BLOCKED, CANNOT PROCEED | `/handoff blocked` |
+    | AFTER COMPACTION (PreCompact fired) | `/context-reload reload` |
+    | EVERY {anchor_interval} MINUTES | `/context-reload anchor` + `/checkpoint save` |
+    | CONTEXT FEELS STALE | `/context-reload status` |
+    | BEFORE LARGE OPERATIONS | `/checkpoint save` + `/context-reload anchor` |
+
+    #### Compaction Awareness
+
+    - Compaction threshold: **{compaction_threshold:,} tokens**
+    - Context anchor interval: **{anchor_interval} minutes**
+    - Hooks will warn you when estimated tokens approach the threshold
+    - When warned, run `/handoff compaction` immediately — do NOT wait
+    - After a PreCompact hook fires, run `/context-reload reload` to restore context
+
+    #### Checkpoint Discipline
+
+    - Save your FIRST checkpoint within the first 5 tool calls via `/agent-init detect`
+    - Save IMMEDIATELY after: task completion, phase transition, sub-agent spawn/complete, any significant decision
+    - Save BEFORE: starting any task that will take >5 minutes
+    - Maximum interval between checkpoints: 10 minutes
+    - Check stop signal BEFORE: starting any new major task (`/checkpoint check-stop`)
+    - ALWAYS include accurate `handoff_notes` — your future self depends on them
+    - Your `agent_name` MUST be identical across every checkpoint you save
+    {tl_section}
     """)
 
 
@@ -1688,6 +1740,7 @@ def _research_strategist_template(config: ForgeConfig) -> str:
 
     ### Initial Strategy
     - Research the project domain, technology options, and architectural patterns
+    - Conduct a competitive landscape analysis: survey existing solutions and alternatives, identify differentiators
     - Produce a technical strategy document covering: architecture approach, technology choices with rationale, integration patterns, deployment strategy
     - Create an iteration plan: break the project into 3-7 iterations with clear milestones and deliverables per iteration
     - Produce a risk assessment: technical risks, dependency risks, complexity risks, each with mitigation strategies
@@ -1820,8 +1873,9 @@ def _architect_template(config: ForgeConfig) -> str:
     - Design the system architecture based on {strategy_ref}
     - Produce: system topology diagram (as text/mermaid), component responsibilities, data flow patterns
     {api_line}
-    - Establish coding patterns, project structure conventions, and naming standards
-    - Design the {"data model and processing pipeline" if is_cli else "database schema and data model"}""")
+    - Define REST resource hierarchy with specific endpoints (e.g., /api/v1/{{resource}}, methods, request/response shapes)
+    - Design the {"data model and processing pipeline" if is_cli else "database schema — list core entities/tables with columns, types, keys, indexes, and relationships"}
+    - Establish coding patterns, project structure conventions, and naming standards""")
 
         # Language-specific cross-cutting patterns
         if "go" in langs or "golang" in langs:
@@ -1991,6 +2045,9 @@ def _backend_developer_template(config: ForgeConfig) -> str:
     framework_guidance: list[str] = []
     if "fastapi" in frameworks:
         framework_guidance.append("- **FastAPI patterns**: async route handlers, Pydantic v2 models for request/response validation, dependency injection for services, background tasks with `BackgroundTasks`")
+        framework_guidance.append("- **Route organization**: Use `APIRouter` per feature module (auth, tasks, users). Mount in `main.py` with prefixes.")
+        framework_guidance.append("- **Middleware**: CORS (frontend origins), request logging, error handler (`@app.exception_handler`)")
+        framework_guidance.append("- **Lifespan**: Use `@app.lifespan` for startup/shutdown (DB pools, Redis connections)")
         framework_guidance.append("- **Testing**: Use `pytest-asyncio` + `httpx.AsyncClient` for async endpoint tests, factory fixtures for test data")
     if "django" in frameworks or "drf" in frameworks:
         framework_guidance.append("- **Django patterns**: class-based views or DRF ViewSets, serializer validation, queryset optimization, signals for side effects")
@@ -2012,9 +2069,10 @@ def _backend_developer_template(config: ForgeConfig) -> str:
         if is_go:
             db_guidance.append("- **PostgreSQL**: Use pgx or sqlx driver, write reversible migrations, leverage database constraints (UNIQUE, CHECK, FK)")
         else:
-            db_guidance.append("- **PostgreSQL + SQLAlchemy/Alembic**: Use async sessions, write reversible migrations, leverage database constraints (UNIQUE, CHECK, FK)")
+            db_guidance.append("- **PostgreSQL + SQLAlchemy/Alembic**: Use async sessions (`async_sessionmaker`), write reversible migrations with descriptive names (e.g., `add_user_email_index`), leverage database constraints (UNIQUE, CHECK, FK)")
+            db_guidance.append("- **Query patterns**: Use eager loading (`selectinload`, `joinedload`) to prevent N+1. Explicit transaction boundaries for multi-step writes.")
     if "redis" in dbs:
-        db_guidance.append("- **Redis**: Use for caching, session storage, pub/sub for real-time events, rate limiting with TTL keys")
+        db_guidance.append("- **Redis**: Key naming: `{entity}:{id}:{attr}`. Use for caching (5m TTL), sessions (1h TTL), pub/sub for real-time events, rate limiting with TTL keys")
     if "mongodb" in " ".join(dbs):
         db_guidance.append("- **MongoDB**: Design documents for query patterns, use indexes for frequent queries, aggregation pipelines for analytics")
     if "elasticsearch" in " ".join(dbs):
@@ -2051,6 +2109,59 @@ def _backend_developer_template(config: ForgeConfig) -> str:
     domain_text_w = "\n    ".join(domain_impl_web) if domain_impl_web else ""
     domain_section_w = f"\n\n    ### Domain-Specific Implementation\n    {domain_text_w}" if domain_text_w else ""
 
+    # Mode-appropriate quality guidance
+    mode = config.mode.value
+    type_hint = _lang_type_hint(config)
+    if mode == "mvp":
+        quality_section = f"""\
+
+    ### Quality Standards (MVP — 70% threshold)
+    - **Coverage target**: 65-70% for critical paths. Skip tests for admin dashboards and edge-case formatting.
+    - **Happy-path first**: Focus on the main user workflow. Document known edge cases as issues for post-MVP.
+    - Type-safe code ({type_hint})
+    - Input validation at system boundaries
+    - Meaningful error messages (not stack traces) for API consumers
+    - Idempotent operations where applicable
+    - Database transactions for multi-step operations"""
+    elif mode == "no-compromise":
+        quality_section = f"""\
+
+    ### Quality Standards (No-Compromise — 100% threshold)
+    - **Coverage target**: 100% — every branch, every error path, every edge case.
+    - Type-safe code ({type_hint}), strict type checking with zero suppressions
+    - Input validation at ALL boundaries (API, inter-service, database)
+    - Comprehensive error messages with correlation IDs for tracing
+    - Idempotent operations for ALL mutating endpoints
+    - Database transactions with explicit isolation levels"""
+    else:
+        quality_section = f"""\
+
+    ### Quality Standards (Production-Ready — 90% threshold)
+    - **Coverage target**: 90%+ for all business logic and API endpoints.
+    - Type-safe code ({type_hint})
+    - Input validation at system boundaries
+    - Meaningful error messages (not stack traces) for API consumers
+    - Idempotent operations where applicable
+    - Database transactions for multi-step operations"""
+
+    # API design section for web backends
+    api_section = ""
+    if has_web:
+        api_section = """
+
+    ### API Design Patterns
+    - **Resource routes**: `/api/v1/{resource}` for collections, `/{resource}/{id}` for single items
+    - **HTTP verbs**: POST (create, 201), GET (read, 200), PATCH (update, 200), DELETE (remove, 204)
+    - **Query parameters**: `?limit=20&offset=0` for pagination, `?status=open` for filtering
+    - **Response format**: Success: `{"data": {...}}` — Error: `{"error": "message", "code": "ERROR_CODE"}`
+
+    ### Error Handling & Resilience
+    - Define custom exception classes mapped to HTTP status codes (ValidationError→422, NotFoundError→404)
+    - Catch database IntegrityError → return 409 with descriptive message
+    - Retry transient failures (DB timeouts, external API 429s) with exponential backoff
+    - Set explicit timeouts on all external HTTP calls
+    - Graceful degradation: if a non-critical service fails, log and continue"""
+
     return dedent(f"""\
     # Backend Developer
 
@@ -2067,24 +2178,60 @@ def _backend_developer_template(config: ForgeConfig) -> str:
     - Implement business logic, validation, error handling
     - Write database queries, migrations, seed data
     - Implement service integrations (following vendor-agnostic interfaces)
-    - Follow the project's coding patterns and conventions{framework_section}{db_section}{domain_section_w}
+    - Follow the project's coding patterns and conventions{framework_section}{db_section}{api_section}{domain_section_w}
 
     ### Testing
     - Write unit tests for all business logic (target: mode-appropriate coverage)
     - Write integration tests for API endpoints
     - Test error paths and edge cases
-    - Verify your code actually runs — start the server, hit your endpoints
-
-    ### Quality Standards
-    - Type-safe code ({_lang_type_hint(config)})
-    - Input validation at system boundaries
-    - Meaningful error messages (not stack traces) for API consumers
-    - Idempotent operations where applicable
-    - Database transactions for multi-step operations""")
+    - Verify your code actually runs — start the server, hit your endpoints{quality_section}""")
 
 
 def _frontend_engineer_template(config: ForgeConfig) -> str:
-    return dedent("""\
+    frameworks = [f.lower() for f in config.tech_stack.frameworks]
+    desc = config.project.description.lower()
+    domains = _detect_project_domains(config)
+
+    # Framework-specific guidance
+    fw_guidance: list[str] = []
+    if "react" in frameworks:
+        fw_guidance.append("- **React patterns**: Functional components with TypeScript, custom hooks for shared logic, React.memo for performance")
+        fw_guidance.append("- **State management**: Use TanStack Query for server state, Zustand or Context for UI state. Keep server and client state separate.")
+        fw_guidance.append("- **Testing**: React Testing Library + Vitest for component tests, user-event for interactions")
+    if "vue" in frameworks:
+        fw_guidance.append("- **Vue patterns**: Composition API, composables for shared logic, Pinia for state management")
+    if "tailwind" in frameworks:
+        fw_guidance.append("- **Tailwind CSS**: Use utility classes directly, extract components for repeated patterns, configure theme in tailwind.config")
+    if any(f in frameworks for f in ("next", "nextjs", "next.js")):
+        fw_guidance.append("- **Next.js**: App Router with server components by default, client components only for interactivity, API routes for BFF")
+
+    fw_text = "\n    ".join(fw_guidance) if fw_guidance else "- Follow the configured frontend framework patterns and conventions"
+    fw_section = f"\n\n    ### Framework-Specific Patterns\n    {fw_text}"
+
+    # Domain-specific implementation
+    domain_impl: list[str] = []
+    if "kanban" in desc or "drag" in desc:
+        domain_impl.append("- **Drag-and-drop**: Use dnd-kit or similar library. Implement visual feedback during drag, drop zone highlighting, position persistence.")
+    if "chat" in desc or "messaging" in desc:
+        domain_impl.append("- **Chat UI**: Message list with virtualization for performance, typing indicators, @mention autocomplete, unread counts.")
+    if "real-time" in desc or "websocket" in desc:
+        domain_impl.append("- **Real-time updates**: WebSocket connection management with auto-reconnect, optimistic UI updates, conflict resolution for concurrent edits.")
+    if "auth" in domains:
+        domain_impl.append("- **Auth flows**: Login/register forms with validation, OAuth buttons, token storage (httpOnly cookies preferred), protected route guards.")
+
+    domain_text = "\n    ".join(domain_impl) if domain_impl else ""
+    domain_section = f"\n\n    ### Domain-Specific Implementation\n    {domain_text}" if domain_text else ""
+
+    # Mode-appropriate quality
+    mode = config.mode.value
+    if mode == "mvp":
+        quality = "65-70% coverage on critical user flows. Happy-path first."
+    elif mode == "no-compromise":
+        quality = "100% coverage. Test every component, interaction, and edge case."
+    else:
+        quality = "90%+ coverage on components and user flows."
+
+    return dedent(f"""\
     # Frontend Engineer
 
     ## Identity & Role
@@ -2097,27 +2244,56 @@ def _frontend_engineer_template(config: ForgeConfig) -> str:
 
     ### UI Implementation
     - Build UI components following design specs (or create sensible defaults if no designer)
-    - Implement responsive layouts
+    - Implement responsive layouts (mobile-first, test at 375px, 768px, 1280px)
     - Handle loading states, error states, empty states
     - Implement forms with validation and user feedback
+    - Ensure basic accessibility: semantic HTML, keyboard navigation, ARIA labels for interactive elements{fw_section}{domain_section}
 
     ### State Management & Logic
-    - Implement client-side state management (React hooks, Redux, Zustand, etc.)
+    - Implement client-side state management appropriate to the framework
     - Integrate with backend APIs using the Architect's contracts
     - Handle authentication flows (login, session, token refresh)
     - Implement client-side routing
 
-    ### Testing
-    - Write component tests
+    ### Testing ({quality})
+    - Write component tests for all interactive components
     - Write integration tests for key user flows
-    - Test responsive behavior
+    - Test responsive behavior at multiple breakpoints
     - Verify the UI loads in a browser and key flows work end-to-end
     - **Take screenshots** of every page/component you build using Playwright
     - **Visually verify** your work before marking complete — use the Read tool to view screenshots""")
 
 
 def _frontend_developer_template(config: ForgeConfig) -> str:
-    return dedent("""\
+    frameworks = [f.lower() for f in config.tech_stack.frameworks]
+    desc = config.project.description.lower()
+    domains = _detect_project_domains(config)
+
+    # Framework-specific patterns
+    fw_items: list[str] = []
+    if "react" in frameworks:
+        fw_items.append("- **React**: Custom hooks for shared logic, TypeScript interfaces for props, React.memo for performance-critical components")
+        fw_items.append("- **State**: TanStack Query for server state, Zustand/Context for UI state. Keep server and client state separate.")
+    if "vue" in frameworks:
+        fw_items.append("- **Vue**: Composition API with composables, Pinia for state management")
+    if any(f in frameworks for f in ("next", "nextjs", "next.js")):
+        fw_items.append("- **Next.js**: App Router, server components by default, client components only where needed")
+
+    fw_text = "\n    ".join(fw_items) if fw_items else "- Follow the configured frontend framework patterns"
+
+    # Domain-specific logic
+    domain_items: list[str] = []
+    if "kanban" in desc or "drag" in desc:
+        domain_items.append("- **Drag-and-drop logic**: Position tracking, optimistic updates, conflict resolution for concurrent moves")
+    if "real-time" in desc or "websocket" in desc or "chat" in desc:
+        domain_items.append("- **Real-time sync**: WebSocket connection management, reconnect logic, event dispatching")
+    if "auth" in domains:
+        domain_items.append("- **Auth flows**: Token storage, refresh logic, protected route guards, OAuth callback handling")
+
+    domain_text = "\n    ".join(domain_items) if domain_items else ""
+    domain_section = f"\n\n    ### Domain-Specific Logic\n    {domain_text}" if domain_text else ""
+
+    return dedent(f"""\
     # Frontend Developer
 
     ## Identity & Role
@@ -2128,13 +2304,16 @@ def _frontend_developer_template(config: ForgeConfig) -> str:
 
     ## Core Responsibilities
 
-    - Implement state management (React, Vue, Svelte patterns)
+    ### Framework Patterns
+    {fw_text}
+
+    ### Core Implementation
     - Integrate with backend APIs using the Architect's contracts
     - Handle auth flows, routing, data fetching, caching
     - Build reusable utility functions and hooks
     - Write unit and integration tests for frontend logic
     - Coordinate with Frontend Designer for component implementations
-    - After implementing features, **screenshot the UI** to verify integration with Designer's specs""")
+    - After implementing features, **screenshot the UI** to verify integration with Designer's specs{domain_section}""")
 
 
 def _frontend_designer_template(config: ForgeConfig) -> str:
@@ -2194,6 +2373,40 @@ def _frontend_designer_template(config: ForgeConfig) -> str:
     - Review frontend implementation for design fidelity
     - **Screenshot the implemented UI** and compare against your design specs
     - File visual fidelity bugs with screenshots showing expected vs actual{domain_section}""")
+
+
+def _qa_database_testing_section(config: ForgeConfig) -> str:
+    """Generate database testing guidance if project uses databases."""
+    dbs = [d.lower() for d in config.tech_stack.databases]
+    if not dbs:
+        return ""
+    db_items = ["\n\n    ### Database Testing"]
+    if any("postgres" in d for d in dbs):
+        db_items.extend([
+            "    - Test database migrations: forward and rollback",
+            "    - Verify schema constraints (NOT NULL, UNIQUE, FK) catch invalid data",
+            "    - Test connection pooling under concurrent load",
+            "    - Validate query performance with EXPLAIN ANALYZE on critical queries",
+            "    - Test transaction isolation (concurrent updates to same record)",
+        ])
+    if any("redis" in d for d in dbs):
+        db_items.extend([
+            "    - Test cache invalidation: stale data never served after writes",
+            "    - Verify TTL expiration for session/cache entries",
+            "    - Test Redis connection failure graceful degradation",
+        ])
+    if any("mongo" in d for d in dbs):
+        db_items.extend([
+            "    - Test document schema validation and index coverage",
+            "    - Verify aggregation pipeline correctness with edge case data",
+        ])
+    if not any("postgres" in d or "redis" in d or "mongo" in d for d in dbs):
+        db_items.extend([
+            "    - Test database schema migrations: forward and rollback",
+            "    - Verify data integrity constraints catch invalid data",
+            "    - Test connection handling under concurrent load",
+        ])
+    return "\n".join(db_items)
 
 
 def _qa_engineer_template(config: ForgeConfig) -> str:
@@ -2293,7 +2506,7 @@ def _qa_engineer_template(config: ForgeConfig) -> str:
     - Define test pyramid: unit → integration → E2E ratio
     - Define quality gates per iteration
     - Identify critical paths that need maximum test coverage
-    - Define test data strategies{test_impl}{visual_section}{domain_section}
+    - Define test data strategies{test_impl}{visual_section}{_qa_database_testing_section(config)}{domain_section}
 
     ### Quality Gates
     - All tests must pass before iteration completion
@@ -2589,6 +2802,7 @@ def _security_tester_template(config: ForgeConfig) -> str:
     - Check input validation and output encoding
     - Review secret management practices
     - Assess data protection (encryption at rest/transit)
+    - Verify rate limiting on authentication and sensitive endpoints (prevent brute force attacks)
     - Review dependency vulnerabilities (CVEs)
     - Produce security audit report with findings and remediation steps{domain_text}{fw_text}""")
 

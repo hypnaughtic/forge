@@ -5,7 +5,30 @@ from __future__ import annotations
 from pathlib import Path
 from textwrap import dedent
 
+import re
+
 from forge_cli.config_schema import ForgeConfig
+
+
+def _clean_requirements(text: str) -> str:
+    """Strip markdown headers from requirements to avoid header conflicts in CLAUDE.md.
+
+    The context summarizer may embed ## headers that clash with CLAUDE.md structure.
+    Demote all headers by 2 levels (## → ####) and strip any leading horizontal rules.
+    """
+    lines = text.strip().split("\n")
+    cleaned: list[str] = []
+    for line in lines:
+        # Demote headers: ## X → #### X, ### X → ##### X
+        if re.match(r"^#{1,3}\s", line):
+            line = "##" + line
+        cleaned.append(line)
+    # Strip leading/trailing --- separators
+    while cleaned and cleaned[0].strip() == "---":
+        cleaned.pop(0)
+    while cleaned and cleaned[-1].strip() == "---":
+        cleaned.pop()
+    return "\n".join(cleaned)
 
 
 def _plan_file_claude_md(config: ForgeConfig) -> str:
@@ -34,6 +57,8 @@ def generate_claude_md(config: ForgeConfig, project_dir: Path) -> None:
         tech_parts.append(", ".join(config.tech_stack.languages))
     if config.tech_stack.frameworks:
         tech_parts.append(", ".join(config.tech_stack.frameworks))
+    if config.tech_stack.databases:
+        tech_parts.append(", ".join(config.tech_stack.databases))
     tech_str = " | ".join(tech_parts) if tech_parts else "(auto-detect)"
 
     agent_roster = "\n".join(
@@ -213,9 +238,29 @@ def generate_claude_md(config: ForgeConfig, project_dir: Path) -> None:
     - **Crash recovery**: Hooks auto-write activity logs. Resume works even after ungraceful shutdown.
     - **Instruction updates**: Between sessions, users may run `forge generate` or `forge refine`. On resume, always use the LATEST instruction files from `.claude/agents/`.
 
+    ## Context Management
+
+    Forge implements cooperative compaction to preserve agent context across long sessions.
+
+    - **Compaction Threshold**: {config.compaction.compaction_threshold_tokens:,} tokens — when an agent's estimated token usage approaches this limit, hooks will warn and the agent must initiate a handoff
+    - **Context Anchors**: {'Enabled' if config.compaction.enable_context_anchors else 'Disabled'} — agents write periodic context-anchor.md files (every {config.compaction.anchor_interval_minutes} minutes) summarizing their current mental model, active files, and next actions
+    - **Hierarchical Checkpoints**: Agent checkpoints are stored at `.forge/checkpoints/{{type}}/{{name}}.json` with per-agent activity logs
+    - **Cooperative Respawn**: When a child agent hits the compaction threshold, it hands off to its parent via `/handoff compaction`, and the parent respawns it with preserved context via `/respawn`
+
+    ## Lifecycle Skills
+
+    All agents have access to these lifecycle skills for context management:
+
+    - `/agent-init [fresh|resume|detect]` — Startup ceremony: read instruction files, load/create checkpoints, write context anchors
+    - `/handoff [complete|compaction|blocked]` — Structured handoff: save final checkpoint, write context anchor, produce handoff report
+    - `/respawn <agent-type> <agent-name>` — Parent respawns a child agent after compaction with full context injection
+    - `/context-reload [reload|anchor|status]` — Context recovery: re-read files, write anchors, check staleness
+    - `/checkpoint [save|load|check-stop|status]` — Core checkpoint operations for session persistence
+    - `/spawn-agent <agent-type> <task>` — Spawn a new agent with correct instruction files and lifecycle registration
+
     ## Project Requirements
 
-    {config.project.requirements or config.project.description}
+    {_clean_requirements(config.project.requirements or config.project.description)}
 
     ## Team Leader Instructions
 

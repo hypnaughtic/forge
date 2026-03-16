@@ -75,6 +75,8 @@ class FileRefinementResult:
     total_cost_usd: float = 0.0
     baseline_eval_pass_rate: float = 0.0
     final_eval_pass_rate: float = 0.0
+    initial_tokens: int = 0
+    final_tokens: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -86,6 +88,8 @@ class FileRefinementResult:
             "final_eval_pass_rate": self.final_eval_pass_rate,
             "iterations": [it.to_dict() for it in self.iterations],
             "total_cost_usd": self.total_cost_usd,
+            "initial_tokens": self.initial_tokens,
+            "final_tokens": self.final_tokens,
         }
 
 
@@ -160,6 +164,203 @@ def _build_project_context(config: ForgeConfig, project_dir: Path | None = None)
     return "\n".join(parts)
 
 
+_LIFECYCLE_CEREMONY_SKILLS = {
+    "agent-init", "respawn", "handoff", "context-reload", "checkpoint",
+}
+
+
+def _is_lifecycle_ceremony(file_path: str) -> bool:
+    """Check if a file is a lifecycle/ceremony skill (project-agnostic)."""
+    from pathlib import PurePosixPath
+    name = PurePosixPath(file_path).stem
+    return name in _LIFECYCLE_CEREMONY_SKILLS
+
+
+# ---------------------------------------------------------------------------
+# Scoring profiles — per-file-type criteria for LLM scoring/refinement
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ScoringProfile:
+    """Defines scoring criteria, penalties, and refinement rules for a file category."""
+
+    name: str
+    criteria_text: str
+    penalty_rules: str
+    refinement_rules: str
+    is_project_agnostic: bool = False
+
+
+_COMMON_PENALTIES = """\
+- DEDUCT 15-20 points if the file contains domain-specific checklists for a DIFFERENT domain than the project.
+- DEDUCT 10-15 points if the file dumps the entire project requirements verbatim instead of distilling relevant details.
+- DEDUCT 10 points if a section header exists but the section body is empty or contains only generic placeholders.
+- DEDUCT 5 points if the file says "Stack: Not specified" or "Tech: Not specified" despite the PROJECT CONTEXT listing specific technologies."""
+
+_PROFILE_LIFECYCLE_CEREMONY = ScoringProfile(
+    name="lifecycle_ceremony",
+    criteria_text="SCORING CRITERIA for LIFECYCLE CEREMONY SKILL (score 0-100):\nThis is a lifecycle/ceremony skill. These define UNIVERSAL procedures that work identically regardless of project type.\n\n1. Procedure completeness — Does it cover all steps? (35 pts)\n2. Step clarity — Are steps clear, ordered, and unambiguous? (30 pts)\n3. Path/command correctness — Are file paths, commands, and JSON structures correct? (20 pts)\n4. Error handling — Does it handle edge cases (missing files, corrupted data)? (15 pts)",
+    penalty_rules="- Do NOT penalize for LACK of project-specific content — ceremony skills are INTENTIONALLY generic.\n- Focus on whether the PROCEDURE is complete, correct, and followable.",
+    refinement_rules="- This is a LIFECYCLE CEREMONY skill — do NOT add project-specific tech stack, domain details, or requirements.\n- Improvements should focus on: clearer steps, better error handling, more precise file paths.",
+    is_project_agnostic=True,
+)
+_PROFILE_TEAM_LEADER = ScoringProfile(
+    name="team_leader_agent",
+    criteria_text="SCORING CRITERIA for TEAM LEADER AGENT (score 0-100):\n\n1. Iteration lifecycle phases — Does it define the 7-phase iteration lifecycle? (20 pts)\n2. Strategy-appropriate decision authority — Does it reflect the project's strategy? (20 pts)\n3. Agent coordination & spawning — Does it explain how to spawn, monitor, and sync agents? (20 pts)\n4. Cost cap awareness — Does it reference cost cap and resource management? (15 pts)\n5. Progressive work advancement — Does it describe progressive work patterns? (15 pts)\n6. Quality gate definition — Does it define quality gates with mode-appropriate thresholds? (10 pts)",
+    penalty_rules="- DEDUCT 10 points if iteration lifecycle phases are missing or incomplete.",
+    refinement_rules="- Focus on iteration lifecycle completeness and strategy-appropriate decision authority.\n- Ensure agent spawning instructions reference the actual agent roster from config.",
+)
+_PROFILE_SCRUM_MASTER = ScoringProfile(
+    name="scrum_master_agent",
+    criteria_text="SCORING CRITERIA for SCRUM MASTER AGENT (score 0-100):\n\n1. Sprint planning accuracy (20 pts)\n2. Backlog management (20 pts)\n3. Ceremony facilitation (20 pts)\n4. Jira/Confluence integration (20 pts)\n5. Team velocity tracking (10 pts)\n6. Config fidelity (10 pts)",
+    penalty_rules="- DEDUCT 10 points if Jira/Confluence references are present when Atlassian is disabled, or missing when enabled.",
+    refinement_rules="- Ensure sprint planning reflects the project mode.\n- Jira/Confluence references must match config.atlassian.enabled status.",
+)
+_PROFILE_ARCHITECT = ScoringProfile(
+    name="architect_agent",
+    criteria_text="SCORING CRITERIA for ARCHITECT AGENT (score 0-100):\n\n1. System design specificity (20 pts)\n2. API contract patterns (20 pts)\n3. Tech-stack-informed architecture (20 pts)\n4. Workspace-type awareness (15 pts)\n5. Database schema guidance (15 pts)\n6. Config fidelity (10 pts)",
+    penalty_rules="- DEDUCT 10 points if architecture advice is generic and doesn't reference the actual tech stack.",
+    refinement_rules="- Architecture guidance must be specific to the configured tech stack.\n- API patterns should match the framework.",
+)
+_PROFILE_RESEARCH_STRATEGIST = ScoringProfile(
+    name="research_strategist_agent",
+    criteria_text="SCORING CRITERIA for RESEARCH STRATEGIST AGENT (score 0-100):\n\n1. Domain research depth (25 pts)\n2. Tech-stack-aligned research areas (25 pts)\n3. Competitive analysis presence (15 pts)\n4. Deliverable clarity (15 pts)\n5. Risk assessment (10 pts)\n6. Config fidelity (10 pts)",
+    penalty_rules="- DEDUCT 10 points if research areas are generic and unrelated to the project domain.",
+    refinement_rules="- Research areas must align with the project's domain and tech stack.\n- Deliverables should be concrete and actionable.",
+)
+_PROFILE_BACKEND_DEVELOPER = ScoringProfile(
+    name="backend_developer_agent",
+    criteria_text="SCORING CRITERIA for BACKEND DEVELOPER AGENT (score 0-100):\n\n1. Framework-specific patterns — Does it include patterns specific to the configured backend framework? (25 pts)\n2. Database integration patterns (20 pts)\n3. Mode-appropriate quality standards (15 pts)\n4. API design patterns (15 pts)\n5. Error handling patterns (15 pts)\n6. Config fidelity (10 pts)",
+    penalty_rules="- DEDUCT 10 points if framework advice is for a different framework than configured.",
+    refinement_rules="- Framework patterns must match the actual configured framework.\n- Database patterns should reference the specific database and ORM.",
+)
+_PROFILE_FRONTEND = ScoringProfile(
+    name="frontend_agent",
+    criteria_text="SCORING CRITERIA for FRONTEND AGENT (score 0-100):\n\n1. Visual verification protocol (20 pts)\n2. Component architecture (20 pts)\n3. Responsive/accessibility coverage (20 pts)\n4. State management patterns (15 pts)\n5. Framework-specific guidance (15 pts)\n6. Config fidelity (10 pts)",
+    penalty_rules="- DEDUCT 10 points if frontend framework advice doesn't match the configured framework.",
+    refinement_rules="- Visual verification protocol must reference Playwright/screenshot workflow.\n- Component patterns should be specific to the configured frontend framework.",
+)
+_PROFILE_DEVOPS = ScoringProfile(
+    name="devops_agent",
+    criteria_text="SCORING CRITERIA for DEVOPS SPECIALIST AGENT (score 0-100):\n\n1. Infrastructure specificity (25 pts)\n2. CI/CD pipeline accuracy (20 pts)\n3. Environment management (15 pts)\n4. Monitoring setup (15 pts)\n5. Deployment strategy (15 pts)\n6. Config fidelity (10 pts)",
+    penalty_rules="- DEDUCT 10 points if deployment advice is for a different platform than configured.",
+    refinement_rules="- Infrastructure guidance must match the project type.\n- CI/CD steps should reference the actual tech stack tools.",
+)
+_PROFILE_QA_ENGINEER = ScoringProfile(
+    name="qa_engineer_agent",
+    criteria_text="SCORING CRITERIA for QA ENGINEER AGENT (score 0-100):\n\n1. Mode-appropriate coverage targets (MVP: 70%, production: 90%, enterprise: 100%) (25 pts)\n2. Test tier definition (unit/integration/e2e) (20 pts)\n3. Database testing methodology (15 pts)\n4. Framework-specific test commands (15 pts)\n5. Bug management process (15 pts)\n6. Config fidelity (10 pts)",
+    penalty_rules="- DEDUCT 10 points if coverage targets don't match the project mode.",
+    refinement_rules="- Coverage targets must match the project mode.\n- Test commands must reference the actual testing framework.",
+)
+_PROFILE_CRITIC = ScoringProfile(
+    name="critic_agent",
+    criteria_text="SCORING CRITERIA for CRITIC AGENT (score 0-100):\n\n1. Independence and objectivity (25 pts)\n2. Blocker categorization (BLOCKER, WARNING, SUGGESTION) (20 pts)\n3. Cross-agent evaluation scope (20 pts)\n4. Quality gate enforcement (15 pts)\n5. Review methodology (10 pts)\n6. Config fidelity (10 pts)",
+    penalty_rules="- DEDUCT 10 points if critic lacks clear blocker categorization.",
+    refinement_rules="- Critic must maintain independent authority.\n- Quality gate thresholds should match the project mode.",
+)
+_PROFILE_QUALITY_SPECIALIST = ScoringProfile(
+    name="quality_specialist_agent",
+    criteria_text="SCORING CRITERIA for QUALITY SPECIALIST AGENT (score 0-100):\n\n1. Specialist methodology depth (25 pts)\n2. Mode-appropriate rigor (20 pts)\n3. Tool-specific guidance (20 pts)\n4. Deliverable format (15 pts)\n5. Config fidelity (10 pts)\n6. Actionability (10 pts)",
+    penalty_rules="- DEDUCT 10 points if specialist tools don't match the configured tech stack.",
+    refinement_rules="- Tools referenced must match the configured tech stack.\n- Deliverables should be concrete and actionable.",
+)
+_PROFILE_TECH_DEPENDENT_SKILL = ScoringProfile(
+    name="tech_dependent_skill",
+    criteria_text="SCORING CRITERIA for TECH-DEPENDENT SKILL (score 0-100):\n\n1. Tech-stack command correctness (30 pts)\n2. Project-type variants (CLI vs web vs frontend) (25 pts)\n3. Completeness (20 pts)\n4. Clarity (15 pts)\n5. Frontmatter (10 pts)",
+    penalty_rules="- DEDUCT 15 points if commands reference tools not in the configured tech stack.",
+    refinement_rules="- Commands must be correct for the configured tech stack.\n- Frontmatter must follow Claude skill format.",
+)
+_PROFILE_WORKFLOW_SKILL = ScoringProfile(
+    name="workflow_skill",
+    criteria_text="SCORING CRITERIA for WORKFLOW SKILL (score 0-100):\n\n1. Process accuracy (25 pts)\n2. Team integration references (25 pts)\n3. Completeness (20 pts)\n4. Clarity (15 pts)\n5. Frontmatter (15 pts)",
+    penalty_rules="- DEDUCT 10 points if workflow references roles not in the configured team profile.",
+    refinement_rules="- Workflow must reference actual team roles from config.\n- Process steps should be ordered and complete.",
+)
+_PROFILE_ANALYSIS_SKILL = ScoringProfile(
+    name="analysis_skill",
+    criteria_text="SCORING CRITERIA for ANALYSIS SKILL (score 0-100):\n\n1. Review criteria relevance (25 pts)\n2. Tech-stack alignment (25 pts)\n3. Completeness (20 pts)\n4. Clarity (15 pts)\n5. Frontmatter (15 pts)",
+    penalty_rules="- DEDUCT 10 points if review criteria are irrelevant to the project domain.",
+    refinement_rules="- Review criteria must align with the project's tech stack and domain.\n- Analysis outputs should be structured and actionable.",
+)
+_PROFILE_CLAUDE_MD = ScoringProfile(
+    name="claude_md",
+    criteria_text="SCORING CRITERIA for CLAUDE.md (score 0-100):\n\n1. Agent roster accuracy vs config (20 pts)\n2. Conditional section correctness (visual verification only if frontend, Atlassian only if enabled) (20 pts)\n3. Mode/strategy/cost clarity (20 pts)\n4. Project description embedding (20 pts)\n5. Lifecycle skills reference (20 pts)",
+    penalty_rules="- DEDUCT 15 points if agent roster doesn't match config.\n- DEDUCT 10 points if conditional sections are wrong.",
+    refinement_rules="- Agent roster must exactly match the configured team profile.\n- Conditional sections must match config.\n- Mode, strategy, and cost cap must be accurate.",
+)
+_PROFILE_TEAM_INIT_PLAN = ScoringProfile(
+    name="team_init_plan",
+    criteria_text="SCORING CRITERIA for team-init-plan.md (score 0-100):\n\n1. Phase structure (0→1→2→3) (20 pts)\n2. Agent spawn count matches config (20 pts)\n3. Workspace-type setup (20 pts)\n4. Task decomposition specificity (20 pts)\n5. Quick reference table (20 pts)",
+    penalty_rules="- DEDUCT 15 points if agent count doesn't match team profile.\n- DEDUCT 10 points if workspace setup is for wrong workspace type.",
+    refinement_rules="- Phase structure must follow 0→1→2→3 pattern.\n- Agent spawn count must match config.\n- Tasks should be specific to the project.",
+)
+_PROFILE_GENERAL = ScoringProfile(
+    name="general",
+    criteria_text="SCORING CRITERIA (score 0-100, unified):\n1. Completeness (25 pts)\n2. Config fidelity (25 pts)\n3. Specificity (20 pts)\n4. Clarity & Actionability (20 pts)\n5. Consistency (10 pts)",
+    penalty_rules="",
+    refinement_rules="- Focus on embedding project-specific details where they add value.\n- Do NOT add domain-specific content unless the PROJECT CONTEXT explicitly describes that domain.",
+)
+
+_AGENT_PROFILE_MAP: dict[str, str] = {
+    "team-leader": "team_leader_agent", "scrum-master": "scrum_master_agent",
+    "architect": "architect_agent", "research-strategist": "research_strategist_agent",
+    "backend-developer": "backend_developer_agent",
+    "frontend-engineer": "frontend_agent", "frontend-developer": "frontend_agent",
+    "frontend-designer": "frontend_agent", "devops-specialist": "devops_agent",
+    "qa-engineer": "qa_engineer_agent", "critic": "critic_agent",
+    "security-tester": "quality_specialist_agent",
+    "performance-engineer": "quality_specialist_agent",
+    "documentation-specialist": "quality_specialist_agent",
+}
+
+_SKILL_PROFILE_MAP: dict[str, str] = {
+    "smoke-test": "tech_dependent_skill", "playwright-test": "tech_dependent_skill",
+    "screenshot-review": "tech_dependent_skill",
+    "create-pr": "workflow_skill", "release": "workflow_skill",
+    "jira-update": "workflow_skill", "sprint-report": "workflow_skill",
+    "spawn-agent": "workflow_skill",
+    "arch-review": "analysis_skill", "code-review": "analysis_skill",
+    "dependency-audit": "analysis_skill", "benchmark": "analysis_skill",
+    "iteration-review": "analysis_skill", "team-status": "analysis_skill",
+    "excalidraw-diagram": "analysis_skill",
+}
+
+_PROFILE_REGISTRY: dict[str, ScoringProfile] = {
+    "lifecycle_ceremony": _PROFILE_LIFECYCLE_CEREMONY, "team_leader_agent": _PROFILE_TEAM_LEADER,
+    "scrum_master_agent": _PROFILE_SCRUM_MASTER, "architect_agent": _PROFILE_ARCHITECT,
+    "research_strategist_agent": _PROFILE_RESEARCH_STRATEGIST,
+    "backend_developer_agent": _PROFILE_BACKEND_DEVELOPER,
+    "frontend_agent": _PROFILE_FRONTEND, "devops_agent": _PROFILE_DEVOPS,
+    "qa_engineer_agent": _PROFILE_QA_ENGINEER, "critic_agent": _PROFILE_CRITIC,
+    "quality_specialist_agent": _PROFILE_QUALITY_SPECIALIST,
+    "tech_dependent_skill": _PROFILE_TECH_DEPENDENT_SKILL,
+    "workflow_skill": _PROFILE_WORKFLOW_SKILL, "analysis_skill": _PROFILE_ANALYSIS_SKILL,
+    "claude_md": _PROFILE_CLAUDE_MD, "team_init_plan": _PROFILE_TEAM_INIT_PLAN,
+    "general": _PROFILE_GENERAL,
+}
+
+
+def _resolve_scoring_profile(file_path: str, file_type: str, config: ForgeConfig | None = None) -> ScoringProfile:
+    """Resolve the scoring profile for a given file."""
+    from pathlib import PurePosixPath
+    stem = PurePosixPath(file_path).stem
+    if file_type == "skill" and stem in _LIFECYCLE_CEREMONY_SKILLS:
+        return _PROFILE_LIFECYCLE_CEREMONY
+    if file_type == "agent":
+        pn = _AGENT_PROFILE_MAP.get(stem)
+        if pn and pn in _PROFILE_REGISTRY:
+            return _PROFILE_REGISTRY[pn]
+    if file_type == "skill":
+        pn = _SKILL_PROFILE_MAP.get(stem)
+        if pn and pn in _PROFILE_REGISTRY:
+            return _PROFILE_REGISTRY[pn]
+    if file_type == "claude_md":
+        return _PROFILE_CLAUDE_MD
+    if file_type == "team_init_plan":
+        return _PROFILE_TEAM_INIT_PLAN
+    return _PROFILE_GENERAL
+
+
 def _build_score_prompt(
     content: str,
     config: ForgeConfig,
@@ -174,6 +375,7 @@ def _build_score_prompt(
     toward concrete issues identified by automated assertions.
     """
     context = _build_project_context(config, project_dir=project_dir)
+    profile = _resolve_scoring_profile(file_path, file_type, config)
 
     eval_section = ""
     if eval_failures:
@@ -185,22 +387,21 @@ EVAL ASSERTION FAILURES (from automated quality checks — these are objective i
 
 Factor these failures into your score. Each unaddressed failure should reduce the score."""
 
+    penalties = _COMMON_PENALTIES
+    if profile.penalty_rules:
+        penalties = f"{_COMMON_PENALTIES}\n{profile.penalty_rules}"
+
     return f"""You are evaluating a generated agent instruction file for quality.
 
 PROJECT CONTEXT:
 {context}
 
-FILE: {file_path} (type: {file_type})
+FILE: {file_path} (type: {file_type}, profile: {profile.name})
 
 CONTENT:
 {content}
 
-SCORING CRITERIA (score 0-100, unified):
-1. Completeness — Does it cover all responsibilities for this role/file type? (25 pts)
-2. Config fidelity — Does it reflect the project config (mode, strategy, tech stack, agents)? (25 pts)
-3. Specificity — Does it use project-specific details from the config above? (20 pts)
-4. Clarity & Actionability — Are instructions clear enough for an AI agent to follow? (20 pts)
-5. Consistency — Is it internally consistent and compatible with team structure? (10 pts)
+{profile.criteria_text}
 
 IMPORTANT RULES:
 - `$ARGUMENTS` is a Claude skill template variable — do NOT penalize its presence.
@@ -211,10 +412,7 @@ IMPORTANT RULES:
 - Only suggest improvements that would materially help an agent do its job better.
 
 PENALTY RULES (apply these strictly):
-- DEDUCT 15-20 points if the file contains domain-specific checklists for a DIFFERENT domain than the project (e.g., payment/PCI checklists in a non-financial project, HR/payroll in a diagram tool, leave management in an API project). This is a critical quality issue.
-- DEDUCT 10-15 points if the file dumps the entire project requirements verbatim instead of distilling relevant details into actionable instructions.
-- DEDUCT 10 points if a section header exists but the section body is empty or contains only generic placeholders.
-- DEDUCT 5 points if the file says "Stack: Not specified" or "Tech: Not specified" despite the PROJECT CONTEXT listing specific technologies.
+{penalties}
 {eval_section}
 Return a structured response with:
 - score: integer 0-100
@@ -238,6 +436,7 @@ def _build_refine_prompt(
     re-introducing problems that were already identified.
     """
     context = _build_project_context(config, project_dir=project_dir)
+    profile = _resolve_scoring_profile(file_path, file_type, config)
     suggestions_text = "\n".join(f"- {s}" for s in score_feedback.suggestions)
 
     # Build accumulated feedback section from previous iterations
@@ -265,12 +464,20 @@ EVAL ASSERTION FAILURES (must address these — they are objective test results,
 
 """
 
+    if profile.is_project_agnostic:
+        context_instruction = (
+            f"PROJECT CONTEXT (for reference only — this is a {profile.name} file "
+            "that should NOT embed project-specific details):"
+        )
+    else:
+        context_instruction = "PROJECT CONTEXT (use these details to make content project-specific):"
+
     return f"""You are improving a generated agent instruction file to score above 90/100.
 
-PROJECT CONTEXT (use these details to make content project-specific):
+{context_instruction}
 {context}
 
-FILE: {file_path} (type: {file_type})
+FILE: {file_path} (type: {file_type}, profile: {profile.name})
 CURRENT SCORE: {score_feedback.score}/100
 
 FEEDBACK: {score_feedback.reasoning}
@@ -286,10 +493,8 @@ RULES:
 - Preserve `$ARGUMENTS` placeholders, section headers, and `---` separators.
 - Address each suggestion concisely. Do NOT over-expand — add targeted improvements, not walls of text.
 - Keep the file roughly the same length. Improve quality, not quantity.
-- Focus on embedding project-specific details (tech stack, requirements, mode, agents) where they add value.
 - PRESERVE sections that are NOT mentioned in the suggestions — only modify what needs improvement.
-- Do NOT add domain-specific content (HR, payment, e-commerce) unless the PROJECT CONTEXT explicitly describes that domain.
-- Do NOT copy-paste the project requirements verbatim — distill relevant details into actionable instructions.
+{profile.refinement_rules}
 
 Return a structured response with:
 - content: the complete improved file content

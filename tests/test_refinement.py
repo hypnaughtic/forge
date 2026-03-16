@@ -22,9 +22,15 @@ from forge_cli.generators.refinement import (
     RefinedContent,
     RefinementReport,
     _build_project_context,
+    _build_refine_prompt,
     _build_score_prompt,
     _classify_file,
     _collect_refinable_files,
+    _resolve_scoring_profile,
+    _AGENT_PROFILE_MAP,
+    _COMMON_PENALTIES,
+    _PROFILE_REGISTRY,
+    _SKILL_PROFILE_MAP,
     refine_all,
     refine_all_async,
     refine_single_file,
@@ -485,6 +491,131 @@ class TestRefineAll:
         report = _generate_project(tmp_path, config, llm_provider=fake)
 
         assert report.all_passed is True
+
+
+class TestSaveRefinementReportTokenImpact:
+    """Test token impact section in refinement report."""
+
+    def test_token_impact_section_rendered(self, tmp_path):
+        """Token impact table appears when files have token data."""
+        from forge_cli.generators.orchestrator import _save_refinement_report
+        from forge_cli.generators.refinement import (
+            FileRefinementResult,
+            RefinementIteration,
+            RefinementReport,
+        )
+        from forge_cli.config_schema import ForgeConfig
+
+        config = ForgeConfig()
+        report = RefinementReport(
+            files=[
+                FileRefinementResult(
+                    file_path=".claude/agents/backend-developer.md",
+                    file_type="agent",
+                    initial_score=85,
+                    final_score=95,
+                    iterations=[
+                        RefinementIteration(
+                            iteration=1, score=95, reasoning="Good",
+                            suggestions=[], changes_made=["Minor fix"],
+                            cost_usd=0.01, eval_pass_rate=1.0,
+                        ),
+                    ],
+                    total_cost_usd=0.01,
+                    initial_tokens=8000,
+                    final_tokens=8500,
+                ),
+            ],
+            total_cost_usd=0.01,
+            total_llm_calls=2,
+            files_improved=1,
+            files_already_good=0,
+            all_passed=True,
+        )
+        _save_refinement_report(report, tmp_path, config)
+
+        md_path = tmp_path / ".forge" / "refinement-report.md"
+        assert md_path.exists()
+        content = md_path.read_text()
+        assert "Token Impact" in content
+        assert "8,000" in content
+        assert "8,500" in content
+
+    def test_no_token_section_without_token_data(self, tmp_path):
+        """No token impact table when files lack token data."""
+        from forge_cli.generators.orchestrator import _save_refinement_report
+        from forge_cli.generators.refinement import (
+            FileRefinementResult,
+            RefinementIteration,
+            RefinementReport,
+        )
+        from forge_cli.config_schema import ForgeConfig
+
+        config = ForgeConfig()
+        report = RefinementReport(
+            files=[
+                FileRefinementResult(
+                    file_path=".claude/agents/test.md",
+                    file_type="agent",
+                    initial_score=95,
+                    final_score=95,
+                    iterations=[],
+                    total_cost_usd=0.0,
+                ),
+            ],
+            total_cost_usd=0.0,
+            total_llm_calls=0,
+            files_improved=0,
+            files_already_good=1,
+            all_passed=True,
+        )
+        _save_refinement_report(report, tmp_path, config)
+
+        md_path = tmp_path / ".forge" / "refinement-report.md"
+        content = md_path.read_text()
+        assert "Token Impact" not in content
+
+    def test_below_threshold_improvement_suggestion(self, tmp_path):
+        """Files below threshold get improvement suggestions."""
+        from forge_cli.generators.orchestrator import _save_refinement_report
+        from forge_cli.generators.refinement import (
+            FileRefinementResult,
+            RefinementIteration,
+            RefinementReport,
+        )
+        from forge_cli.config_schema import ForgeConfig
+
+        config = ForgeConfig()
+        config.refinement.score_threshold = 90
+        report = RefinementReport(
+            files=[
+                FileRefinementResult(
+                    file_path=".claude/agents/low.md",
+                    file_type="agent",
+                    initial_score=70,
+                    final_score=80,
+                    iterations=[
+                        RefinementIteration(
+                            iteration=1, score=80, reasoning="OK",
+                            suggestions=["Add more detail"],
+                            changes_made=["Expanded section"],
+                            cost_usd=0.01, eval_pass_rate=0.8,
+                        ),
+                    ],
+                    total_cost_usd=0.01,
+                ),
+            ],
+            total_cost_usd=0.01,
+            total_llm_calls=2,
+            files_improved=1,
+            files_already_good=0,
+            all_passed=False,
+        )
+        _save_refinement_report(report, tmp_path, config)
+
+        md_path = tmp_path / ".forge" / "refinement-report.md"
+        content = md_path.read_text()
+        assert "Next Scope of Improvement" in content
 
 
 # ---------------------------------------------------------------------------
@@ -1365,3 +1496,193 @@ class TestResultHandlingInRefineAll:
         # All files should be processed
         assert isinstance(report, RefinementReport)
         assert len(report.files) > 0
+
+
+# ---------------------------------------------------------------------------
+# TestScoringProfileResolution
+# ---------------------------------------------------------------------------
+class TestScoringProfileResolution:
+    def test_lifecycle_ceremony_checkpoint(self):
+        assert _resolve_scoring_profile(".claude/skills/checkpoint.md", "skill").name == "lifecycle_ceremony"
+    def test_lifecycle_ceremony_agent_init(self):
+        assert _resolve_scoring_profile(".claude/skills/agent-init.md", "skill").name == "lifecycle_ceremony"
+    def test_lifecycle_ceremony_respawn(self):
+        assert _resolve_scoring_profile(".claude/skills/respawn.md", "skill").name == "lifecycle_ceremony"
+    def test_lifecycle_ceremony_handoff(self):
+        assert _resolve_scoring_profile(".claude/skills/handoff.md", "skill").name == "lifecycle_ceremony"
+    def test_lifecycle_ceremony_context_reload(self):
+        assert _resolve_scoring_profile(".claude/skills/context-reload.md", "skill").name == "lifecycle_ceremony"
+    def test_lifecycle_is_project_agnostic(self):
+        assert _resolve_scoring_profile(".claude/skills/checkpoint.md", "skill").is_project_agnostic is True
+    def test_team_leader_agent(self):
+        assert _resolve_scoring_profile(".claude/agents/team-leader.md", "agent").name == "team_leader_agent"
+    def test_scrum_master_agent(self):
+        assert _resolve_scoring_profile(".claude/agents/scrum-master.md", "agent").name == "scrum_master_agent"
+    def test_architect_agent(self):
+        assert _resolve_scoring_profile(".claude/agents/architect.md", "agent").name == "architect_agent"
+    def test_backend_developer_agent(self):
+        assert _resolve_scoring_profile(".claude/agents/backend-developer.md", "agent").name == "backend_developer_agent"
+    def test_frontend_engineer_agent(self):
+        assert _resolve_scoring_profile(".claude/agents/frontend-engineer.md", "agent").name == "frontend_agent"
+    def test_frontend_developer_agent(self):
+        assert _resolve_scoring_profile(".claude/agents/frontend-developer.md", "agent").name == "frontend_agent"
+    def test_qa_engineer_agent(self):
+        assert _resolve_scoring_profile(".claude/agents/qa-engineer.md", "agent").name == "qa_engineer_agent"
+    def test_critic_agent(self):
+        assert _resolve_scoring_profile(".claude/agents/critic.md", "agent").name == "critic_agent"
+    def test_devops_specialist_agent(self):
+        assert _resolve_scoring_profile(".claude/agents/devops-specialist.md", "agent").name == "devops_agent"
+    def test_research_strategist_agent(self):
+        assert _resolve_scoring_profile(".claude/agents/research-strategist.md", "agent").name == "research_strategist_agent"
+    def test_security_tester_agent(self):
+        assert _resolve_scoring_profile(".claude/agents/security-tester.md", "agent").name == "quality_specialist_agent"
+    def test_smoke_test_skill(self):
+        assert _resolve_scoring_profile(".claude/skills/smoke-test.md", "skill").name == "tech_dependent_skill"
+    def test_playwright_test_skill(self):
+        assert _resolve_scoring_profile(".claude/skills/playwright-test.md", "skill").name == "tech_dependent_skill"
+    def test_create_pr_skill(self):
+        assert _resolve_scoring_profile(".claude/skills/create-pr.md", "skill").name == "workflow_skill"
+    def test_release_skill(self):
+        assert _resolve_scoring_profile(".claude/skills/release.md", "skill").name == "workflow_skill"
+    def test_arch_review_skill(self):
+        assert _resolve_scoring_profile(".claude/skills/arch-review.md", "skill").name == "analysis_skill"
+    def test_code_review_skill(self):
+        assert _resolve_scoring_profile(".claude/skills/code-review.md", "skill").name == "analysis_skill"
+    def test_claude_md_file(self):
+        assert _resolve_scoring_profile("CLAUDE.md", "claude_md").name == "claude_md"
+    def test_team_init_plan_file(self):
+        assert _resolve_scoring_profile("team-init-plan.md", "team_init_plan").name == "team_init_plan"
+    def test_unknown_agent_fallback(self):
+        assert _resolve_scoring_profile(".claude/agents/unknown.md", "agent").name == "general"
+    def test_unknown_skill_fallback(self):
+        assert _resolve_scoring_profile(".claude/skills/custom.md", "skill").name == "general"
+    def test_unknown_file_type_fallback(self):
+        assert _resolve_scoring_profile("random.md", "other").name == "general"
+
+
+# ---------------------------------------------------------------------------
+# TestScoringProfilePromptContent
+# ---------------------------------------------------------------------------
+class TestScoringProfilePromptContent:
+    def test_team_leader_prompt_has_iteration_lifecycle(self):
+        config = _make_config()
+        prompt = _build_score_prompt("# TL", config, ".claude/agents/team-leader.md", "agent")
+        assert "iteration lifecycle" in prompt.lower()
+        assert "profile: team_leader_agent" in prompt
+
+    def test_backend_prompt_has_framework_specific(self):
+        config = _make_config()
+        prompt = _build_score_prompt("# BD", config, ".claude/agents/backend-developer.md", "agent")
+        assert "Framework-specific patterns" in prompt
+        assert "profile: backend_developer_agent" in prompt
+
+    def test_qa_prompt_has_coverage_targets(self):
+        config = _make_config()
+        prompt = _build_score_prompt("# QA", config, ".claude/agents/qa-engineer.md", "agent")
+        assert "coverage targets" in prompt.lower()
+
+    def test_claude_md_prompt_has_roster(self):
+        config = _make_config()
+        prompt = _build_score_prompt("# CMD", config, "CLAUDE.md", "claude_md")
+        assert "roster" in prompt.lower()
+
+    def test_ceremony_prompt_has_lifecycle_ceremony(self):
+        config = _make_config()
+        prompt = _build_score_prompt("# CP", config, ".claude/skills/checkpoint.md", "skill")
+        assert "LIFECYCLE CEREMONY" in prompt
+        assert "profile: lifecycle_ceremony" in prompt
+
+    def test_general_prompt_has_unified_criteria(self):
+        config = _make_config()
+        prompt = _build_score_prompt("# X", config, ".claude/agents/custom.md", "agent")
+        assert "profile: general" in prompt
+
+    def test_common_penalties_always_present(self):
+        config = _make_config()
+        for fp, ft in [(".claude/agents/team-leader.md", "agent"), (".claude/skills/smoke-test.md", "skill"), ("CLAUDE.md", "claude_md")]:
+            prompt = _build_score_prompt("# C", config, fp, ft)
+            assert "DEDUCT 15-20 points" in prompt
+
+
+# ---------------------------------------------------------------------------
+# TestScoringProfileRefinePrompt
+# ---------------------------------------------------------------------------
+class TestScoringProfileRefinePrompt:
+    def test_ceremony_suppresses_project_context(self):
+        config = _make_config()
+        fb = FileScore(score=70, reasoning="OK", suggestions=["Improve"])
+        prompt = _build_refine_prompt("# CP", config, ".claude/skills/checkpoint.md", "skill", fb)
+        assert "for reference only" in prompt
+        assert "should NOT embed project-specific details" in prompt
+
+    def test_non_ceremony_includes_project_context(self):
+        config = _make_config()
+        fb = FileScore(score=70, reasoning="OK", suggestions=["Improve"])
+        prompt = _build_refine_prompt("# BD", config, ".claude/agents/backend-developer.md", "agent", fb)
+        assert "use these details to make content project-specific" in prompt
+
+    def test_profile_name_appears_in_refine_prompt(self):
+        config = _make_config()
+        fb = FileScore(score=70, reasoning="OK", suggestions=["Improve"])
+        prompt = _build_refine_prompt("# QA", config, ".claude/agents/qa-engineer.md", "agent", fb)
+        assert "profile: qa_engineer_agent" in prompt
+
+    def test_profile_specific_rules_injected(self):
+        config = _make_config()
+        fb = FileScore(score=70, reasoning="OK", suggestions=["Improve"])
+        prompt = _build_refine_prompt("# BD", config, ".claude/agents/backend-developer.md", "agent", fb)
+        assert "Framework patterns must match" in prompt
+
+    def test_claude_md_refine_rules(self):
+        config = _make_config()
+        fb = FileScore(score=70, reasoning="OK", suggestions=["Fix"])
+        prompt = _build_refine_prompt("# CMD", config, "CLAUDE.md", "claude_md", fb)
+        assert "Agent roster must exactly match" in prompt
+
+
+# ---------------------------------------------------------------------------
+# TestScoringProfileDataclass
+# ---------------------------------------------------------------------------
+class TestScoringProfileDataclass:
+    def test_all_profiles_in_registry(self):
+        expected = {
+            "lifecycle_ceremony", "team_leader_agent", "scrum_master_agent",
+            "architect_agent", "research_strategist_agent", "backend_developer_agent",
+            "frontend_agent", "devops_agent", "qa_engineer_agent", "critic_agent",
+            "quality_specialist_agent", "tech_dependent_skill", "workflow_skill",
+            "analysis_skill", "claude_md", "team_init_plan", "general",
+        }
+        assert set(_PROFILE_REGISTRY.keys()) == expected
+
+    def test_all_profiles_have_criteria(self):
+        for name, p in _PROFILE_REGISTRY.items():
+            assert len(p.criteria_text) > 50, f"{name} has empty criteria"
+
+    def test_all_profiles_have_refinement_rules(self):
+        for name, p in _PROFILE_REGISTRY.items():
+            assert len(p.refinement_rules) > 10, f"{name} has empty refinement_rules"
+
+    def test_only_lifecycle_is_project_agnostic(self):
+        for name, p in _PROFILE_REGISTRY.items():
+            if name == "lifecycle_ceremony":
+                assert p.is_project_agnostic is True
+            else:
+                assert p.is_project_agnostic is False, f"{name} should not be project_agnostic"
+
+    def test_agent_map_covers_standard_agents(self):
+        expected = {"team-leader", "scrum-master", "architect", "research-strategist",
+            "backend-developer", "frontend-engineer", "frontend-developer",
+            "frontend-designer", "devops-specialist", "qa-engineer", "critic",
+            "security-tester", "performance-engineer", "documentation-specialist"}
+        assert set(_AGENT_PROFILE_MAP.keys()) == expected
+
+    def test_skill_map_covers_standard_skills(self):
+        expected = {"smoke-test", "playwright-test", "screenshot-review",
+            "create-pr", "release", "jira-update", "sprint-report", "spawn-agent",
+            "arch-review", "code-review", "dependency-audit", "benchmark",
+            "iteration-review", "team-status", "excalidraw-diagram"}
+        assert set(_SKILL_PROFILE_MAP.keys()) == expected
+
+    def test_common_penalties_non_empty(self):
+        assert "DEDUCT" in _COMMON_PENALTIES
+        assert len(_COMMON_PENALTIES) > 100

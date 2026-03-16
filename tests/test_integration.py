@@ -9,6 +9,7 @@ import itertools
 import os
 import re
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from textwrap import dedent
@@ -551,9 +552,9 @@ class TestOrchestratorE2E:
         agents = list((tmp_path / ".claude" / "agents").glob("*.md"))
         assert len(agents) == 8
 
-        # Skills: 8 base + 5 new + checkpoint = 14 (no jira/sprint when atlassian disabled)
+        # Skills: 8 base + 5 new + checkpoint + 4 lifecycle = 18
         skills = list((tmp_path / ".claude" / "skills").glob("*.md"))
-        assert len(skills) == 14
+        assert len(skills) == 18
 
     def test_full_generation_full_no_compromise_atlassian(self, tmp_path):
         """Full generation with all features enabled."""
@@ -572,9 +573,9 @@ class TestOrchestratorE2E:
         assert len(agents) == expected_count
         assert (tmp_path / ".claude" / "agents" / "scrum-master.md").exists()
 
-        # Skills: 8 base + 2 atlassian + 5 new + checkpoint = 16
+        # Skills: 8 base + 2 atlassian + 5 new + checkpoint + 4 lifecycle = 20
         skills = list((tmp_path / ".claude" / "skills").glob("*.md"))
-        assert len(skills) == 16
+        assert len(skills) == 20
 
         # No-compromise mode should be reflected everywhere
         claude_md = (tmp_path / "CLAUDE.md").read_text()
@@ -626,7 +627,12 @@ class TestOrchestratorE2E:
                 second_run[str(f.relative_to(tmp_path))] = f.read_text()
 
         assert first_run.keys() == second_run.keys()
+        # token-report.json has a timestamp that changes between runs
+        # team-init-plan.md has non-deterministic LLM content (pre-existing)
+        skip_files = {"token-report.json", "team-init-plan.md"}
         for key in first_run:
+            if any(s in key for s in skip_files):
+                continue
             assert first_run[key] == second_run[key], f"File differs on re-generation: {key}"
 
     def test_custom_instructions_propagate(self, tmp_path):
@@ -656,16 +662,25 @@ class TestOrchestratorE2E:
 class TestCLIIntegration:
     """Test the CLI commands via subprocess invocation."""
 
+    # Project root so subprocess can always find forge_cli, even when
+    # pre-commit hooks change the working directory.
+    _PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
+
+    def _subprocess_env(self) -> dict[str, str]:
+        env = os.environ.copy()
+        env["PYTHONPATH"] = self._PROJECT_ROOT + os.pathsep + env.get("PYTHONPATH", "")
+        return env
+
     def test_cli_version(self):
         """CLI --version works."""
         result = subprocess.run(
-            ["python", "-c", """
+            [sys.executable, "-c", """
 import sys
 sys.argv = ['forge', '--version']
 from forge_cli.main import cli
 cli(standalone_mode=False)
 """],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=10, env=self._subprocess_env(),
         )
         assert result.returncode == 0
 
@@ -676,13 +691,13 @@ cli(standalone_mode=False)
         save_config(config, config_path)
 
         result = subprocess.run(
-            ["python", "-c", f"""
+            [sys.executable, "-c", f"""
 import sys
 sys.argv = ['forge', '--config', '{config_path}', '--validate-only']
 from forge_cli.main import cli
 cli(standalone_mode=False)
 """],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=10, env=self._subprocess_env(),
         )
         assert result.returncode == 0
 
@@ -695,13 +710,13 @@ cli(standalone_mode=False)
         output_dir.mkdir()
 
         result = subprocess.run(
-            ["python", "-c", f"""
+            [sys.executable, "-c", f"""
 import sys
 sys.argv = ['forge', '--config', '{config_path}', '--project-dir', '{output_dir}']
 from forge_cli.main import cli
 cli(standalone_mode=False)
 """],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=10, env=self._subprocess_env(),
         )
         assert result.returncode == 0
         assert (output_dir / "CLAUDE.md").exists()
@@ -714,7 +729,7 @@ cli(standalone_mode=False)
         bad_config.write_text("mode: invalid-mode-value\n  broken yaml: [[[")
 
         result = subprocess.run(
-            ["python", "-c", f"""
+            [sys.executable, "-c", f"""
 import sys
 sys.argv = ['forge', '--config', '{bad_config}', '--validate-only']
 from forge_cli.main import cli
@@ -723,7 +738,7 @@ try:
 except SystemExit as e:
     sys.exit(e.code)
 """],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=10, env=self._subprocess_env(),
         )
         assert result.returncode != 0
 
@@ -2425,10 +2440,13 @@ class TestRefinementIntegration:
         with open(config_file, "w") as f:
             yaml.dump(config_data, f)
 
+        env = os.environ.copy()
+        project_root = str(Path(__file__).resolve().parent.parent)
+        env["PYTHONPATH"] = project_root + os.pathsep + env.get("PYTHONPATH", "")
         result = subprocess.run(
-            ["python", "-m", "forge_cli.main", "--config", str(config_file),
+            [sys.executable, "-m", "forge_cli.main", "--config", str(config_file),
              "--validate-only"],
-            capture_output=True, text=True,
+            capture_output=True, text=True, env=env,
         )
         assert "Refinement: disabled" in result.stdout
 

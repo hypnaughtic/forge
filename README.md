@@ -282,6 +282,11 @@ non_negotiables:
   - "100% test coverage on core business logic"
   - "No raw SQL queries — use ORM exclusively"
 
+compaction:
+  compaction_threshold_tokens: 100000  # Token count triggering compaction
+  enable_context_anchors: true         # Periodic context anchor writes
+  anchor_interval_minutes: 15          # Minutes between anchor updates
+
 refinement:
   enabled: false                 # default: false
   provider: local_claude         # local_claude | anthropic
@@ -400,10 +405,19 @@ my-project/
     refinement-report.md             # Human-readable refinement report
     benchmark.json                   # Eval benchmark data (if eval was run)
     benchmark.md                     # Eval benchmark report (human-readable)
-    checkpoints/                     # Agent checkpoint files (for stop/resume)
+    token-report.json                # Per-agent context budget (exact token counts)
+    checkpoints/                     # Agent checkpoints (hierarchical: type/name.json)
+      team-leader/
+        agent-name.json
+      backend-developer/
+        agent-name.json
+    events/                          # Event inbox (atomic per-event JSON files)
       *.json
+    events-archive.jsonl             # Archived events (appended on materialization)
     hooks/                           # Hook scripts for automatic checkpoint enforcement
       *.sh
+    scripts/                         # Helper scripts (identity resolution, etc.)
+      resolve_identity.py
   .env.example                       # Required environment variables
 ```
 
@@ -497,21 +511,28 @@ FORGE_TEST_DRY_RUN=0 python -m pytest tests/test_context_quality.py -v \
 | `test_generators.py` | Generator unit tests (agents, CLAUDE.md, skills, settings) | 89 | No |
 | `test_config_schema.py` | Config schema validation and project-type detection | 33 | No |
 | `test_config_loader.py` | YAML loading, round-trip, auto-detection | 10 | No |
-| `test_refinement.py` | Refinement unit tests (scoring, pipeline, FakeLLMProvider) | 50 | No |
+| `test_refinement.py` | Refinement unit tests (scoring, pipeline, FakeLLMProvider) | 100 | No |
 | `test_init_wizard.py` | Init wizard steps, validation, CLI routing | 96 | No |
 | `test_context_summarizer.py` | Context file collection and summarization | 31 | No |
 | `test_main.py` | CLI commands (generate, refine, eval, start, stop, resume) | 24 | No |
 | `test_progress.py` | Rich progress displays (generation + refinement) | 27 | No |
 | `test_eval_runner.py` | Eval framework (cases, runner, grading, FakeLLMProvider) | 108 | No |
 | `test_eval_benchmark.py` | Eval benchmark across 7 quality cases | 28 | Dry-run default |
-| `test_checkpoint.py` | Checkpoint/resume system | 51 | No |
+| `test_checkpoint.py` | Checkpoint/resume system | 48 | No |
 | `test_checkpoint_skill.py` | Checkpoint skill generation | 16 | No |
+| `test_checkpoint_hierarchy.py` | Hierarchical checkpoint paths and validation | 7 | No |
 | `test_cli_checkpoint_commands.py` | CLI stop/resume commands | 31 | No |
+| `test_context_compaction.py` | Compaction detection, cooperative respawn, anchors | 90 | No |
+| `test_deterministic_resume.py` | Deterministic agent naming and resume prompts | 7 | No |
+| `test_event_inbox.py` | Event inbox atomic writes, materialization, archival | 17 | No |
+| `test_ghost_detection.py` | Ghost/orphan agent detection in checkpoint tree | 7 | No |
+| `test_session.py` | Session state I/O, event application, stop signals | 12 | No |
+| `test_tokens.py` | Token counting, budget reporting, token report I/O | 11 | No |
 | `test_integration.py` | Full pipeline, CLI end-to-end, strategy enforcement | 204 | Dry-run default |
 | `test_co_planner.py` | Co-planner quality cases (generation, refinement, content) | 55 | Dry-run default |
 | `test_context_quality.py` | Context derivation quality and passthrough | 18 | Partial (8 LLM-scored) |
-| `e2e/test_scenario_*.py` | End-to-end checkpoint scenarios (11 files) | 14 | No |
-| **Total** | | **885** | |
+| `e2e/test_scenario_*.py` | End-to-end checkpoint scenarios (23 files) | 32 | No |
+| **Total** | | **1101** | |
 
 The `FORGE_TEST_DRY_RUN` environment variable controls whether tests use a
 `FakeLLMProvider` (instant, default) or real `local_claude` (requires
@@ -530,7 +551,7 @@ Hooks run before every commit (identical test suite to CI, dry-run mode):
 
 1. **yamllint** — YAML syntax and style
 2. **markdownlint** — Markdown formatting
-3. **pytest** — All 16 test files + e2e suite with `--cov-fail-under=90` (FORGE_TEST_DRY_RUN=1)
+3. **pytest** — All 27 test files + 23 e2e scenarios with `--cov-fail-under=90` (FORGE_TEST_DRY_RUN=1)
 
 ### CI pipeline
 

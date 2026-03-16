@@ -29,6 +29,11 @@ class SessionSnapshot:
     git_log: list[str] = field(default_factory=list)
     checkpoint_files: list[str] = field(default_factory=list)
     instruction_file_hashes: dict[str, str] = field(default_factory=dict)
+    # Compaction-specific fields
+    compaction_markers: dict[str, str] = field(default_factory=dict)
+    context_anchors: dict[str, str] = field(default_factory=dict)
+    token_estimates: dict[str, int] = field(default_factory=dict)
+    compaction_events: list[dict] = field(default_factory=list)
 
 
 class TmuxTestSession:
@@ -108,6 +113,21 @@ class TmuxTestSession:
                 return True
             time.sleep(interval)
         return False
+
+    def wait_for_text_in_any_pane(self, text: str,
+                                  timeout: float = 120,
+                                  interval: float = 2) -> tuple[bool, str]:
+        """Wait until text appears in any pane. Returns (found, pane_id)."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            panes = self.list_panes()
+            for pane in panes:
+                pane_id = pane.get("id", "0")
+                content = self.capture_pane(pane_id)
+                if text in content:
+                    return True, pane_id
+            time.sleep(interval)
+        return False, ""
 
     def wait_for_file(self, path: Path, timeout: float = 60) -> bool:
         """Wait until a file exists."""
@@ -198,8 +218,28 @@ class ForgeSessionOrchestrator:
         self.session_history: list[SessionSnapshot] = []
 
     def generate_project(self) -> None:
-        """Run forge generate to create all instruction files."""
+        """Run forge generate to create all instruction files.
+
+        Also initializes a git repo if one doesn't exist — Claude Code
+        uses the git root to locate .claude/settings.json for hooks.
+        """
         from forge_cli.generators.orchestrator import generate_all
+
+        # Ensure git repo exists so Claude Code loads project-level settings
+        if not (self.project_dir / ".git").exists():
+            subprocess.run(
+                ["git", "init", "--initial-branch", "main"],
+                capture_output=True, cwd=str(self.project_dir),
+            )
+            subprocess.run(
+                ["git", "config", "user.email", "forge-test@example.com"],
+                capture_output=True, cwd=str(self.project_dir),
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Forge Test"],
+                capture_output=True, cwd=str(self.project_dir),
+            )
+
         if self.config:
             self.config.project.directory = str(self.project_dir)
             generate_all(self.config)
@@ -257,13 +297,16 @@ class ForgeSessionOrchestrator:
         )
 
         # Create detached tmux session with claude
+        # --dangerously-skip-permissions bypasses tool permission prompts.
         subprocess.run(
             [
                 tmux_bin, "new-session",
                 "-d", "-s", session_name,
                 "-c", str(project_path),
                 "-x", "200", "-y", "50",
-                claude_bin, init_prompt,
+                claude_bin,
+                "--dangerously-skip-permissions",
+                init_prompt,
             ],
             check=True,
         )
@@ -275,6 +318,15 @@ class ForgeSessionOrchestrator:
         )
 
         self.tmux = TmuxTestSession(session_name, project_path)
+
+        # Accept the workspace trust dialog if it appears
+        # Claude Code shows "Quick safety check: Is this a project you
+        # trust?" with "Enter to confirm" — send Enter to accept.
+        time.sleep(3)
+        self.tmux.send_keys("0", "", enter=True)
+        time.sleep(2)
+        # Send again in case first was too early
+        self.tmux.send_keys("0", "", enter=True)
 
         if wait_for_agents:
             self.tmux.wait_for_text("team", timeout=agent_activity_timeout)
@@ -373,7 +425,9 @@ class ForgeSessionOrchestrator:
                 "-d", "-s", session_name,
                 "-c", str(project_path),
                 "-x", "200", "-y", "50",
-                claude_bin, resume_prompt,
+                claude_bin,
+                "--dangerously-skip-permissions",
+                resume_prompt,
             ],
             check=True,
         )
@@ -383,6 +437,12 @@ class ForgeSessionOrchestrator:
              "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", "1"],
             capture_output=True,
         )
+
+        # Accept workspace trust dialog
+        time.sleep(3)
+        self.tmux.send_keys("0", "", enter=True)
+        time.sleep(2)
+        self.tmux.send_keys("0", "", enter=True)
 
         self.tmux = TmuxTestSession(session_name, project_path)
 
@@ -406,6 +466,8 @@ class ForgeSessionOrchestrator:
 
     def capture_state(self) -> SessionSnapshot:
         """Full state capture."""
+        from datetime import datetime, timezone
+
         forge_dir = self.project_dir / ".forge"
         checkpoints_dir = forge_dir / "checkpoints"
 
@@ -418,21 +480,23 @@ class ForgeSessionOrchestrator:
             except json.JSONDecodeError:
                 pass
 
-        # Read checkpoints
+        # Read checkpoints (recursive: **/*.json)
         checkpoints: dict[str, dict] = {}
         if checkpoints_dir.exists():
-            for cp_file in checkpoints_dir.glob("*.json"):
+            for cp_file in checkpoints_dir.glob("**/*.json"):
                 if cp_file.name.endswith(".tmp"):
                     continue
                 try:
-                    checkpoints[cp_file.stem] = json.loads(cp_file.read_text())
+                    data = json.loads(cp_file.read_text())
+                    key = data.get("agent_name", cp_file.stem)
+                    checkpoints[key] = data
                 except json.JSONDecodeError:
                     pass
 
-        # Read activity logs
+        # Read activity logs (recursive: **/*.activity.jsonl)
         activity_logs: dict[str, list] = {}
         if checkpoints_dir.exists():
-            for log_file in checkpoints_dir.glob("*.activity.jsonl"):
+            for log_file in checkpoints_dir.glob("**/*.activity.jsonl"):
                 lines = []
                 for line in log_file.read_text().strip().split("\n"):
                     if line:
@@ -440,7 +504,8 @@ class ForgeSessionOrchestrator:
                             lines.append(json.loads(line))
                         except json.JSONDecodeError:
                             pass
-                activity_logs[log_file.stem.replace(".activity", "")] = lines
+                key = log_file.stem.replace(".activity", "")
+                activity_logs[key] = lines
 
         # Pane contents
         pane_contents: dict[str, str] = {}
@@ -482,12 +547,51 @@ class ForgeSessionOrchestrator:
         from forge_cli.checkpoint import compute_instruction_hashes
         instruction_hashes = compute_instruction_hashes(self.project_dir)
 
-        # Checkpoint file list
+        # Checkpoint file list (recursive)
         checkpoint_files = [
             str(f.relative_to(self.project_dir))
-            for f in checkpoints_dir.glob("*.json")
+            for f in checkpoints_dir.glob("**/*.json")
             if checkpoints_dir.exists() and not f.name.endswith(".tmp")
         ]
+
+        # Compaction markers (**/*.compaction-marker)
+        compaction_markers: dict[str, str] = {}
+        if checkpoints_dir.exists():
+            for marker in checkpoints_dir.glob("**/*.compaction-marker"):
+                key = f"{marker.parent.name}/{marker.stem.replace('.compaction-marker', '')}"
+                try:
+                    compaction_markers[key] = marker.read_text()
+                except OSError:
+                    compaction_markers[key] = ""
+
+        # Context anchors (**/*.context-anchor.md)
+        context_anchors: dict[str, str] = {}
+        if checkpoints_dir.exists():
+            for anchor in checkpoints_dir.glob("**/*.context-anchor.md"):
+                key = f"{anchor.parent.name}/{anchor.stem.replace('.context-anchor', '')}"
+                mtime = anchor.stat().st_mtime
+                context_anchors[key] = datetime.fromtimestamp(
+                    mtime, tz=timezone.utc,
+                ).isoformat()
+
+        # Token estimates (activity log file size // 4)
+        token_estimates: dict[str, int] = {}
+        if checkpoints_dir.exists():
+            for log_file in checkpoints_dir.glob("**/*.activity.jsonl"):
+                key = log_file.stem.replace(".activity", "")
+                token_estimates[key] = log_file.stat().st_size // 4
+
+        # Compaction events from .forge/events/
+        compaction_events: list[dict] = []
+        events_dir = forge_dir / "events"
+        if events_dir.exists():
+            for event_file in sorted(events_dir.glob("*.json")):
+                try:
+                    event = json.loads(event_file.read_text())
+                    if event.get("type") == "compaction_needed":
+                        compaction_events.append(event)
+                except (json.JSONDecodeError, OSError):
+                    pass
 
         return SessionSnapshot(
             timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -501,6 +605,10 @@ class ForgeSessionOrchestrator:
             git_log=git_log,
             checkpoint_files=checkpoint_files,
             instruction_file_hashes=instruction_hashes,
+            compaction_markers=compaction_markers,
+            context_anchors=context_anchors,
+            token_estimates=token_estimates,
+            compaction_events=compaction_events,
         )
 
     def watch_terminals(self, duration: float = 30, interval: float = 5) -> list[dict]:
@@ -535,12 +643,120 @@ class ForgeSessionOrchestrator:
             (output_dir / f"{name}.jsonl").write_text(content)
         return output_dir
 
-    def wait_for_agent_activity(self, agent_type: str, timeout: float = 120) -> bool:
-        """Wait until specific agent shows activity."""
-        activity_file = self.project_dir / ".forge" / "checkpoints" / f"{agent_type}.activity.jsonl"
+    def wait_for_agent_activity(self, agent_type: str,
+                                timeout: float = 120,
+                                agent_name: str | None = None) -> bool:
+        """Wait until specific agent shows activity.
+
+        Supports hierarchical path {type}/{name}.activity.jsonl when agent_name
+        is provided, falls back to flat {type}.activity.jsonl.
+        """
+        checkpoints_dir = self.project_dir / ".forge" / "checkpoints"
+        if agent_name:
+            activity_file = checkpoints_dir / agent_type / f"{agent_name}.activity.jsonl"
+        else:
+            activity_file = checkpoints_dir / f"{agent_type}.activity.jsonl"
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if activity_file.exists() and activity_file.stat().st_size > 0:
                 return True
+            # Also check recursive glob as fallback
+            if not agent_name:
+                for f in checkpoints_dir.glob(f"**/{agent_type}*.activity.jsonl"):
+                    if f.stat().st_size > 0:
+                        return True
             time.sleep(2)
         return False
+
+    def wait_for_compaction_event(self, agent_name: str,
+                                  timeout: float = 120) -> bool:
+        """Poll .forge/events/ for a compaction_needed event for agent_name."""
+        events_dir = self.project_dir / ".forge" / "events"
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if events_dir.exists():
+                for event_file in events_dir.glob("*.json"):
+                    try:
+                        event = json.loads(event_file.read_text())
+                        if (event.get("type") == "compaction_needed"
+                                and event.get("agent_name") == agent_name):
+                            return True
+                    except (json.JSONDecodeError, OSError):
+                        pass
+            time.sleep(2)
+        return False
+
+    def wait_for_compaction_marker(self, agent_type: str, agent_name: str,
+                                   timeout: float = 120) -> bool:
+        """Poll for a compaction marker file."""
+        marker = (self.project_dir / ".forge" / "checkpoints"
+                  / agent_type / f"{agent_name}.compaction-marker")
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if marker.exists():
+                return True
+            time.sleep(2)
+        return False
+
+    def wait_for_compaction_marker_cleanup(self, agent_type: str,
+                                           agent_name: str,
+                                           timeout: float = 120) -> bool:
+        """Poll until compaction marker is deleted (respawn completed)."""
+        marker = (self.project_dir / ".forge" / "checkpoints"
+                  / agent_type / f"{agent_name}.compaction-marker")
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if not marker.exists():
+                return True
+            time.sleep(2)
+        return False
+
+    def wait_for_checkpoint_field(self, agent_type: str, agent_name: str,
+                                  field: str, expected: Any,
+                                  timeout: float = 120) -> bool:
+        """Poll checkpoint JSON until field matches expected value."""
+        cp_path = (self.project_dir / ".forge" / "checkpoints"
+                   / agent_type / f"{agent_name}.json")
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if cp_path.exists():
+                try:
+                    data = json.loads(cp_path.read_text())
+                    if data.get(field) == expected:
+                        return True
+                except (json.JSONDecodeError, OSError):
+                    pass
+            time.sleep(2)
+        return False
+
+    def inject_context_pressure(self, pane: str, strategy: str = "large_prompt") -> None:
+        """Inject context pressure into a pane to trigger compaction faster.
+
+        Strategies:
+        - large_prompt: Send a very large text prompt
+        - rapid_tasks: Send multiple rapid task requests
+        - file_flood: Request creation of many files
+        """
+        if not self.tmux:
+            return
+        if strategy == "large_prompt":
+            self.tmux.send_text_to_claude(
+                pane,
+                "Here is a detailed requirements document for context pressure: "
+                + "x" * 10000,
+            )
+        elif strategy == "rapid_tasks":
+            for i in range(10):
+                self.tmux.send_text_to_claude(
+                    pane,
+                    f"Create a utility function called util_{i} that does task {i}. "
+                    f"Make it production quality with full docstrings.",
+                )
+                time.sleep(3)
+        elif strategy == "file_flood":
+            self.tmux.send_text_to_claude(
+                pane,
+                "Create 20 Python files, each with a different utility function. "
+                "Name them util_001.py through util_020.py. Each should have a "
+                "docstring, type annotations, and at least 30 lines of code.",
+            )
