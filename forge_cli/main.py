@@ -43,7 +43,7 @@ HELP_TEXT = f"""\n
     forge generate                                      Generate (auto-detect config)
     forge generate --config .forge/forge.yaml           Generate from explicit config
     forge refine                                        LLM scoring + iterative refinement
-    forge eval                                          Evaluate generated files (300+ assertions)
+    forge eval                                          Evaluate generated files (350+ assertions)
     forge eval --no-llm                                 Deterministic checks only (no LLM cost)
     forge start                                         Launch Claude with team init
     forge stop                                          Gracefully stop all agents and checkpoint
@@ -64,8 +64,12 @@ HELP_TEXT = f"""\n
                                (auto-pilot & co-pilot: all tools allowed;
                                 micro-manage: not generated, all tools prompt)
     .forge/hooks/*.sh          Hook scripts for automatic checkpoint enforcement
+    .forge/scripts/            Identity resolution + helper scripts
     .forge/session.json        Session state (created by forge start)
-    .forge/checkpoints/*.json  Agent checkpoint files (for stop/resume)
+    .forge/checkpoints/        Agent checkpoint files (hierarchical: type/name.json)
+    .forge/events/             Event inbox (atomic per-event JSON files)
+    .forge/events-archive.jsonl  Archived events (appended on materialization)
+    .forge/token-report.json   Per-agent context budget (exact token counts)
     .forge/project-context.md  Summarized project context (if context_files set)
     .forge/refinement-report   Refinement report (JSON + Markdown, if refined)
     .forge/benchmark.json      Eval benchmark data (if eval was run)
@@ -100,7 +104,7 @@ HELP_TEXT = f"""\n
     To improve generated files with LLM scoring + refinement:
       forge refine
 
-    To evaluate generated files against 300+ quality assertions:
+    To evaluate generated files against 350+ quality assertions:
       forge eval                  Full eval (deterministic + LLM grading)
       forge eval --no-llm         Deterministic checks only (instant, free)
       forge eval --optimize-descriptions   Also optimize skill trigger descriptions
@@ -172,6 +176,11 @@ HELP_TEXT = f"""\n
 
     git:
       ssh_key_path: str              SSH key for git auth (default: "")
+
+    compaction:
+      compaction_threshold_tokens: int             (default: 100000)
+      enable_context_anchors: bool                 (default: true)
+      anchor_interval_minutes: int                 (default: 15)
 
     refinement:
       enabled: bool                                (default: false)

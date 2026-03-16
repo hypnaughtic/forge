@@ -9,6 +9,7 @@ import itertools
 import os
 import re
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from textwrap import dedent
@@ -661,16 +662,25 @@ class TestOrchestratorE2E:
 class TestCLIIntegration:
     """Test the CLI commands via subprocess invocation."""
 
+    # Project root so subprocess can always find forge_cli, even when
+    # pre-commit hooks change the working directory.
+    _PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
+
+    def _subprocess_env(self) -> dict[str, str]:
+        env = os.environ.copy()
+        env["PYTHONPATH"] = self._PROJECT_ROOT + os.pathsep + env.get("PYTHONPATH", "")
+        return env
+
     def test_cli_version(self):
         """CLI --version works."""
         result = subprocess.run(
-            ["python", "-c", """
+            [sys.executable, "-c", """
 import sys
 sys.argv = ['forge', '--version']
 from forge_cli.main import cli
 cli(standalone_mode=False)
 """],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=10, env=self._subprocess_env(),
         )
         assert result.returncode == 0
 
@@ -681,13 +691,13 @@ cli(standalone_mode=False)
         save_config(config, config_path)
 
         result = subprocess.run(
-            ["python", "-c", f"""
+            [sys.executable, "-c", f"""
 import sys
 sys.argv = ['forge', '--config', '{config_path}', '--validate-only']
 from forge_cli.main import cli
 cli(standalone_mode=False)
 """],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=10, env=self._subprocess_env(),
         )
         assert result.returncode == 0
 
@@ -700,13 +710,13 @@ cli(standalone_mode=False)
         output_dir.mkdir()
 
         result = subprocess.run(
-            ["python", "-c", f"""
+            [sys.executable, "-c", f"""
 import sys
 sys.argv = ['forge', '--config', '{config_path}', '--project-dir', '{output_dir}']
 from forge_cli.main import cli
 cli(standalone_mode=False)
 """],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=10, env=self._subprocess_env(),
         )
         assert result.returncode == 0
         assert (output_dir / "CLAUDE.md").exists()
@@ -719,7 +729,7 @@ cli(standalone_mode=False)
         bad_config.write_text("mode: invalid-mode-value\n  broken yaml: [[[")
 
         result = subprocess.run(
-            ["python", "-c", f"""
+            [sys.executable, "-c", f"""
 import sys
 sys.argv = ['forge', '--config', '{bad_config}', '--validate-only']
 from forge_cli.main import cli
@@ -728,7 +738,7 @@ try:
 except SystemExit as e:
     sys.exit(e.code)
 """],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=10, env=self._subprocess_env(),
         )
         assert result.returncode != 0
 
@@ -2430,10 +2440,13 @@ class TestRefinementIntegration:
         with open(config_file, "w") as f:
             yaml.dump(config_data, f)
 
+        env = os.environ.copy()
+        project_root = str(Path(__file__).resolve().parent.parent)
+        env["PYTHONPATH"] = project_root + os.pathsep + env.get("PYTHONPATH", "")
         result = subprocess.run(
-            ["python", "-m", "forge_cli.main", "--config", str(config_file),
+            [sys.executable, "-m", "forge_cli.main", "--config", str(config_file),
              "--validate-only"],
-            capture_output=True, text=True,
+            capture_output=True, text=True, env=env,
         )
         assert "Refinement: disabled" in result.stdout
 

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -224,10 +226,16 @@ class TestCLIRouting:
 class TestCLISubprocess:
     """Test CLI routing via subprocess (real process invocation)."""
 
+    # Project root so subprocess can always find forge_cli, even when
+    # pre-commit hooks change the working directory.
+    _PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
+
     def _run_forge(self, args: list[str], timeout: int = 10) -> subprocess.CompletedProcess:
+        env = os.environ.copy()
+        env["PYTHONPATH"] = self._PROJECT_ROOT + os.pathsep + env.get("PYTHONPATH", "")
         return subprocess.run(
             [
-                "python",
+                sys.executable,
                 "-c",
                 f"""
 import sys
@@ -242,6 +250,7 @@ except SystemExit as e:
             capture_output=True,
             text=True,
             timeout=timeout,
+            env=env,
         )
 
     def test_subprocess_version(self):

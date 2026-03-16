@@ -190,6 +190,17 @@ git:
   ssh_key_path: "~/.ssh/id_ed25519"   # path to private SSH key (empty = disabled)
 
 # -----------------------------------------------------------------------------
+# Compaction — Context compaction and cooperative respawn settings
+# -----------------------------------------------------------------------------
+# Controls how agents handle context window limits. When an agent's context
+# approaches the threshold, hooks trigger cooperative respawn: the agent
+# checkpoints and signals its parent to respawn it with a fresh context.
+compaction:
+  compaction_threshold_tokens: 100000  # Absolute token count triggering compaction
+  enable_context_anchors: true         # Periodic context anchor writes for recovery
+  anchor_interval_minutes: 15          # Minutes between anchor updates
+
+# -----------------------------------------------------------------------------
 # Refinement — LLM-powered post-generation quality improvement (optional)
 # -----------------------------------------------------------------------------
 # After generating files, Forge can score each .md file against quality
