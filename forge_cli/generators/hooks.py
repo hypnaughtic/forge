@@ -453,7 +453,7 @@ fi
 EVENT_FILE="${EVENTS_DIR}/$(date +%s%N)-${FORGE_EVENT}.json"
 TMP_FILE="${EVENT_FILE}.tmp"
 
-echo "{\"event_type\":\"${FORGE_EVENT}\",\"agent_name\":\"${AGENT_NAME}\",\"session_id\":\"${SESSION_ID}\",\"timestamp\":\"${TIMESTAMP}\"}" > "${TMP_FILE}"
+echo "{\"type\":\"${FORGE_EVENT}\",\"event\":\"${FORGE_EVENT}\",\"agent_name\":\"${AGENT_NAME}\",\"session_id\":\"${SESSION_ID}\",\"timestamp\":\"${TIMESTAMP}\"}" > "${TMP_FILE}"
 mv "${TMP_FILE}" "${EVENT_FILE}" 2>/dev/null || true
 '''
 
